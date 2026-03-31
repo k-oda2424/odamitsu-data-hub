@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where pdftotext:*)",
+      "Bash(where pdftoppm:*)",
+      "Bash(pdftotext -layout \"C:/Users/kazuki/AppData/Local/Temp/quote-import.pdf\" \"C:/Users/kazuki/AppData/Local/Temp/quote-import.txt\")",
+      "Bash(pdftotext C:/Users/kazuki/AppData/Local/Temp/quote-import.pdf -)",
+      "Bash(pdftotext -layout \"C:/Users/kazuki/AppData/Local/Temp/quote-import.pdf\" \"C:/Users/kazuki/AppData/Local/Temp/quote-import-full.txt\")",
+      "Bash(pdftotext \"C:/Users/kazuki/AppData/Local/Temp/quote-import.pdf\" \"C:/Users/kazuki/AppData/Local/Temp/quote-import-raw.txt\")",
+      "Bash(grep -E '^[0-9]+ 49[0-9]{11}.*[0-9],[0-9]' \"C:/Users/kazuki/AppData/Local/Temp/quote-import-full.txt\")"
+    ]
+  }
+}

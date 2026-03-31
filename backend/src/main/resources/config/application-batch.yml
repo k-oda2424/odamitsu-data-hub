@@ -1,0 +1,15 @@
+spring:
+  batch:
+    job:
+      enabled: false
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  datasource:
+    hikari:
+      auto-commit: false
+
+batch:
+  accounts-receivable:
+    invoice-amount-tolerance: 5

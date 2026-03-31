@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:55544/oda32db
+    username: oda32
+    password: oda32
+    driver-class-name: org.postgresql.Driver
+
+cors:
+  allowed-origins: http://localhost:5173,http://localhost:3000
+
+jwt:
+  secret: dev-secret-key-odamitsu-data-hub-2024-must-be-at-least-256-bits-long
+  expiration-ms: 86400000
+
+logging:
+  level:
+    org.hibernate.SQL: OFF
+    org.hibernate.type.descriptor.sql.BasicBinder: OFF
+    jp.co.oda32: DEBUG

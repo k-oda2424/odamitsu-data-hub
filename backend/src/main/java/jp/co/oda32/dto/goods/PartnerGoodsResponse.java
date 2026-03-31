@@ -1,0 +1,46 @@
+package jp.co.oda32.dto.goods;
+
+import jp.co.oda32.domain.model.goods.MPartnerGoods;
+import lombok.Builder;
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+@Data
+@Builder
+public class PartnerGoodsResponse {
+    private Integer partnerNo;
+    private Integer goodsNo;
+    private Integer destinationNo;
+    private Integer shopNo;
+    private Integer companyNo;
+    private String shopName;
+    private String companyName;
+    private String goodsCode;
+    private String goodsName;
+    private BigDecimal goodsPrice;
+    private String keyword;
+    private Integer reflectedEstimateNo;
+    private LocalDate lastSalesDate;
+    private LocalDate lastPriceUpdateDate;
+
+    public static PartnerGoodsResponse from(MPartnerGoods pg) {
+        return PartnerGoodsResponse.builder()
+                .partnerNo(pg.getPartnerNo())
+                .goodsNo(pg.getGoodsNo())
+                .destinationNo(pg.getDestinationNo())
+                .shopNo(pg.getShopNo())
+                .companyNo(pg.getCompanyNo())
+                .shopName(pg.getMShop() != null ? pg.getMShop().getShopName() : null)
+                .companyName(pg.getMCompany() != null ? pg.getMCompany().getCompanyName() : null)
+                .goodsCode(pg.getGoodsCode())
+                .goodsName(pg.getGoodsName())
+                .goodsPrice(pg.getGoodsPrice())
+                .keyword(pg.getKeyword())
+                .reflectedEstimateNo(pg.getReflectedEstimateNo())
+                .lastSalesDate(pg.getLastSalesDate())
+                .lastPriceUpdateDate(pg.getLastPriceUpdateDate())
+                .build();
+    }
+}

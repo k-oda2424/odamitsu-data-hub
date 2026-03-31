@@ -1,0 +1,119 @@
+package jp.co.oda32.domain.model.estimate;
+
+import jp.co.oda32.constant.EstimateStatus;
+import jp.co.oda32.constant.Flag;
+import jp.co.oda32.domain.model.AbstractCompanyEntity;
+import jp.co.oda32.domain.model.ICompanyEntity;
+import jp.co.oda32.domain.model.master.MCompany;
+import jp.co.oda32.domain.model.master.MPartner;
+import jp.co.oda32.domain.model.order.MDeliveryDestination;
+import jp.co.oda32.domain.validation.CompanyEntity;
+import lombok.*;
+import org.hibernate.Hibernate;
+
+import jakarta.persistence.*;
+import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+/**
+ * 見積Entity
+ *
+ * @author k_oda
+ * @since 2022/10/24
+ */
+@Getter
+@Setter
+@ToString
+@RequiredArgsConstructor
+@Builder
+@Entity
+@AllArgsConstructor
+@Table(name = "t_estimate")
+@CompanyEntity
+public class TEstimate extends AbstractCompanyEntity implements ICompanyEntity {
+    @Id
+    @Column(name = "estimate_no")
+    @SequenceGenerator(name = "t_estimate_estimate_no_seq_gen", sequenceName = "t_estimate_estimate_no_seq", allocationSize = 1)
+    @GeneratedValue(strategy = GenerationType.IDENTITY, generator = "t_estimate_estimate_no_seq_gen")
+    private Integer estimateNo;
+    // 見積作成日
+    @Column(name = "estimate_date")
+    private LocalDate estimateDate;
+    // 価格変更日
+    @Column(name = "price_change_date")
+    private LocalDate priceChangeDate;
+    @Column(name = "shop_no")
+    private Integer shopNo;
+    @Column(name = "partner_no")
+    private Integer partnerNo;
+    @Column(name = "estimate_status")
+    private String estimateStatus;
+    @Column(name = "destination_no")
+    private Integer destinationNo;
+    @Column(name = "company_no")
+    private Integer companyNo;
+    @Column(name = "note")
+    private String note;
+    @Column(name = "is_include_tax_display")
+    private boolean isIncludeTaxDisplay;
+    @Column(name = "del_flg")
+    private String delFlg;
+    @Column(name = "add_date_time")
+    private Timestamp addDateTime;
+    @Column(name = "add_user_no")
+    private Integer addUserNo;
+    @Column(name = "modify_date_time")
+    private Timestamp modifyDateTime;
+    @Column(name = "modify_user_no")
+    private Integer modifyUserNo;
+    @OneToMany
+    @JoinColumn(name = "estimate_no", insertable = false, updatable = false)
+    @ToString.Exclude
+    private List<TEstimateDetail> tEstimateDetailList;
+    @OneToOne
+    @JoinColumn(name = "company_no", insertable = false, updatable = false)
+    private MCompany company;
+    @OneToOne
+    @JoinColumn(name = "partner_no", insertable = false, updatable = false)
+    private MPartner mPartner;
+    @OneToOne
+    @JoinColumn(name = "destination_no", insertable = false, updatable = false)
+    private MDeliveryDestination mDeliveryDestination;
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || Hibernate.getClass(this) != Hibernate.getClass(o)) return false;
+        TEstimate tEstimate = (TEstimate) o;
+        return estimateNo != null && Objects.equals(estimateNo, tEstimate.estimateNo);
+    }
+
+    @Override
+    public int hashCode() {
+        return getClass().hashCode();
+    }
+
+    // htmlから呼び出し時に使用
+    public List<TEstimateDetail> getTEstimateDetailList() {
+        if (this.tEstimateDetailList.isEmpty()) {
+            return this.tEstimateDetailList;
+        }
+        return this.tEstimateDetailList.stream().filter(tEstimateDetail -> Flag.NO.getValue().equals(tEstimateDetail.getDelFlg())).collect(Collectors.toList());
+    }
+
+    /**
+     * 見積明細画面で出力用
+     *
+     * @return 見積明細ステータスのvalue
+     */
+    public String getEstimateStatusDisplay() {
+        EstimateStatus estimateStatus1 = EstimateStatus.purse(this.estimateStatus);
+        if (estimateStatus1 == null) {
+            return "見積明細が正しく保存されていません";
+        }
+        return estimateStatus1.getValue();
+    }
+}

@@ -1,0 +1,28 @@
+package jp.co.oda32.constant;
+
+/**
+ * BCartAPIで使用するアクセスコードを保持するクラス
+ *
+ * @author k_oda
+ * @since 2023/03/17
+ */
+public class BCartApiConfig {
+    private static BCartApiConfig instance;
+
+    private final String accessToken;
+
+    private BCartApiConfig() {
+        this.accessToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI5IiwianRpIjoiZTJkZGQyZGE0YzZkOTkwMzEwNzdiZWIwMWIwNTU1ZmNkOWU2NGZiZjk4YzI3YmQyOGJjYzUwZWNhYzM2NDdmZDM3NzBiNGQ4MjIzY2VlYjkiLCJpYXQiOjE2Nzg5NTkyOTksIm5iZiI6MTY3ODk1OTI5OSwiZXhwIjoxNzEwNTgxNjk5LCJzdWIiOiI1NjAiLCJzY29wZXMiOlsicHJvZHVjdHMtcmVhZCIsInByb2R1Y3RzLXdyaXRlIiwicHJvZHVjdF9jdXN0b21zLXJlYWQiLCJwcm9kdWN0X3NldHMtcmVhZCIsInByb2R1Y3Rfc2V0cy13cml0ZSIsInByb2R1Y3Rfc2V0X29wdGlvbnMtcmVhZCIsInByb2R1Y3Rfc3RvY2stcmVhZCIsInByb2R1Y3Rfc2V0X2N1c3RvbXMtcmVhZCIsInByb2R1Y3Rfc3RvY2std3JpdGUiLCJjYXRlZ29yaWVzLXdyaXRlIiwiY2F0ZWdvcmllcy1yZWFkIiwiY3VzdG9tZXJzLXJlYWQiLCJjdXN0b21lcnMtd3JpdGUiLCJjdXN0b21lcl9jdXN0b21zLXJlYWQiLCJvdGhlcl9hZGRyZXNzZXMtcmVhZCIsIm90aGVyX2FkZHJlc3Nlcy13cml0ZSIsIm9yZGVyX3N0YXR1c2VzLXJlYWQiLCJvcmRlcl9zdGF0dXNlcy13cml0ZSIsIm9yZGVycy1yZWFkIiwib3JkZXJzLXdyaXRlIiwib3JkZXJfcHJvZHVjdHMtcmVhZCIsIm9yZGVyX3Byb2R1Y3RzLXdyaXRlIiwib3JkZXJfY3VzdG9tcy1yZWFkIiwibG9naXN0aWNzLXJlYWQiLCJsb2dpc3RpY3Mtd3JpdGUiLCJ2aWV3X2dyb3Vwcy1yZWFkIiwicHJpY2VfZ3JvdXBzLXJlYWQiLCJzaGlwcGluZ19ncm91cHMtcmVhZCIsInByb2R1Y3RfZmVhdHVyZXMtcmVhZCIsInByb2R1Y3RfZmVhdHVyZXMtd3JpdGUiLCJib29rbWFya3MtcmVhZCIsImJvb2ttYXJrcy13cml0ZSIsInBvaW50cy1yZWFkIiwicG9pbnRzLXdyaXRlIl19.X2YfuagC_vnMl9rJeD5-3GL6eKIO1yVdoQH8vAogRTWul7RfWS9LYgz0ojmePRUdZaffNcKY_hhA5pqr5TKqUlMTsy59UEary0bS-DGt1h_i099ENRTb2N1EMggMO5nW0dyWyODag7_80TBDlMg7px9ZHm5k2qDX4xcxmVAru1IY2sDkj1ky3pX7769UpSacy2NVkRTnVk1AaaVEyQeyHNZXkA876HB0jKCKC8UDJ_xokueiJxA0JFxt9-QJ6IhDFqipLbyHXgUDfxQoMtbcSHeSqzMYL_i__n7Mg5U9yMzDMJ-36-4McwvkjnwiBt8pbioeZUuERjgQRGtIbTaQl61enJ1nHisZlWl4y4ZCkAo4Vrone84gpFETIWe4W8AZ2C3FFFBg_mOGFwGgYyh2KzNImiCOZU76_cuYwKWo6jFJp_Vh_s7b63RNcy9xyF1tPOa8EnYTocaMM-lDTj5_36dKhaunJv65QKIcOs8L6s9lY5cmj4mjW4dLweQMa_PapE1nYXf1AENZkgLnTj95O5XZC_Ohh_ZcIOZjc2lCQcoZDPVny4n1GaNxbw8dxI9Zx4d-sZT1k3YzpCOn8xU7uns2Q2G6KDmQZEGY2-_D0kkvEbrK8w5AN1Xca6ymIo4MnqhB4zgMF_jRgnRqBzFhuFyrBk5yobqElPpWN1CJNBs";
+    }
+
+    public static BCartApiConfig getInstance() {
+        if (instance == null) {
+            instance = new BCartApiConfig();
+        }
+        return instance;
+    }
+
+    public String getAccessToken() {
+        return accessToken;
+    }
+}
