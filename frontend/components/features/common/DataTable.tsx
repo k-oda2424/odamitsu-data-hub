@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown } from 'lucide-react'
+import { normalizeForSearch } from '@/lib/utils'
 
 export interface Column<T> {
   key: string
@@ -41,10 +42,11 @@ export function DataTable<T extends Record<string, any>>({
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
+  const normalizedSearch = normalizeForSearch(search.toLowerCase())
   const filtered = data.filter((item) =>
     search === '' ||
     Object.values(item).some((v) =>
-      String(v ?? '').toLowerCase().includes(search.toLowerCase())
+      normalizeForSearch(String(v ?? '').toLowerCase()).includes(normalizedSearch)
     )
   )
 

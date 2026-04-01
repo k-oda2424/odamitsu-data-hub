@@ -54,10 +54,12 @@ const menuGroups = [
     label: '仕入',
     items: [
       { title: '仕入入力', icon: ShoppingCart, href: '/purchases' },
-      { title: '発注入力', icon: Truck, href: '/send-orders' },
+      { title: '発注一覧', icon: FileText, href: '/send-orders' },
+      { title: '発注入力', icon: Truck, href: '/send-orders/create' },
       { title: '仕入価格一覧', icon: FileText, href: '/purchase-prices' },
       { title: '仕入価格変更一覧', icon: ClipboardList, href: '/purchase-prices/changes' },
       { title: '仕入価格変更一括入力', icon: ClipboardList, href: '/purchase-prices/changes/bulk-input' },
+      { title: 'AI見積取込', icon: FileText, href: '/purchase-prices/imports' },
     ],
   },
   {

@@ -64,7 +64,7 @@ public class TOrderSpecification extends CommonSpecification<TOrder> {
      * @return 会社名の検索条件
      */
     public Specification<TOrder> companyNameContains(String companyName) {
-        return StringUtil.isEmpty(companyName) ? null : (root, query, cb) -> cb.like(root.get("companyName"), "%" + companyName + "%");
+        return likeNormalized("companyName", companyName);
     }
 
     /**

@@ -32,7 +32,7 @@ public class MSupplierSpecification extends CommonSpecification<MSupplier> {
      * @return 仕入先名の検索条件
      */
     public Specification<MSupplier> supplierNameContains(String supplierName) {
-        return StringUtil.isEmpty(supplierName) ? null : (root, query, cb) -> cb.like(root.get("supplierName"), "%" + supplierName + "%");
+        return likeNormalized("supplierName", supplierName);
     }
 
     /**

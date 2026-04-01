@@ -32,7 +32,7 @@ public class GoodsSpecification extends CommonSpecification<MGoods> {
      * @return 商品名の検索条件
      */
     public Specification<MGoods> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> cb.like(root.get("goodsName"), "%" + goodsName + "%");
+        return likeNormalized("goodsName", goodsName);
     }
 
     /**
@@ -52,7 +52,7 @@ public class GoodsSpecification extends CommonSpecification<MGoods> {
      * @return キーワードの検索条件
      */
     public Specification<MGoods> keywordContains(String keyword) {
-        return StringUtil.isEmpty(keyword) ? null : (root, query, cb) -> cb.like(root.get("keyword"), "%" + keyword + "%");
+        return likeNormalized("keyword", keyword);
     }
 
     /**

@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import type { Maker, Supplier, Shop } from '@/types/goods'
 import type { PartnerResponse, DeliveryDestinationResponse } from '@/types/partner-goods'
+import type { WarehouseResponse } from '@/types/send-order'
+import type { SalesGoodsDetailResponse } from '@/types/goods'
 
 const MASTER_STALE_TIME = 5 * 60 * 1000 // 5分
 
@@ -36,6 +38,23 @@ export function usePartners(shopNo: string | number | undefined) {
     queryKey: ['partners', shopNo],
     queryFn: () => api.get<PartnerResponse[]>(`/masters/partners?shopNo=${shopNo}`),
     enabled: !!shopNo,
+    staleTime: MASTER_STALE_TIME,
+  })
+}
+
+export function useWarehouses(companyNo: string | number | undefined) {
+  return useQuery({
+    queryKey: ['warehouses', companyNo],
+    queryFn: () => api.get<WarehouseResponse[]>(`/masters/warehouses${companyNo ? `?companyNo=${companyNo}` : ''}`),
+    staleTime: MASTER_STALE_TIME,
+  })
+}
+
+export function useSalesGoodsBySupplier(shopNo: string | number | undefined, supplierNo: string | number | undefined) {
+  return useQuery({
+    queryKey: ['sales-goods-by-supplier', shopNo, supplierNo],
+    queryFn: () => api.get<SalesGoodsDetailResponse[]>(`/sales-goods/master?shopNo=${shopNo}&supplierNo=${supplierNo}`),
+    enabled: !!shopNo && !!supplierNo,
     staleTime: MASTER_STALE_TIME,
   })
 }

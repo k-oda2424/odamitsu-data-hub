@@ -42,7 +42,9 @@ public class MPartnerGoodsSpecification extends CommonSpecification<MPartnerGood
      * @return 得意先コードの検索条件
      */
     public Specification<MPartnerGoods> partnerCodeContains(String partnerCode) {
-        return StringUtil.isEmpty(partnerCode) ? null : (root, query, cb) -> cb.like(root.get("mCompany").get("partner").get("partnerCode"), "%" + partnerCode);
+        if (StringUtil.isEmpty(partnerCode)) return null;
+        String normalized = StringUtil.normalizeForSearch(partnerCode);
+        return (root, query, cb) -> cb.like(nfkc(cb, root.get("mCompany").get("partner").get("partnerCode")), "%" + normalized);
     }
 
     /**
@@ -81,7 +83,7 @@ public class MPartnerGoodsSpecification extends CommonSpecification<MPartnerGood
      * @return 商品名の検索条件
      */
     private Specification<MPartnerGoods> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> cb.like(root.get("goodsName"), "%" + goodsName + "%");
+        return likeNormalized("goodsName", goodsName);
     }
 
     /**
@@ -91,7 +93,7 @@ public class MPartnerGoodsSpecification extends CommonSpecification<MPartnerGood
      * @return 商品コードの検索条件
      */
     public Specification<MPartnerGoods> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("goodsCode", goodsCode);
     }
 
     /**
@@ -115,7 +117,7 @@ public class MPartnerGoodsSpecification extends CommonSpecification<MPartnerGood
      * @return キーワードの検索条件
      */
     private Specification<MPartnerGoods> keywordContains(String keyword) {
-        return StringUtil.isEmpty(keyword) ? null : (root, query, cb) -> cb.like(root.get("keyword"), "%" + keyword + "%");
+        return likeNormalized("keyword", keyword);
     }
 
     /**

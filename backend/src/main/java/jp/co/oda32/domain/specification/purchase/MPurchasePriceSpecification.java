@@ -82,7 +82,7 @@ public class MPurchasePriceSpecification extends CommonSpecification<MPurchasePr
      * @return 商品コードの検索条件
      */
     public Specification<MPurchasePrice> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("wSalesGoods").get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("wSalesGoods", "goodsCode", goodsCode);
     }
 
     /**
@@ -92,7 +92,7 @@ public class MPurchasePriceSpecification extends CommonSpecification<MPurchasePr
      * @return 商品名の検索条件
      */
     public Specification<MPurchasePrice> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> cb.like(root.get("wSalesGoods").get("goodsName"), "%" + goodsName + "%");
+        return likeNormalized("wSalesGoods", "goodsName", goodsName);
     }
 
     /**

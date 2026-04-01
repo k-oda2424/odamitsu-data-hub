@@ -131,6 +131,32 @@ export const MOCK_SALES_GOODS_MASTER_LIST = [
     keyword: 'マスタ',
     isWork: false,
   },
+  {
+    shopNo: 1,
+    goodsNo: 4,
+    goodsCode: 'MS002',
+    goodsSkuCode: 'SKU-MS002',
+    goodsName: 'マスタ販売商品B',
+    supplierNo: 1,
+    supplierName: '仕入先A',
+    purchasePrice: 250,
+    goodsPrice: 350,
+    keyword: 'マスタ',
+    isWork: false,
+  },
+  {
+    shopNo: 1,
+    goodsNo: 5,
+    goodsCode: 'MS003',
+    goodsSkuCode: 'SKU-MS003',
+    goodsName: 'マスタ販売商品C',
+    supplierNo: 2,
+    supplierName: '仕入先B',
+    purchasePrice: 300,
+    goodsPrice: 450,
+    keyword: 'マスタ',
+    isWork: false,
+  },
 ]
 
 export const MOCK_SALES_GOODS_WORK_DETAIL = {
@@ -293,6 +319,66 @@ export const MOCK_ORDER_DETAILS = [
   },
 ]
 
+export const MOCK_QUOTE_IMPORT_HEADERS = [
+  {
+    quoteImportId: 1,
+    shopNo: 1,
+    supplierName: '花王',
+    supplierCode: null,
+    supplierNo: null,
+    fileName: '小田光様_26年5月価格改定御見積書.pdf',
+    quoteDate: '2026-01-30',
+    effectiveDate: '2026-05-01',
+    changeReason: 'PU',
+    priceType: '税抜',
+    totalCount: 3,
+    remainingCount: 3,
+    addDateTime: '2026-04-01T10:00:00',
+  },
+]
+
+export const MOCK_QUOTE_IMPORT_DETAILS = [
+  {
+    quoteImportDetailId: 1,
+    rowNo: 1,
+    janCode: '4901301508034',
+    quoteGoodsName: 'クリーン&クリーンF1 ボトル',
+    quoteGoodsCode: null,
+    specification: '700mL',
+    quantityPerCase: 6,
+    oldPrice: 661,
+    newPrice: 726,
+    oldBoxPrice: 3966,
+    newBoxPrice: 4356,
+  },
+  {
+    quoteImportDetailId: 2,
+    rowNo: 3,
+    janCode: null,
+    quoteGoodsName: 'マジックリン 除菌プラス 業務用',
+    quoteGoodsCode: null,
+    specification: '5Kg',
+    quantityPerCase: 3,
+    oldPrice: 2976,
+    newPrice: 3274,
+    oldBoxPrice: 5952,
+    newBoxPrice: 6548,
+  },
+  {
+    quoteImportDetailId: 3,
+    rowNo: 5,
+    janCode: null,
+    quoteGoodsName: 'ハンドスキッシュEX スプレー',
+    quoteGoodsCode: null,
+    specification: '150mL',
+    quantityPerCase: 24,
+    oldPrice: 362,
+    newPrice: 398,
+    oldBoxPrice: 8688,
+    newBoxPrice: 9552,
+  },
+]
+
 export const MOCK_PURCHASE_PRICES = [
   {
     purchasePriceNo: 1,
@@ -331,6 +417,74 @@ export const MOCK_PURCHASE_PRICES = [
     lastPurchaseDate: '2026-03-15',
   },
 ]
+
+export const MOCK_WAREHOUSES = [
+  { warehouseNo: 1, warehouseName: '本社倉庫', shopNo: 1 },
+  { warehouseNo: 2, warehouseName: '第二倉庫', shopNo: 1 },
+  { warehouseNo: 3, warehouseName: '第2事業部倉庫', shopNo: 2 },
+]
+
+export const MOCK_SEND_ORDER_DETAILS = [
+  {
+    sendOrderNo: 5001,
+    sendOrderDetailNo: 1,
+    shopNo: 1,
+    warehouseNo: 1,
+    warehouseName: '本社倉庫',
+    supplierNo: 1,
+    supplierName: '仕入先A',
+    sendOrderDateTime: '2026-03-20T10:00:00',
+    desiredDeliveryDate: '2026-03-25',
+    goodsNo: 1,
+    goodsCode: 'SG001',
+    goodsName: 'テスト商品A',
+    goodsPrice: 100,
+    sendOrderNum: 10,
+    sendOrderCaseNum: null,
+    containNum: null,
+    subtotal: 1000,
+    arrivePlanDate: null,
+    arrivedDate: null,
+    arrivedNum: null,
+    sendOrderDetailStatus: '00',
+  },
+  {
+    sendOrderNo: 5001,
+    sendOrderDetailNo: 2,
+    shopNo: 1,
+    warehouseNo: 1,
+    warehouseName: '本社倉庫',
+    supplierNo: 1,
+    supplierName: '仕入先A',
+    sendOrderDateTime: '2026-03-20T10:00:00',
+    desiredDeliveryDate: '2026-03-25',
+    goodsNo: 2,
+    goodsCode: 'SG002',
+    goodsName: 'テスト商品B',
+    goodsPrice: 200,
+    sendOrderNum: 5,
+    sendOrderCaseNum: null,
+    containNum: null,
+    subtotal: 1000,
+    arrivePlanDate: '2026-03-28',
+    arrivedDate: null,
+    arrivedNum: null,
+    sendOrderDetailStatus: '10',
+  },
+]
+
+export const MOCK_SEND_ORDER_CREATED = {
+  sendOrderNo: 5002,
+  shopNo: 1,
+  warehouseNo: 1,
+  supplierNo: 1,
+  supplierName: '仕入先A',
+  warehouseName: '本社倉庫',
+  sendOrderDateTime: '2026-04-01T10:00:00',
+  desiredDeliveryDate: '2026-04-05',
+  sendOrderStatus: '00',
+  details: [],
+}
 
 export const MOCK_PURCHASE_PRICE_CHANGES = [
   {
@@ -625,6 +779,64 @@ export async function mockAllApis(page: Page) {
     },
   )
 
+  // ---- Quote Imports ----
+  await page.route(
+    (url) => /^\/api\/v1\/quote-imports\/\d+\/supplier$/.test(url.pathname),
+    async (route) => {
+      await route.fulfill({ status: 200 })
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/quote-imports\/\d+\/details\/\d+\/match$/.test(url.pathname),
+    async (route) => {
+      await route.fulfill({ status: 200 })
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/quote-imports\/\d+\/details\/\d+\/create-new$/.test(url.pathname),
+    async (route) => {
+      await json(route, {}, 201)
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/quote-imports\/\d+\/details\/\d+$/.test(url.pathname),
+    async (route) => {
+      if (route.request().method() === 'DELETE') {
+        await route.fulfill({ status: 204 })
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/quote-imports\/\d+$/.test(url.pathname),
+    async (route) => {
+      await json(route, {
+        header: MOCK_QUOTE_IMPORT_HEADERS[0],
+        details: MOCK_QUOTE_IMPORT_DETAILS,
+      })
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/quote-imports',
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        await json(route, MOCK_QUOTE_IMPORT_HEADERS)
+      } else if (method === 'POST') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { quoteImportId: 99, ...body }, 201)
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
   // ---- Purchase Prices ----
   await page.route(
     (url) => url.pathname === '/api/v1/purchase-prices',
@@ -656,6 +868,137 @@ export async function mockAllApis(page: Page) {
       } else {
         await route.fallback()
       }
+    },
+  )
+
+  // ---- Warehouses ----
+  await page.route(
+    (url) => url.pathname === '/api/v1/masters/warehouses',
+    async (route) => {
+      await json(route, MOCK_WAREHOUSES)
+    },
+  )
+
+  // ---- Send Orders ----
+  await page.route(
+    (url) => /^\/api\/v1\/send-orders\/\d+\/details\/\d+\/status$/.test(url.pathname),
+    async (route) => {
+      if (route.request().method() === 'PUT') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { ...MOCK_SEND_ORDER_DETAILS[0], ...body })
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/send-orders/details',
+    async (route) => {
+      await json(route, MOCK_SEND_ORDER_DETAILS)
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/send-orders',
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        await json(route, MOCK_SEND_ORDER_DETAILS)
+      } else if (method === 'POST') {
+        await json(route, MOCK_SEND_ORDER_CREATED, 201)
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  // ---- Warehouses ----
+  await page.route(
+    (url) => url.pathname === '/api/v1/masters/warehouses',
+    async (route) => {
+      await json(route, MOCK_WAREHOUSES)
+    },
+  )
+
+  // ---- Send Orders ----
+  await page.route(
+    (url) => /^\/api\/v1\/send-orders\/\d+\/details\/\d+\/status$/.test(url.pathname),
+    async (route) => {
+      await json(route, { message: '更新しました' })
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/send-orders\/\d+$/.test(url.pathname),
+    async (route) => {
+      await json(route, MOCK_SEND_ORDER_CREATED)
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/send-orders/details',
+    async (route) => {
+      await json(route, MOCK_SEND_ORDER_DETAILS)
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/send-orders',
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'POST') {
+        await json(route, MOCK_SEND_ORDER_CREATED)
+      } else {
+        await json(route, [])
+      }
+    },
+  )
+
+  // ---- Invoices ----
+  await page.route(
+    (url) => /^\/api\/v1\/finance\/invoices\/\d+\/payment-date$/.test(url.pathname),
+    async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}')
+      await json(route, { invoiceId: 1, ...body })
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/finance/invoices',
+    async (route) => {
+      await json(route, [
+        {
+          invoiceId: 1,
+          partnerCode: '022000',
+          partnerName: 'いしい記念病院',
+          closingDate: '2026/03/末',
+          previousBalance: 50000,
+          totalPayment: 30000,
+          carryOverBalance: 20000,
+          netSales: 100000,
+          taxPrice: 10000,
+          netSalesIncludingTax: 110000,
+          currentBillingAmount: 130000,
+          shopNo: 1,
+          paymentDate: '2026-04-15',
+        },
+        {
+          invoiceId: 2,
+          partnerCode: '148013',
+          partnerName: 'クローバーハウス',
+          closingDate: '2026/03/末',
+          previousBalance: 0,
+          totalPayment: 0,
+          carryOverBalance: 0,
+          netSales: 50000,
+          taxPrice: 5000,
+          netSalesIncludingTax: 55000,
+          currentBillingAmount: 55000,
+          shopNo: 1,
+          paymentDate: null,
+        },
+      ])
     },
   )
 

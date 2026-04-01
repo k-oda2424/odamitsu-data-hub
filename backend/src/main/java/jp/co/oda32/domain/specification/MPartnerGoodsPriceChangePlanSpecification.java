@@ -2,7 +2,6 @@ package jp.co.oda32.domain.specification;
 
 import jp.co.oda32.domain.model.goods.MPartnerGoodsPriceChangePlan;
 import jp.co.oda32.util.CollectionUtil;
-import jp.co.oda32.util.StringUtil;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
@@ -82,7 +81,7 @@ public class MPartnerGoodsPriceChangePlanSpecification extends CommonSpecificati
      * @return 商品コードの検索条件
      */
     public Specification<MPartnerGoodsPriceChangePlan> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("goodsCode", goodsCode);
     }
 
     /**
@@ -92,7 +91,7 @@ public class MPartnerGoodsPriceChangePlanSpecification extends CommonSpecificati
      * @return JANコードの検索条件
      */
     public Specification<MPartnerGoodsPriceChangePlan> janCodeContains(String janCode) {
-        return StringUtil.isEmpty(janCode) ? null : (root, query, cb) -> cb.like(root.get("janCode"), "%" + janCode);
+        return likeSuffixNormalized("janCode", janCode);
     }
 
     /**

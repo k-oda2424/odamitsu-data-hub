@@ -69,7 +69,7 @@ public class PurchaseFileImportConfig {
                 .next(purchaseFileImportStep()) // 仕入明細をワークテーブルに入れる
                 .next(smilePurchaseImportStep()) // ワークテーブルからの仕入、仕入明細を作成
                 .next(purchaseLinkSendOrderStep())
-                .next(purchasePriceCreateStep())
+                // purchasePriceCreateStep: 仕入価格マスタの自動更新は誤更新リスクがあるため除外
                 .end()
                 .build();
     }

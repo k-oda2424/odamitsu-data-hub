@@ -66,9 +66,11 @@ public class TEstimateSpecification extends CommonSpecification<TEstimate> {
      * @return 商品名の検索条件
      */
     private Specification<TEstimate> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> {
+        if (StringUtil.isEmpty(goodsName)) return null;
+        String normalized = StringUtil.normalizeForSearch(goodsName);
+        return (root, query, cb) -> {
             Join<TEstimateDetail, TEstimate> joinDetail = root.join("tEstimateDetailList");
-            return cb.like(joinDetail.get("goodsName"), "%" + goodsName + "%");
+            return cb.like(nfkc(cb, joinDetail.get("goodsName")), "%" + normalized + "%");
         };
     }
 
@@ -93,9 +95,11 @@ public class TEstimateSpecification extends CommonSpecification<TEstimate> {
      * @return 商品コードの検索条件
      */
     public Specification<TEstimate> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> {
+        if (StringUtil.isEmpty(goodsCode)) return null;
+        String normalized = StringUtil.normalizeForSearch(goodsCode);
+        return (root, query, cb) -> {
             Join<TEstimateDetail, TEstimate> joinDetail = root.join("tEstimateDetailList");
-            return cb.like(joinDetail.get("goodsCode"), "%" + goodsCode);
+            return cb.like(nfkc(cb, joinDetail.get("goodsCode")), "%" + normalized);
         };
     }
 

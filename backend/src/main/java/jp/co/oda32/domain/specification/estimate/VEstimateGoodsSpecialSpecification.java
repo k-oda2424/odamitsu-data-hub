@@ -1,8 +1,8 @@
 package jp.co.oda32.domain.specification.estimate;
 
 import jp.co.oda32.domain.model.estimate.VEstimateGoodsSpecial;
+import jp.co.oda32.domain.specification.CommonSpecification;
 import jp.co.oda32.util.CollectionUtil;
-import jp.co.oda32.util.StringUtil;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.List;
@@ -13,7 +13,7 @@ import java.util.List;
  * @author k_oda
  * @since 2022/12/21
  */
-public class VEstimateGoodsSpecialSpecification {
+public class VEstimateGoodsSpecialSpecification extends CommonSpecification<VEstimateGoodsSpecial> {
     /**
      * ショップ番号の検索条件
      *
@@ -71,6 +71,6 @@ public class VEstimateGoodsSpecialSpecification {
      * @return 商品コードの検索条件
      */
     public Specification<VEstimateGoodsSpecial> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("goodsCode", goodsCode);
     }
 }

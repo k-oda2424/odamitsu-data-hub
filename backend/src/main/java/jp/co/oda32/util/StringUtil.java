@@ -198,6 +198,19 @@ public final class StringUtil {
      * @param input 文字列
      * @return 全角スペース、半角スペースを除去した文字列
      */
+    /**
+     * 検索用にNFKC正規化を行います。全角英数→半角、半角カナ→全角カナに統一されます。
+     *
+     * @param input 正規化したい文字列
+     * @return NFKC正規化済み文字列
+     */
+    public static String normalizeForSearch(String input) {
+        if (input == null) {
+            return null;
+        }
+        return Normalizer.normalize(input, Normalizer.Form.NFKC);
+    }
+
     public static String removeSpaces(String input) {
         if (input == null) {
             return null;

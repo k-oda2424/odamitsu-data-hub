@@ -3,7 +3,6 @@ package jp.co.oda32.domain.specification.purchase;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.purchase.TPurchaseDetail;
 import jp.co.oda32.domain.specification.CommonSpecification;
-import jp.co.oda32.util.StringUtil;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
@@ -80,7 +79,7 @@ public class TPurchaseDetailSpecification extends CommonSpecification<TPurchaseD
      * @return 商品コードの検索条件
      */
     public Specification<TPurchaseDetail> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("goodsCode", goodsCode);
     }
     /**
      * 仕入日の検索条件

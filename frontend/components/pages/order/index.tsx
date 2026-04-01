@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
-import { useShops } from '@/hooks/use-master-data'
+import { useShops, usePartners } from '@/hooks/use-master-data'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
 import { ErrorMessage } from '@/components/features/common/ErrorMessage'
 import { SearchForm } from '@/components/features/common/SearchForm'
+import { SearchableSelect } from '@/components/features/common/SearchableSelect'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -112,6 +113,7 @@ export function OrderListPage() {
   const { user } = useAuth()
   const isAdmin = user?.shopNo === 0
 
+  const [partnerNo, setPartnerNo] = useState<string>('')
   const [slipNo, setSlipNo] = useState('')
   const [goodsName, setGoodsName] = useState('')
   const [goodsCode, setGoodsCode] = useState('')
@@ -127,12 +129,14 @@ export function OrderListPage() {
 
   const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
+  const partnersQuery = usePartners(effectiveShopNo)
 
   const listQuery = useQuery({
     queryKey: ['order-details', effectiveShopNo, searchParams],
     queryFn: () => {
       const params = new URLSearchParams()
       params.append('shopNo', effectiveShopNo)
+      if (searchParams?.partnerNo) params.append('partnerNo', searchParams.partnerNo)
       if (searchParams?.slipNo) params.append('slipNo', searchParams.slipNo)
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
       if (searchParams?.goodsCode) params.append('goodsCode', searchParams.goodsCode)
@@ -148,6 +152,7 @@ export function OrderListPage() {
 
   const handleSearch = () => {
     setSearchParams({
+      partnerNo,
       slipNo,
       goodsName,
       goodsCode,
@@ -160,6 +165,7 @@ export function OrderListPage() {
   }
 
   const handleReset = () => {
+    setPartnerNo('')
     setSlipNo('')
     setGoodsName('')
     setGoodsCode('')
@@ -181,7 +187,7 @@ export function OrderListPage() {
         {isAdmin && (
           <div className="space-y-2">
             <Label>店舗</Label>
-            <Select value={selectedShopNo} onValueChange={setSelectedShopNo}>
+            <Select value={selectedShopNo} onValueChange={(v) => { setSelectedShopNo(v); setPartnerNo('') }}>
               <SelectTrigger>
                 <SelectValue placeholder="店舗を選択してください" />
               </SelectTrigger>
@@ -195,6 +201,18 @@ export function OrderListPage() {
             </Select>
           </div>
         )}
+        <div className="space-y-2">
+          <Label>得意先</Label>
+          <SearchableSelect
+            value={partnerNo}
+            onValueChange={setPartnerNo}
+            options={(partnersQuery.data ?? []).map((p) => ({
+              value: String(p.partnerNo),
+              label: `${p.partnerCode} ${p.partnerName}`,
+            }))}
+            searchPlaceholder="得意先を検索..."
+          />
+        </div>
         <div className="space-y-2">
           <Label>伝票番号</Label>
           <Input

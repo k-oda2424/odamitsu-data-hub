@@ -2,7 +2,7 @@ package jp.co.oda32.domain.specification.master;
 
 import jp.co.oda32.domain.model.master.MMaker;
 import jp.co.oda32.domain.specification.CommonSpecification;
-import jp.co.oda32.util.StringUtil;
+
 import org.springframework.data.jpa.domain.Specification;
 
 /**
@@ -29,7 +29,7 @@ public class MakerSpecification extends CommonSpecification<MMaker> {
      * @return メーカー名の検索条件
      */
     public Specification<MMaker> makerNameContains(String makerName) {
-        return StringUtil.isEmpty(makerName) ? null : (root, query, cb) -> cb.like(root.get("makerName"), "%" + makerName + "%");
+        return likeNormalized("makerName", makerName);
     }
 
 }

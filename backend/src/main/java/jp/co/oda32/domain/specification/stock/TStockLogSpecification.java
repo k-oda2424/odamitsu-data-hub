@@ -52,7 +52,7 @@ public class TStockLogSpecification extends CommonSpecification<TStockLog> {
      * @return 商品名の検索条件
      */
     public Specification<TStockLog> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> cb.like(root.get("mGoods").get("goodsName"), "%" + goodsName + "%");
+        return likeNormalized("mGoods", "goodsName", goodsName);
     }
 
     /**

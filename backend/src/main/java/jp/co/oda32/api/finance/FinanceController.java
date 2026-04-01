@@ -6,11 +6,14 @@ import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
 import jp.co.oda32.domain.service.finance.TInvoiceService;
 import jp.co.oda32.dto.finance.AccountsPayableResponse;
 import jp.co.oda32.dto.finance.InvoiceResponse;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -38,8 +41,28 @@ public class FinanceController {
     public ResponseEntity<List<InvoiceResponse>> listInvoices(
             @RequestParam(required = false) Integer shopNo,
             @RequestParam(required = false) String partnerCode,
+            @RequestParam(required = false) String partnerName,
             @RequestParam(required = false) String closingDate) {
-        List<TInvoice> invoices = tInvoiceService.findBySpecification(closingDate, shopNo, partnerCode);
+        List<TInvoice> invoices = tInvoiceService.findByDetailedSpecification(
+                closingDate, shopNo, partnerCode, partnerName, null, null);
         return ResponseEntity.ok(invoices.stream().map(InvoiceResponse::from).collect(Collectors.toList()));
+    }
+
+    @PutMapping("/invoices/{invoiceId}/payment-date")
+    public ResponseEntity<?> updatePaymentDate(
+            @PathVariable Integer invoiceId,
+            @RequestBody PaymentDateUpdateRequest request) {
+        TInvoice invoice = tInvoiceService.getInvoiceById(invoiceId);
+        if (invoice == null) {
+            return ResponseEntity.notFound().build();
+        }
+        invoice.setPaymentDate(request.getPaymentDate());
+        tInvoiceService.saveInvoice(invoice);
+        return ResponseEntity.ok(InvoiceResponse.from(invoice));
+    }
+
+    @Data
+    static class PaymentDateUpdateRequest {
+        private LocalDate paymentDate;
     }
 }

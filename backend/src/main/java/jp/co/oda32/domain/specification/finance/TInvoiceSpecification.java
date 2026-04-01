@@ -1,7 +1,7 @@
 package jp.co.oda32.domain.specification.finance;
 
 import jp.co.oda32.domain.model.finance.TInvoice;
-import jp.co.oda32.util.StringUtil;
+import jp.co.oda32.domain.specification.CommonSpecification;
 import org.springframework.data.jpa.domain.Specification;
 
 /**
@@ -9,7 +9,7 @@ import org.springframework.data.jpa.domain.Specification;
  *
  * @since 2025/05/21
  */
-public class TInvoiceSpecification {
+public class TInvoiceSpecification extends CommonSpecification<TInvoice> {
     /**
      * 締月の検索条件
      * yyyy/MMの形式で検索できるようにする
@@ -18,12 +18,7 @@ public class TInvoiceSpecification {
      * @return 締月の検索条件
      */
     public Specification<TInvoice> closingDateContains(String closingDate) {
-        if (StringUtil.isEmpty(closingDate)) {
-            return null;
-        }
-
-        // LIKE検索で締月の前方一致検索を行う
-        return (root, query, cb) -> cb.like(root.get("closingDate"), closingDate + "%");
+        return likePrefixNormalized("closingDate", closingDate);
     }
 
     /**
@@ -43,7 +38,7 @@ public class TInvoiceSpecification {
      * @return 得意先コードの検索条件
      */
     public Specification<TInvoice> partnerCodeContains(String partnerCode) {
-        return StringUtil.isEmpty(partnerCode) ? null : (root, query, cb) -> cb.like(root.get("partnerCode"), partnerCode + "%");
+        return likePrefixNormalized("partnerCode", partnerCode);
     }
 
     /**
@@ -53,7 +48,7 @@ public class TInvoiceSpecification {
      * @return 顧客名の検索条件
      */
     public Specification<TInvoice> partnerNameContains(String partnerName) {
-        return StringUtil.isEmpty(partnerName) ? null : (root, query, cb) -> cb.like(root.get("partnerName"), "%" + partnerName + "%");
+        return likeNormalized("partnerName", partnerName);
     }
 
     /**

@@ -62,7 +62,7 @@ public class PartnerSpecification extends CommonSpecification<MPartner> {
      * @return 得意先名の検索条件
      */
     public Specification<MPartner> partnerNameContains(String partnerName) {
-        return StringUtil.isEmpty(partnerName) ? null : (root, query, cb) -> cb.like(root.get("partnerName"), "%" + partnerName + "%");
+        return likeNormalized("partnerName", partnerName);
     }
 
     /**
