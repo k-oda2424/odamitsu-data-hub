@@ -24,6 +24,10 @@ import {
   Database,
   Box,
   ClipboardList,
+  Sparkles,
+  Receipt,
+  Send,
+  FileSearch,
 } from 'lucide-react'
 
 const menuGroups = [
@@ -54,25 +58,26 @@ const menuGroups = [
     label: '仕入',
     items: [
       { title: '仕入入力', icon: ShoppingCart, href: '/purchases' },
-      { title: '発注一覧', icon: FileText, href: '/send-orders' },
+      { title: '発注一覧', icon: Send, href: '/send-orders' },
       { title: '発注入力', icon: Truck, href: '/send-orders/create' },
-      { title: '仕入価格一覧', icon: FileText, href: '/purchase-prices' },
+      { title: '仕入価格一覧', icon: Receipt, href: '/purchase-prices' },
       { title: '仕入価格変更一覧', icon: ClipboardList, href: '/purchase-prices/changes' },
       { title: '仕入価格変更一括入力', icon: ClipboardList, href: '/purchase-prices/changes/bulk-input' },
-      { title: 'AI見積取込', icon: FileText, href: '/purchase-prices/imports' },
+      { title: 'AI見積取込', icon: Sparkles, href: '/purchase-prices/imports' },
+      { title: '仕入先見積データ', icon: FileSearch, href: '/purchase-prices/quotes' },
     ],
   },
   {
     label: '見積',
     items: [
-      { title: '見積一覧', icon: ClipboardList, href: '/estimates' },
+      { title: '見積一覧', icon: FileText, href: '/estimates' },
     ],
   },
   {
     label: '財務',
     items: [
       { title: '買掛金', icon: BarChart3, href: '/finance/accounts-payable' },
-      { title: '請求書', icon: FileText, href: '/finance/invoices' },
+      { title: '請求書', icon: Receipt, href: '/finance/invoices' },
     ],
   },
   {
@@ -94,7 +99,6 @@ const allHrefs = menuGroups.flatMap((g) => g.items.map((i) => i.href))
 function isMenuActive(pathname: string, href: string): boolean {
   if (pathname === href) return true
   if (!pathname.startsWith(href + '/')) return false
-  // より具体的な子パスが存在する場合、親パスはアクティブにしない
   const hasMoreSpecificMatch = allHrefs.some(
     (other) => other !== href && other.startsWith(href + '/') && (pathname === other || pathname.startsWith(other + '/'))
   )
@@ -107,7 +111,15 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="border-b px-4 py-3">
-        <h2 className="text-lg font-semibold">OdaMitsu Data Hub</h2>
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">
+            OD
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold leading-none">OdaMitsu</h2>
+            <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Data Hub</p>
+          </div>
+        </div>
       </SidebarHeader>
       <SidebarContent>
         {menuGroups.map((group) => (
