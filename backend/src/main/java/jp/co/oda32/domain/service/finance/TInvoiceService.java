@@ -111,6 +111,15 @@ public class TInvoiceService {
         return tInvoiceRepository.findById(invoiceId).orElse(null);
     }
 
+    public List<TInvoice> findByIds(List<Integer> invoiceIds) {
+        return tInvoiceRepository.findAllById(invoiceIds);
+    }
+
+    @Transactional
+    public List<TInvoice> saveAll(List<TInvoice> invoices) {
+        return tInvoiceRepository.saveAll(invoices);
+    }
+
     /**
      * 締月、ショップ番号、得意先コードで請求データを検索する
      * Specificationの代わりにStartingWithを使用した実装

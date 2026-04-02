@@ -955,7 +955,54 @@ export async function mockAllApis(page: Page) {
     },
   )
 
+  // ---- Partner Groups ----
+  await page.route(
+    (url) => url.pathname === '/api/v1/finance/partner-groups',
+    async (route) => {
+      if (route.request().method() === 'GET') {
+        await json(route, [
+          { partnerGroupId: 1, groupName: 'イズミグループ', shopNo: 1, partnerCodes: ['000231', '000232'] },
+        ])
+      } else {
+        await json(route, { partnerGroupId: 2, groupName: 'test', shopNo: 1, partnerCodes: [] })
+      }
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/finance\/partner-groups\/\d+$/.test(url.pathname),
+    async (route) => {
+      if (route.request().method() === 'DELETE') {
+        await route.fulfill({ status: 204 })
+      } else {
+        await json(route, { partnerGroupId: 1, groupName: 'updated', shopNo: 1, partnerCodes: [] })
+      }
+    },
+  )
+
   // ---- Invoices ----
+  await page.route(
+    (url) => url.pathname === '/api/v1/finance/invoices/bulk-payment-date',
+    async (route) => {
+      await json(route, { updatedCount: 2 })
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/finance/invoices/import',
+    async (route) => {
+      await json(route, {
+        closingDate: '2026/02/末',
+        shopNo: 1,
+        totalRows: 184,
+        insertedRows: 150,
+        updatedRows: 34,
+        skippedRows: 0,
+        errors: [],
+      })
+    },
+  )
+
   await page.route(
     (url) => /^\/api\/v1\/finance\/invoices\/\d+\/payment-date$/.test(url.pathname),
     async (route) => {
