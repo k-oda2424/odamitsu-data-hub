@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
-import { ArrowLeft, Plus, SkipForward } from 'lucide-react'
+import { ArrowLeft, Plus, SkipForward, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { GoodsSearchPopover } from './GoodsSearchPopover'
 import { NewGoodsDialog } from './NewGoodsDialog'
@@ -65,6 +65,16 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
     },
   })
 
+  const undoMutation = useMutation({
+    mutationFn: (detailId: number) =>
+      api.post(`/quote-imports/${importId}/details/${detailId}/undo`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quote-import', importId] })
+      toast.success('取消しました')
+    },
+    onError: () => toast.error('取消に失敗しました'),
+  })
+
   const matchMutation = useMutation({
     mutationFn: ({ detailId, goodsCode, goodsNo }: { detailId: number; goodsCode: string; goodsNo: number }) =>
       api.post(`/quote-imports/${importId}/details/${detailId}/match`, { goodsCode, goodsNo }),
@@ -101,7 +111,7 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
   if (detailQuery.isError) return <ErrorMessage onRetry={() => detailQuery.refetch()} />
   if (!detailQuery.data) return <ErrorMessage onRetry={() => detailQuery.refetch()} />
 
-  const { header, details } = detailQuery.data
+  const { header, details, processedDetails } = detailQuery.data
   const processed = header.totalCount - header.remainingCount
   const progressPct = header.totalCount > 0 ? Math.round((processed / header.totalCount) * 100) : 0
   const isSupplierMatched = !!header.supplierCode
@@ -299,6 +309,61 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
           )}
         </CardContent>
       </Card>
+
+      {/* 処理済み一覧 */}
+      {processedDetails.length > 0 && (
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold">
+              処理済み（{processedDetails.length} 件）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="px-2 py-2 text-left font-medium w-12">PDF行</th>
+                    <th className="px-2 py-2 text-left font-medium">見積商品名</th>
+                    <th className="px-2 py-2 text-left font-medium">状態</th>
+                    <th className="px-2 py-2 text-left font-medium">突合先</th>
+                    <th className="px-2 py-2 text-right font-medium">新単価</th>
+                    <th className="px-2 py-2 text-left font-medium w-16">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {processedDetails.map((d) => (
+                    <tr key={d.quoteImportDetailId} className="border-b">
+                      <td className="px-2 py-2 text-muted-foreground">{d.rowNo ?? '-'}</td>
+                      <td className="px-2 py-2">{d.quoteGoodsName}</td>
+                      <td className="px-2 py-2">
+                        {d.status === 'MATCHED' && <Badge variant="secondary">突合済</Badge>}
+                        {d.status === 'CREATED' && <Badge>新規作成</Badge>}
+                        {d.status === 'SKIPPED' && <Badge variant="outline">スキップ</Badge>}
+                      </td>
+                      <td className="px-2 py-2 font-mono text-xs text-muted-foreground">
+                        {d.matchedGoodsCode ?? '-'}
+                      </td>
+                      <td className="px-2 py-2 text-right">{d.newPrice?.toLocaleString() ?? '-'}</td>
+                      <td className="px-2 py-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => undoMutation.mutate(d.quoteImportDetailId)}
+                          disabled={undoMutation.isPending}
+                        >
+                          <Undo2 className="mr-1 h-3 w-3" />
+                          取消
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <NewGoodsDialog
         importId={importId}

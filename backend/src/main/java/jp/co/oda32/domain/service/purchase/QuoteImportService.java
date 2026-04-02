@@ -5,9 +5,9 @@ import jp.co.oda32.domain.model.goods.MGoods;
 import jp.co.oda32.domain.model.goods.WSalesGoods;
 import jp.co.oda32.domain.model.purchase.MPurchasePriceChangePlan;
 import jp.co.oda32.domain.model.purchase.TQuoteImportHeader;
-import jp.co.oda32.domain.model.purchase.WQuoteImportDetail;
+import jp.co.oda32.domain.model.purchase.TQuoteImportDetail;
 import jp.co.oda32.domain.repository.purchase.TQuoteImportHeaderRepository;
-import jp.co.oda32.domain.repository.purchase.WQuoteImportDetailRepository;
+import jp.co.oda32.domain.repository.purchase.TQuoteImportDetailRepository;
 import jp.co.oda32.domain.service.goods.MGoodsService;
 import jp.co.oda32.domain.service.goods.WSalesGoodsService;
 import jp.co.oda32.dto.purchase.QuoteImportCreateNewRequest;
@@ -24,8 +24,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class QuoteImportService {
 
+    private static final String STATUS_PENDING = "PENDING";
+    private static final String STATUS_MATCHED = "MATCHED";
+    private static final String STATUS_SKIPPED = "SKIPPED";
+    private static final String STATUS_CREATED = "CREATED";
+
     private final TQuoteImportHeaderRepository headerRepository;
-    private final WQuoteImportDetailRepository detailRepository;
+    private final TQuoteImportDetailRepository detailRepository;
     private final MGoodsService mGoodsService;
     private final WSalesGoodsService wSalesGoodsService;
     private final MPurchasePriceChangePlanService changePlanService;
@@ -41,13 +46,18 @@ public class QuoteImportService {
     }
 
     @Transactional(readOnly = true)
-    public List<WQuoteImportDetail> getDetails(Integer importId) {
-        return detailRepository.findByQuoteImportIdOrderByRowNo(importId);
+    public List<TQuoteImportDetail> getPendingDetails(Integer importId) {
+        return detailRepository.findByQuoteImportIdAndStatusOrderByRowNo(importId, STATUS_PENDING);
+    }
+
+    @Transactional(readOnly = true)
+    public List<TQuoteImportDetail> getProcessedDetails(Integer importId) {
+        return detailRepository.findByQuoteImportIdAndStatusNotOrderByRowNo(importId, STATUS_PENDING);
     }
 
     @Transactional(readOnly = true)
     public int getRemainingCount(Integer importId) {
-        return detailRepository.countByQuoteImportId(importId);
+        return detailRepository.countByQuoteImportIdAndStatus(importId, STATUS_PENDING);
     }
 
     @Transactional
@@ -67,7 +77,7 @@ public class QuoteImportService {
         TQuoteImportHeader saved = headerRepository.save(header);
 
         for (QuoteImportCreateRequest.Detail d : request.getDetails()) {
-            WQuoteImportDetail detail = WQuoteImportDetail.builder()
+            TQuoteImportDetail detail = TQuoteImportDetail.builder()
                     .quoteImportId(saved.getQuoteImportId())
                     .rowNo(d.getRowNo())
                     .janCode(d.getJanCode())
@@ -79,6 +89,7 @@ public class QuoteImportService {
                     .newPrice(d.getNewPrice())
                     .oldBoxPrice(d.getOldBoxPrice())
                     .newBoxPrice(d.getNewBoxPrice())
+                    .status(STATUS_PENDING)
                     .addDateTime(Timestamp.from(Instant.now()))
                     .build();
             detailRepository.save(detail);
@@ -98,7 +109,7 @@ public class QuoteImportService {
     @Transactional
     public void matchGoods(Integer importId, Integer detailId, String goodsCode, Integer goodsNo) throws Exception {
         TQuoteImportHeader header = headerRepository.findById(importId).orElseThrow();
-        WQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
 
         MPurchasePriceChangePlan plan = MPurchasePriceChangePlan.builder()
                 .shopNo(header.getShopNo())
@@ -118,15 +129,18 @@ public class QuoteImportService {
                 .build();
         changePlanService.insert(plan);
 
-        detailRepository.deleteById(detailId);
+        detail.setStatus(STATUS_MATCHED);
+        detail.setMatchedGoodsCode(goodsCode);
+        detail.setMatchedGoodsNo(goodsNo);
+        detail.setProcessedAt(Timestamp.from(Instant.now()));
+        detailRepository.save(detail);
     }
 
     @Transactional
     public void createNewAndMatch(Integer importId, Integer detailId, QuoteImportCreateNewRequest request) throws Exception {
         TQuoteImportHeader header = headerRepository.findById(importId).orElseThrow();
-        WQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
 
-        // 1. MGoods 作成
         MGoods goods = new MGoods();
         goods.setGoodsName(request.getGoods().getGoodsName());
         goods.setJanCode(request.getGoods().getJanCode());
@@ -136,7 +150,6 @@ public class QuoteImportService {
         goods.setApplyReducedTaxRate(request.getGoods().isApplyReducedTaxRate());
         MGoods savedGoods = mGoodsService.insert(goods);
 
-        // 2. WSalesGoods 作成
         WSalesGoods salesGoods = new WSalesGoods();
         salesGoods.setShopNo(header.getShopNo());
         salesGoods.setGoodsNo(savedGoods.getGoodsNo());
@@ -149,7 +162,6 @@ public class QuoteImportService {
         salesGoods.setGoodsPrice(request.getSalesGoods().getGoodsPrice());
         wSalesGoodsService.insert(salesGoods);
 
-        // 3. MPurchasePriceChangePlan 作成
         MPurchasePriceChangePlan plan = MPurchasePriceChangePlan.builder()
                 .shopNo(header.getShopNo())
                 .goodsCode(request.getSalesGoods().getGoodsCode())
@@ -167,13 +179,37 @@ public class QuoteImportService {
                 .build();
         changePlanService.insert(plan);
 
-        // 4. ワーク行削除
-        detailRepository.deleteById(detailId);
+        detail.setStatus(STATUS_CREATED);
+        detail.setMatchedGoodsCode(request.getSalesGoods().getGoodsCode());
+        detail.setMatchedGoodsNo(savedGoods.getGoodsNo());
+        detail.setProcessedAt(Timestamp.from(Instant.now()));
+        detailRepository.save(detail);
     }
 
     @Transactional
     public void skipDetail(Integer detailId) {
-        detailRepository.deleteById(detailId);
+        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+        detail.setStatus(STATUS_SKIPPED);
+        detail.setProcessedAt(Timestamp.from(Instant.now()));
+        detailRepository.save(detail);
+    }
+
+    @Transactional
+    public void undoDetail(Integer importId, Integer detailId) {
+        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+        TQuoteImportHeader header = headerRepository.findById(importId).orElseThrow();
+
+        // 突合/新規作成の場合、対応する仕入価格変更予定を削除
+        if (detail.getMatchedGoodsCode() != null) {
+            changePlanService.deleteByGoodsCodeAndChangePlanDate(
+                    header.getShopNo(), detail.getMatchedGoodsCode(), header.getEffectiveDate());
+        }
+
+        detail.setStatus(STATUS_PENDING);
+        detail.setMatchedGoodsCode(null);
+        detail.setMatchedGoodsNo(null);
+        detail.setProcessedAt(null);
+        detailRepository.save(detail);
     }
 
     @Transactional

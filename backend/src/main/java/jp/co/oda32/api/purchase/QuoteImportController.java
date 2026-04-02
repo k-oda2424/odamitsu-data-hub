@@ -1,7 +1,7 @@
 package jp.co.oda32.api.purchase;
 
 import jp.co.oda32.domain.model.purchase.TQuoteImportHeader;
-import jp.co.oda32.domain.model.purchase.WQuoteImportDetail;
+import jp.co.oda32.domain.model.purchase.TQuoteImportDetail;
 import jp.co.oda32.domain.service.purchase.QuoteImportService;
 import jp.co.oda32.dto.purchase.*;
 import jakarta.validation.Valid;
@@ -37,12 +37,14 @@ public class QuoteImportController {
         if (header == null) {
             return ResponseEntity.notFound().build();
         }
-        List<WQuoteImportDetail> details = quoteImportService.getDetails(importId);
-        int remaining = details.size();
+        List<TQuoteImportDetail> pendingDetails = quoteImportService.getPendingDetails(importId);
+        List<TQuoteImportDetail> processedDetails = quoteImportService.getProcessedDetails(importId);
+        int remaining = pendingDetails.size();
 
         Map<String, Object> result = new HashMap<>();
         result.put("header", QuoteImportHeaderResponse.from(header, remaining));
-        result.put("details", details.stream().map(QuoteImportDetailResponse::from).collect(Collectors.toList()));
+        result.put("details", pendingDetails.stream().map(QuoteImportDetailResponse::from).collect(Collectors.toList()));
+        result.put("processedDetails", processedDetails.stream().map(QuoteImportDetailResponse::from).collect(Collectors.toList()));
         return ResponseEntity.ok(result);
     }
 
@@ -86,6 +88,14 @@ public class QuoteImportController {
             @PathVariable Integer importId,
             @PathVariable Integer detailId) {
         quoteImportService.skipDetail(detailId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{importId}/details/{detailId}/undo")
+    public ResponseEntity<Void> undoDetail(
+            @PathVariable Integer importId,
+            @PathVariable Integer detailId) {
+        quoteImportService.undoDetail(importId, detailId);
         return ResponseEntity.noContent().build();
     }
 

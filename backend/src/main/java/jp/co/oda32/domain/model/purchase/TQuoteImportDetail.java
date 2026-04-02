@@ -14,8 +14,8 @@ import java.sql.Timestamp;
 @Entity
 @AllArgsConstructor
 @NoArgsConstructor
-@Table(name = "w_quote_import_detail")
-public class WQuoteImportDetail {
+@Table(name = "t_quote_import_detail")
+public class TQuoteImportDetail {
     @Id
     @Column(name = "quote_import_detail_id")
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -56,4 +56,16 @@ public class WQuoteImportDetail {
 
     @Column(name = "add_date_time")
     private Timestamp addDateTime;
+
+    @Column(name = "status")
+    private String status;
+
+    @Column(name = "matched_goods_code")
+    private String matchedGoodsCode;
+
+    @Column(name = "matched_goods_no")
+    private Integer matchedGoodsNo;
+
+    @Column(name = "processed_at")
+    private Timestamp processedAt;
 }

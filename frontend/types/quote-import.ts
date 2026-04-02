@@ -26,9 +26,13 @@ export interface QuoteImportDetailResponse {
   newPrice: number | null
   oldBoxPrice: number | null
   newBoxPrice: number | null
+  status: string | null
+  matchedGoodsCode: string | null
+  matchedGoodsNo: number | null
 }
 
 export interface QuoteImportDetailData {
   header: QuoteImportHeaderResponse
   details: QuoteImportDetailResponse[]
+  processedDetails: QuoteImportDetailResponse[]
 }

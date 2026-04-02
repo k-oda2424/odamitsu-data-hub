@@ -107,4 +107,8 @@ public class MPurchasePriceChangePlanService extends CustomService {
     public void updateReflectComplete() {
         log.info(String.format("仕入価格反映フラグ更新：%d件", this.mPurchasePriceChangePlanRepository.updateReflectComplete()));
     }
+
+    public void deleteByGoodsCodeAndChangePlanDate(Integer shopNo, String goodsCode, LocalDate changePlanDate) {
+        this.mPurchasePriceChangePlanRepository.deleteByShopNoAndGoodsCodeAndChangePlanDate(shopNo, goodsCode, changePlanDate);
+    }
 }

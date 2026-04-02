@@ -1,0 +1,3 @@
+-- ワークテーブルから履歴テーブルへリネーム
+ALTER TABLE w_quote_import_detail RENAME TO t_quote_import_detail;
+ALTER INDEX idx_w_quote_import_detail_header RENAME TO idx_t_quote_import_detail_header;

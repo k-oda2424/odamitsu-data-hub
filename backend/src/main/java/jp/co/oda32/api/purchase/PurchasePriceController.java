@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -26,6 +28,20 @@ public class PurchasePriceController {
             @RequestParam(required = false) Integer supplierNo) {
         List<MPurchasePrice> prices = mPurchasePriceService.find(
                 shopNo, null, goodsCode, goodsName, null, supplierNo, null, Flag.NO);
-        return ResponseEntity.ok(prices.stream().map(PurchasePriceResponse::from).collect(Collectors.toList()));
+
+        // 同一商品（goodsNo）の重複を排除し、最新のpurchasePriceNoを採用
+        List<PurchasePriceResponse> result = prices.stream()
+                .sorted(Comparator.comparingInt(MPurchasePrice::getPurchasePriceNo).reversed())
+                .collect(Collectors.toMap(
+                        MPurchasePrice::getGoodsNo,
+                        PurchasePriceResponse::from,
+                        (existing, replacement) -> existing,
+                        LinkedHashMap::new
+                ))
+                .values()
+                .stream()
+                .toList();
+
+        return ResponseEntity.ok(result);
     }
 }

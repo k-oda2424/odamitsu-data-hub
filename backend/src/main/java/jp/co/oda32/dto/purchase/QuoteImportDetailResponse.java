@@ -1,6 +1,6 @@
 package jp.co.oda32.dto.purchase;
 
-import jp.co.oda32.domain.model.purchase.WQuoteImportDetail;
+import jp.co.oda32.domain.model.purchase.TQuoteImportDetail;
 import lombok.Builder;
 import lombok.Data;
 
@@ -20,8 +20,11 @@ public class QuoteImportDetailResponse {
     private BigDecimal newPrice;
     private BigDecimal oldBoxPrice;
     private BigDecimal newBoxPrice;
+    private String status;
+    private String matchedGoodsCode;
+    private Integer matchedGoodsNo;
 
-    public static QuoteImportDetailResponse from(WQuoteImportDetail d) {
+    public static QuoteImportDetailResponse from(TQuoteImportDetail d) {
         return QuoteImportDetailResponse.builder()
                 .quoteImportDetailId(d.getQuoteImportDetailId())
                 .rowNo(d.getRowNo())
@@ -34,6 +37,9 @@ public class QuoteImportDetailResponse {
                 .newPrice(d.getNewPrice())
                 .oldBoxPrice(d.getOldBoxPrice())
                 .newBoxPrice(d.getNewBoxPrice())
+                .status(d.getStatus())
+                .matchedGoodsCode(d.getMatchedGoodsCode())
+                .matchedGoodsNo(d.getMatchedGoodsNo())
                 .build();
     }
 }
