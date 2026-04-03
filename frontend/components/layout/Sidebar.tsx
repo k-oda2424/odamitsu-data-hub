@@ -3,6 +3,11 @@
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -22,23 +27,43 @@ import {
   BarChart3,
   Globe,
   Database,
+  Cog,
   Box,
   ClipboardList,
   Sparkles,
   Receipt,
   Send,
   FileSearch,
+  ChevronRight,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
-const menuGroups = [
+interface MenuItem {
+  title: string
+  icon: LucideIcon
+  href: string
+}
+
+interface MenuGroup {
+  label: string
+  icon: LucideIcon
+  collapsible: boolean
+  items: MenuItem[]
+}
+
+const menuGroups: MenuGroup[] = [
   {
     label: 'メイン',
+    icon: LayoutDashboard,
+    collapsible: false,
     items: [
       { title: 'ダッシュボード', icon: LayoutDashboard, href: '/dashboard' },
     ],
   },
   {
     label: '商品・在庫',
+    icon: Package,
+    collapsible: true,
     items: [
       { title: '在庫一覧', icon: Box, href: '/stock' },
       { title: '商品マスタ', icon: Package, href: '/goods' },
@@ -49,6 +74,8 @@ const menuGroups = [
   },
   {
     label: '受注・発注',
+    icon: FileText,
+    collapsible: true,
     items: [
       { title: '受注一覧', icon: FileText, href: '/orders' },
       { title: '得意先発注', icon: Truck, href: '/partner-orders' },
@@ -56,6 +83,8 @@ const menuGroups = [
   },
   {
     label: '仕入',
+    icon: ShoppingCart,
+    collapsible: true,
     items: [
       { title: '仕入入力', icon: ShoppingCart, href: '/purchases' },
       { title: '発注一覧', icon: Send, href: '/send-orders' },
@@ -68,28 +97,23 @@ const menuGroups = [
     ],
   },
   {
-    label: '見積',
+    label: '見積・財務',
+    icon: BarChart3,
+    collapsible: true,
     items: [
       { title: '見積一覧', icon: FileText, href: '/estimates' },
-    ],
-  },
-  {
-    label: '財務',
-    items: [
       { title: '買掛金', icon: BarChart3, href: '/finance/accounts-payable' },
       { title: '請求書', icon: Receipt, href: '/finance/invoices' },
     ],
   },
   {
-    label: '外部連携',
+    label: '外部連携・マスタ',
+    icon: Globe,
+    collapsible: true,
     items: [
       { title: 'B-CART出荷', icon: Globe, href: '/bcart/shipping' },
-    ],
-  },
-  {
-    label: 'マスタ',
-    items: [
       { title: 'マスタ管理', icon: Database, href: '/masters' },
+      { title: 'バッチ管理', icon: Cog, href: '/batch' },
     ],
   },
 ]
@@ -103,6 +127,10 @@ function isMenuActive(pathname: string, href: string): boolean {
     (other) => other !== href && other.startsWith(href + '/') && (pathname === other || pathname.startsWith(other + '/'))
   )
   return !hasMoreSpecificMatch
+}
+
+function isGroupActive(pathname: string, items: MenuItem[]): boolean {
+  return items.some((item) => isMenuActive(pathname, item.href))
 }
 
 export function AppSidebar() {
@@ -122,28 +150,62 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        {menuGroups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {group.items.map((item) => (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isMenuActive(pathname, item.href)}
-                    >
-                      <Link href={item.href}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+        {menuGroups.map((group) => {
+          if (!group.collapsible) {
+            return (
+              <SidebarGroup key={group.label}>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {group.items.map((item) => (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild isActive={isMenuActive(pathname, item.href)}>
+                          <Link href={item.href}>
+                            <item.icon className="h-4 w-4" />
+                            <span>{item.title}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )
+          }
+
+          const active = isGroupActive(pathname, group.items)
+
+          return (
+            <Collapsible key={group.label} defaultOpen={active} className="group/collapsible">
+              <SidebarGroup>
+                <SidebarGroupLabel asChild>
+                  <CollapsibleTrigger className="flex w-full items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <group.icon className="h-3.5 w-3.5" />
+                      {group.label}
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                  </CollapsibleTrigger>
+                </SidebarGroupLabel>
+                <CollapsibleContent>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {group.items.map((item) => (
+                        <SidebarMenuItem key={item.href}>
+                          <SidebarMenuButton asChild isActive={isMenuActive(pathname, item.href)}>
+                            <Link href={item.href}>
+                              <item.icon className="h-4 w-4" />
+                              <span>{item.title}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </CollapsibleContent>
+              </SidebarGroup>
+            </Collapsible>
+          )
+        })}
       </SidebarContent>
     </Sidebar>
   )

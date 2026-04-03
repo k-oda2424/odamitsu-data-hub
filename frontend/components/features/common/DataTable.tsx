@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Table,
   TableBody,
@@ -42,21 +42,24 @@ export function DataTable<T extends Record<string, any>>({
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
-  const normalizedSearch = normalizeForSearch(search.toLowerCase())
-  const filtered = data.filter((item) =>
-    search === '' ||
-    Object.values(item).some((v) =>
-      normalizeForSearch(String(v ?? '').toLowerCase()).includes(normalizedSearch)
+  const filtered = useMemo(() => {
+    if (search === '') return data
+    const normalizedSearch = normalizeForSearch(search.toLowerCase())
+    return data.filter((item) =>
+      Object.values(item).some((v) =>
+        normalizeForSearch(String(v ?? '').toLowerCase()).includes(normalizedSearch)
+      )
     )
-  )
+  }, [data, search])
 
-  const sorted = sortKey
-    ? [...filtered].sort((a, b) => {
-        const aVal = String(a[sortKey] ?? '')
-        const bVal = String(b[sortKey] ?? '')
-        return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-      })
-    : filtered
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered
+    return [...filtered].sort((a, b) => {
+      const aVal = String(a[sortKey] ?? '')
+      const bVal = String(b[sortKey] ?? '')
+      return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+    })
+  }, [filtered, sortKey, sortDir])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const paged = sorted.slice(page * pageSize, (page + 1) * pageSize)
