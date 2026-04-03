@@ -57,7 +57,9 @@ public class SalesGoodsController {
         if (work == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(SalesGoodsDetailResponse.from(work));
+        MSalesGoods master = mSalesGoodsService.getByPK(shopNo, goodsNo);
+        boolean hasMaster = master != null && Flag.NO.getValue().equals(master.getDelFlg());
+        return ResponseEntity.ok(SalesGoodsDetailResponse.from(work, hasMaster));
     }
 
     @GetMapping("/master/{shopNo}/{goodsNo}")
@@ -161,13 +163,22 @@ public class SalesGoodsController {
     @DeleteMapping("/work/{shopNo}/{goodsNo}")
     public ResponseEntity<Void> deleteWork(
             @PathVariable Integer shopNo,
-            @PathVariable Integer goodsNo) throws Exception {
+            @PathVariable Integer goodsNo,
+            @RequestParam(defaultValue = "false") boolean deleteMaster) throws Exception {
         WSalesGoods work = wSalesGoodsService.getByPK(shopNo, goodsNo);
-        if (work == null) {
+        if (work == null || Flag.YES.getValue().equals(work.getDelFlg())) {
             return ResponseEntity.notFound().build();
         }
         work.setDelFlg(Flag.YES.getValue());
         wSalesGoodsService.update(work);
+
+        if (deleteMaster) {
+            MSalesGoods master = mSalesGoodsService.getByPK(shopNo, goodsNo);
+            if (master != null && Flag.NO.getValue().equals(master.getDelFlg())) {
+                master.setDelFlg(Flag.YES.getValue());
+                mSalesGoodsService.update(master);
+            }
+        }
         return ResponseEntity.noContent().build();
     }
 }

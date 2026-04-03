@@ -53,6 +53,7 @@ export interface SalesGoodsDetailResponse {
   keyword: string
   delFlg: string
   isWork: boolean
+  hasMaster: boolean
   janCode: string
   makerName: string
   specification: string

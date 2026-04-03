@@ -31,6 +31,7 @@ public class SalesGoodsDetailResponse {
     private String keyword;
     private String delFlg;
     private boolean isWork;
+    private boolean hasMaster;
     private String janCode;
     private String makerName;
     private String specification;
@@ -65,6 +66,10 @@ public class SalesGoodsDetailResponse {
     }
 
     public static SalesGoodsDetailResponse from(WSalesGoods sg) {
+        return from(sg, false);
+    }
+
+    public static SalesGoodsDetailResponse from(WSalesGoods sg, boolean hasMaster) {
         MGoods mGoods = sg.getMGoods();
         return SalesGoodsDetailResponse.builder()
                 .shopNo(sg.getShopNo())
@@ -87,6 +92,7 @@ public class SalesGoodsDetailResponse {
                 .keyword(sg.getKeyword())
                 .delFlg(sg.getDelFlg())
                 .isWork(true)
+                .hasMaster(hasMaster)
                 .janCode(mGoods != null ? mGoods.getJanCode() : null)
                 .makerName(mGoods != null && mGoods.getMaker() != null ? mGoods.getMaker().getMakerName() : null)
                 .specification(mGoods != null ? mGoods.getSpecification() : null)

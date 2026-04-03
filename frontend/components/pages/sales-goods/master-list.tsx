@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -24,15 +24,22 @@ import { salesGoodsColumns, SalesGoodsSearchFields } from './shared'
 
 export function SalesGoodsMasterListPage() {
   const router = useRouter()
+  const urlParams = useSearchParams()
   const { user } = useAuth()
   const isAdmin = user?.shopNo === 0
 
-  const [goodsName, setGoodsName] = useState('')
-  const [goodsCode, setGoodsCode] = useState('')
-  const [keyword, setKeyword] = useState('')
-  const [supplierNo, setSupplierNo] = useState<string>('')
-  const [selectedShopNo, setSelectedShopNo] = useState<string>(isAdmin ? '' : String(user?.shopNo ?? ''))
-  const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
+  // URLパラメータから検索状態を復元
+  const initialSearched = urlParams.get('searched') === '1'
+  const [goodsName, setGoodsName] = useState(urlParams.get('goodsName') ?? '')
+  const [goodsCode, setGoodsCode] = useState(urlParams.get('goodsCode') ?? '')
+  const [keyword, setKeyword] = useState(urlParams.get('keyword') ?? '')
+  const [supplierNo, setSupplierNo] = useState<string>(urlParams.get('supplierNo') ?? '')
+  const [selectedShopNo, setSelectedShopNo] = useState<string>(
+    urlParams.get('shopNo') ?? (isAdmin ? '' : String(user?.shopNo ?? ''))
+  )
+  const [searchParams, setSearchParams] = useState<Record<string, string> | null>(
+    initialSearched ? { goodsName: urlParams.get('goodsName') ?? '', goodsCode: urlParams.get('goodsCode') ?? '', keyword: urlParams.get('keyword') ?? '', supplierNo: urlParams.get('supplierNo') ?? '' } : null
+  )
 
   const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
@@ -52,8 +59,24 @@ export function SalesGoodsMasterListPage() {
     enabled: searchParams !== null && !!effectiveShopNo,
   })
 
+  const syncUrl = useCallback((params: Record<string, string> | null, shopNo: string) => {
+    const url = new URLSearchParams()
+    if (params) {
+      url.set('searched', '1')
+      if (shopNo) url.set('shopNo', shopNo)
+      if (params.goodsName) url.set('goodsName', params.goodsName)
+      if (params.goodsCode) url.set('goodsCode', params.goodsCode)
+      if (params.keyword) url.set('keyword', params.keyword)
+      if (params.supplierNo) url.set('supplierNo', params.supplierNo)
+    }
+    const qs = url.toString()
+    router.replace(`/sales-goods${qs ? `?${qs}` : ''}`, { scroll: false })
+  }, [router])
+
   const handleSearch = () => {
-    setSearchParams({ goodsName, goodsCode, keyword, supplierNo })
+    const params = { goodsName, goodsCode, keyword, supplierNo }
+    setSearchParams(params)
+    syncUrl(params, effectiveShopNo)
   }
 
   const handleReset = () => {
@@ -62,6 +85,7 @@ export function SalesGoodsMasterListPage() {
     setKeyword('')
     setSupplierNo('')
     setSearchParams(null)
+    router.replace('/sales-goods', { scroll: false })
   }
 
   const hasSearched = searchParams !== null
