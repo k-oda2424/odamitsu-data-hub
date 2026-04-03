@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/v1/quote-imports")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 public class QuoteImportController {
 
     private final QuoteImportService quoteImportService;
@@ -25,8 +27,13 @@ public class QuoteImportController {
     @GetMapping
     public ResponseEntity<List<QuoteImportHeaderResponse>> list() {
         List<TQuoteImportHeader> headers = quoteImportService.findAllHeaders();
+        List<Integer> importIds = headers.stream()
+                .map(TQuoteImportHeader::getQuoteImportId)
+                .collect(Collectors.toList());
+        Map<Integer, Long> remainingCounts = quoteImportService.getRemainingCountBatch(importIds);
         List<QuoteImportHeaderResponse> response = headers.stream()
-                .map(h -> QuoteImportHeaderResponse.from(h, quoteImportService.getRemainingCount(h.getQuoteImportId())))
+                .map(h -> QuoteImportHeaderResponse.from(h,
+                        remainingCounts.getOrDefault(h.getQuoteImportId(), 0L).intValue()))
                 .collect(Collectors.toList());
         return ResponseEntity.ok(response);
     }
@@ -87,7 +94,7 @@ public class QuoteImportController {
     public ResponseEntity<Void> skipDetail(
             @PathVariable Integer importId,
             @PathVariable Integer detailId) {
-        quoteImportService.skipDetail(detailId);
+        quoteImportService.skipDetail(importId, detailId);
         return ResponseEntity.noContent().build();
     }
 

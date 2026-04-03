@@ -71,11 +71,42 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   return response.json()
 }
 
+async function uploadForm<T>(endpoint: string, formData: FormData): Promise<T> {
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  // Content-Type は fetch が multipart boundary を自動設定するため指定しない
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    }
+    throw new ApiError(401, 'Unauthorized')
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ message: response.statusText }))
+    throw new ApiError(response.status, errorBody.message || response.statusText)
+  }
+
+  return response.json()
+}
+
 export const api = {
   get: <T>(endpoint: string) => request<T>(endpoint),
   post: <T>(endpoint: string, body?: unknown) => request<T>(endpoint, { method: 'POST', body }),
   put: <T>(endpoint: string, body?: unknown) => request<T>(endpoint, { method: 'PUT', body }),
   delete: (endpoint: string) => request<void>(endpoint, { method: 'DELETE' }),
+  postForm: <T>(endpoint: string, formData: FormData) => uploadForm<T>(endpoint, formData),
 }
 
 export { ApiError }
