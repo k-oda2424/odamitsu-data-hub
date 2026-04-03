@@ -141,7 +141,7 @@ public class InvoiceImportService {
                     ));
 
             Map<String, TInvoice> existingMap = existingInvoices.stream()
-                    .collect(Collectors.toMap(TInvoice::getPartnerCode, Function.identity()));
+                    .collect(Collectors.toMap(TInvoice::getPartnerCode, Function.identity(), (a, b) -> a));
 
             int insertedRows = 0;
             int updatedRows = 0;

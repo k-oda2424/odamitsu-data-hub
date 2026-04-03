@@ -41,7 +41,7 @@ public class CommonSpecification<T> {
     }
 
     /**
-     * NFKC正規化して前方一致LIKE検索（%value）
+     * NFKC正規化して後方一致LIKE検索（%value）
      */
     protected Specification<T> likeSuffixNormalized(String fieldName, String searchValue) {
         if (StringUtil.isEmpty(searchValue)) return null;
@@ -53,7 +53,7 @@ public class CommonSpecification<T> {
     }
 
     /**
-     * NFKC正規化して後方一致LIKE検索（value%）
+     * NFKC正規化して前方一致LIKE検索（value%）
      */
     protected Specification<T> likePrefixNormalized(String fieldName, String searchValue) {
         if (StringUtil.isEmpty(searchValue)) return null;
@@ -78,7 +78,7 @@ public class CommonSpecification<T> {
     }
 
     /**
-     * ネストされたパスに対するNFKC正規化LIKE（%value）
+     * ネストされたパスに対するNFKC正規化LIKE — 後方一致（%value）
      */
     protected Specification<T> likeSuffixNormalized(String parent, String child, String searchValue) {
         if (StringUtil.isEmpty(searchValue)) return null;

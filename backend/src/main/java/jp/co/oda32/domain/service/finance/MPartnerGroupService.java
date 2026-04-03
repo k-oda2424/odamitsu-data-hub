@@ -15,12 +15,14 @@ public class MPartnerGroupService {
 
     private final MPartnerGroupRepository repository;
 
+    @Transactional(readOnly = true)
     public List<MPartnerGroup> findByShopNo(Integer shopNo) {
         return shopNo != null
                 ? repository.findByShopNoOrderByGroupNameAsc(shopNo)
                 : repository.findAll();
     }
 
+    @Transactional(readOnly = true)
     public MPartnerGroup findById(Integer id) {
         return repository.findById(id).orElse(null);
     }

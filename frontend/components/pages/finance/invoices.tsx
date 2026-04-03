@@ -174,7 +174,7 @@ export function InvoiceListPage() {
     setFilterGroupId(null)
     setSearchParams({
       shopNo,
-      closingDate: closingDate ? closingDate.replace('-', '/') : '',
+      closingDate: closingDate ? closingDate.replaceAll('-', '/') : '',
       partnerCode,
       partnerName,
     })
@@ -209,7 +209,7 @@ export function InvoiceListPage() {
     return allInvoices.filter((inv) => codeSet.has(inv.partnerCode))
   }, [allInvoices, filterGroup])
 
-  const allSelected = invoices.length > 0 && selectedIds.size === invoices.length
+  const allSelected = invoices.length > 0 && invoices.every((inv) => selectedIds.has(inv.invoiceId))
 
   // F5: toggleSelectAll operates on filtered invoices
   const toggleSelectAll = () => {

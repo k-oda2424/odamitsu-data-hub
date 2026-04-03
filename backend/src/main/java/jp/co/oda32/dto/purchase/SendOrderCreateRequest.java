@@ -1,6 +1,7 @@
 package jp.co.oda32.dto.purchase;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -20,6 +21,7 @@ public class SendOrderCreateRequest {
     private LocalDateTime sendOrderDateTime;
     private LocalDate desiredDeliveryDate;
     @Valid
+    @NotEmpty(message = "明細は1件以上必須です")
     private List<SendOrderDetailCreateRequest> details;
 
     @Data

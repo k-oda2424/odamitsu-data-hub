@@ -111,6 +111,7 @@ public class TInvoiceService {
         return tInvoiceRepository.findById(invoiceId).orElse(null);
     }
 
+    @Transactional(readOnly = true)
     public List<TInvoice> findByIds(List<Integer> invoiceIds) {
         return tInvoiceRepository.findAllById(invoiceIds);
     }

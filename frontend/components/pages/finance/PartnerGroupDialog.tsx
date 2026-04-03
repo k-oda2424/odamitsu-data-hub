@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
@@ -41,6 +41,14 @@ export function PartnerGroupDialog({ open, onOpenChange, groups, shopNo, editing
   const [groupName, setGroupName] = useState(initialEditingGroup?.groupName ?? '')
   const [groupPartnerCodes, setGroupPartnerCodes] = useState(initialEditingGroup?.partnerCodes.join('\n') ?? '')
   const [deleteTarget, setDeleteTarget] = useState<PartnerGroup | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      setEditingGroup(initialEditingGroup ?? null)
+      setGroupName(initialEditingGroup?.groupName ?? '')
+      setGroupPartnerCodes(initialEditingGroup?.partnerCodes.join('\n') ?? '')
+    }
+  }, [open, initialEditingGroup])
 
   const saveMutation = useMutation({
     mutationFn: (data: { id?: number; groupName: string; shopNo: number; partnerCodes: string[] }) => {

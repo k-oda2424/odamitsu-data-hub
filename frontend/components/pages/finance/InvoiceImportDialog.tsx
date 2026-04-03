@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,17 +33,7 @@ export function InvoiceImportDialog({ open, onOpenChange }: InvoiceImportDialogP
     mutationFn: async (f: File) => {
       const formData = new FormData()
       formData.append('file', f)
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-      const res = await fetch('/api/v1/finance/invoices/import', {
-        method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        body: formData,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText }))
-        throw new Error(err.message || 'インポートに失敗しました')
-      }
-      return res.json() as Promise<InvoiceImportResult>
+      return api.postForm<InvoiceImportResult>('/finance/invoices/import', formData)
     },
     onSuccess: (r) => {
       setResult(r)
