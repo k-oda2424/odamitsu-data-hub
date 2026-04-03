@@ -63,6 +63,7 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['quote-import', importId] })
     },
+    onError: () => toast.error('スキップに失敗しました'),
   })
 
   const undoMutation = useMutation({
@@ -82,7 +83,7 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
       queryClient.invalidateQueries({ queryKey: ['quote-import', importId] })
       toast.success('商品を突合しました')
     },
-    onError: () => toast.error('突合に失敗しました'),
+    onError: (error: Error) => toast.error(`突合に失敗しました: ${error.message}`),
   })
 
   const handleSupplierConfirm = () => {
@@ -158,7 +159,7 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
             <div className="flex items-center gap-2">
               <Badge variant="secondary">確定済み</Badge>
               <span className="text-sm">
-                {header.supplierName} → {header.supplierCode}（No.{header.supplierNo}）
+                {header.supplierName} → {header.supplierCode} {suppliersQuery.data?.find(s => s.supplierNo === header.supplierNo)?.supplierName ?? ''}（No.{header.supplierNo}）
               </span>
               <Button
                 variant="ghost"

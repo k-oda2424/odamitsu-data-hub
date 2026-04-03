@@ -19,6 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -58,6 +60,16 @@ public class QuoteImportService {
     @Transactional(readOnly = true)
     public int getRemainingCount(Integer importId) {
         return detailRepository.countByQuoteImportIdAndStatus(importId, STATUS_PENDING);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Integer, Long> getRemainingCountBatch(List<Integer> importIds) {
+        if (importIds.isEmpty()) return Map.of();
+        return detailRepository.countByImportIdsAndStatus(importIds, STATUS_PENDING).stream()
+                .collect(Collectors.toMap(
+                        row -> (Integer) row[0],
+                        row -> (Long) row[1]
+                ));
     }
 
     @Transactional
@@ -109,7 +121,7 @@ public class QuoteImportService {
     @Transactional
     public void matchGoods(Integer importId, Integer detailId, String goodsCode, Integer goodsNo) throws Exception {
         TQuoteImportHeader header = headerRepository.findById(importId).orElseThrow();
-        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+        TQuoteImportDetail detail = getDetailBelongingToImport(detailId, importId);
 
         MPurchasePriceChangePlan plan = MPurchasePriceChangePlan.builder()
                 .shopNo(header.getShopNo())
@@ -117,8 +129,8 @@ public class QuoteImportService {
                 .goodsName(detail.getQuoteGoodsName())
                 .janCode(detail.getJanCode())
                 .supplierCode(header.getSupplierCode())
-                .beforePrice(detail.getOldPrice())
-                .afterPrice(detail.getNewPrice())
+                .beforePrice(detail.getOldPrice() != null ? detail.getOldPrice() : java.math.BigDecimal.ZERO)
+                .afterPrice(detail.getNewPrice() != null ? detail.getNewPrice() : java.math.BigDecimal.ZERO)
                 .changePlanDate(header.getEffectiveDate())
                 .changeReason(header.getChangeReason())
                 .changeContainNum(detail.getQuantityPerCase() != null ? new java.math.BigDecimal(detail.getQuantityPerCase()) : null)
@@ -139,7 +151,7 @@ public class QuoteImportService {
     @Transactional
     public void createNewAndMatch(Integer importId, Integer detailId, QuoteImportCreateNewRequest request) throws Exception {
         TQuoteImportHeader header = headerRepository.findById(importId).orElseThrow();
-        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+        TQuoteImportDetail detail = getDetailBelongingToImport(detailId, importId);
 
         MGoods goods = new MGoods();
         goods.setGoodsName(request.getGoods().getGoodsName());
@@ -168,8 +180,8 @@ public class QuoteImportService {
                 .goodsName(detail.getQuoteGoodsName())
                 .janCode(detail.getJanCode())
                 .supplierCode(header.getSupplierCode())
-                .beforePrice(detail.getOldPrice())
-                .afterPrice(detail.getNewPrice())
+                .beforePrice(detail.getOldPrice() != null ? detail.getOldPrice() : java.math.BigDecimal.ZERO)
+                .afterPrice(detail.getNewPrice() != null ? detail.getNewPrice() : java.math.BigDecimal.ZERO)
                 .changePlanDate(header.getEffectiveDate())
                 .changeReason(header.getChangeReason())
                 .partnerNo(0)
@@ -187,8 +199,8 @@ public class QuoteImportService {
     }
 
     @Transactional
-    public void skipDetail(Integer detailId) {
-        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+    public void skipDetail(Integer importId, Integer detailId) {
+        TQuoteImportDetail detail = getDetailBelongingToImport(detailId, importId);
         detail.setStatus(STATUS_SKIPPED);
         detail.setProcessedAt(Timestamp.from(Instant.now()));
         detailRepository.save(detail);
@@ -196,7 +208,7 @@ public class QuoteImportService {
 
     @Transactional
     public void undoDetail(Integer importId, Integer detailId) {
-        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+        TQuoteImportDetail detail = getDetailBelongingToImport(detailId, importId);
         TQuoteImportHeader header = headerRepository.findById(importId).orElseThrow();
 
         // 突合/新規作成の場合、対応する仕入価格変更予定を削除
@@ -212,10 +224,29 @@ public class QuoteImportService {
         detailRepository.save(detail);
     }
 
+    private TQuoteImportDetail getDetailBelongingToImport(Integer detailId, Integer importId) {
+        TQuoteImportDetail detail = detailRepository.findById(detailId).orElseThrow();
+        if (!importId.equals(detail.getQuoteImportId())) {
+            throw new IllegalArgumentException(
+                    "明細ID " + detailId + " はインポートID " + importId + " に属していません");
+        }
+        return detail;
+    }
+
     @Transactional
     public void deleteImport(Integer importId) {
-        detailRepository.deleteByQuoteImportId(importId);
         TQuoteImportHeader header = headerRepository.findById(importId).orElseThrow();
+
+        // マッチ済み明細に対応する仕入価格変更予定を削除
+        List<TQuoteImportDetail> matchedDetails = detailRepository.findByQuoteImportIdAndStatusNotOrderByRowNo(importId, STATUS_PENDING);
+        for (TQuoteImportDetail detail : matchedDetails) {
+            if (detail.getMatchedGoodsCode() != null) {
+                changePlanService.deleteByGoodsCodeAndChangePlanDate(
+                        header.getShopNo(), detail.getMatchedGoodsCode(), header.getEffectiveDate());
+            }
+        }
+
+        detailRepository.deleteByQuoteImportId(importId);
         header.setDelFlg(Flag.YES.getValue());
         header.setModifyDateTime(Timestamp.from(Instant.now()));
         headerRepository.save(header);

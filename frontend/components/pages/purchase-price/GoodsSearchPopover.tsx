@@ -37,8 +37,18 @@ export function GoodsSearchPopover({
     queryFn: () => {
       const params = new URLSearchParams()
       params.append('shopNo', String(shopNo))
-      if (searchTerm) params.append('goodsName', searchTerm)
-      if (supplierNo) params.append('supplierNo', String(supplierNo))
+      if (searchTerm) {
+        // 数字のみの場合は商品コードで検索、それ以外は商品名で検索
+        if (/^\d+$/.test(searchTerm.trim())) {
+          params.append('goodsCode', searchTerm.trim())
+          // 商品コード検索時は仕入先フィルタを外す（別仕入先の商品も検索可能に）
+        } else {
+          params.append('goodsName', searchTerm)
+          if (supplierNo) params.append('supplierNo', String(supplierNo))
+        }
+      } else {
+        if (supplierNo) params.append('supplierNo', String(supplierNo))
+      }
       return api.get<PurchasePriceResponse[]>(`/purchase-prices?${params.toString()}`)
     },
     enabled: !!searchTerm && open,
@@ -76,7 +86,7 @@ export function GoodsSearchPopover({
         <div className="space-y-2">
           <div className="flex gap-1">
             <Input
-              placeholder="商品名で検索..."
+              placeholder="商品名 or 商品コードで検索..."
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={handleKeyDown}
