@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
-import { useShops } from '@/hooks/use-master-data'
+import { useShops, usePartners } from '@/hooks/use-master-data'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
 import { ErrorMessage } from '@/components/features/common/ErrorMessage'
 import { SearchForm } from '@/components/features/common/SearchForm'
+import { SearchableSelect } from '@/components/features/common/SearchableSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -76,7 +77,7 @@ const columns: Column<EstimateResponse>[] = [
   },
 ]
 
-const DEFAULT_STATUSES = ['00', '20']
+const DEFAULT_STATUSES = ['00', '10', '20', '30', '70']
 
 export function EstimateListPage() {
   const router = useRouter()
@@ -84,6 +85,7 @@ export function EstimateListPage() {
   const isAdmin = user?.shopNo === 0
 
   const [estimateNo, setEstimateNo] = useState('')
+  const [partnerNo, setPartnerNo] = useState('')
   const [goodsName, setGoodsName] = useState('')
   const [goodsCode, setGoodsCode] = useState('')
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(DEFAULT_STATUSES)
@@ -97,8 +99,8 @@ export function EstimateListPage() {
   const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
 
   const shopsQuery = useShops(isAdmin)
-
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
+  const partnersQuery = usePartners(effectiveShopNo)
 
   const listQuery = useQuery({
     queryKey: ['estimates', effectiveShopNo, searchParams],
@@ -106,6 +108,7 @@ export function EstimateListPage() {
       const params = new URLSearchParams()
       if (effectiveShopNo) params.append('shopNo', effectiveShopNo)
       if (searchParams?.estimateNo) params.append('estimateNo', searchParams.estimateNo)
+      if (searchParams?.partnerNo) params.append('partnerNo', searchParams.partnerNo)
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
       if (searchParams?.goodsCode) params.append('goodsCode', searchParams.goodsCode)
       if (searchParams?.estimateDateFrom) params.append('estimateDateFrom', searchParams.estimateDateFrom)
@@ -124,6 +127,7 @@ export function EstimateListPage() {
   const handleSearch = () => {
     setSearchParams({
       estimateNo,
+      partnerNo,
       goodsName,
       goodsCode,
       estimateStatus: selectedStatuses.join(','),
@@ -136,6 +140,7 @@ export function EstimateListPage() {
 
   const handleReset = () => {
     setEstimateNo('')
+    setPartnerNo('')
     setGoodsName('')
     setGoodsCode('')
     setSelectedStatuses(DEFAULT_STATUSES)
@@ -185,12 +190,24 @@ export function EstimateListPage() {
           </div>
         )}
         <div className="space-y-2">
-          <Label>見積番号</Label>
+          <Label>得意先</Label>
+          <SearchableSelect
+            value={partnerNo}
+            onValueChange={setPartnerNo}
+            options={(partnersQuery.data ?? []).map((p) => ({
+              value: String(p.partnerNo),
+              label: `${p.partnerCode} ${p.partnerName}`,
+            }))}
+            placeholder="得意先を選択"
+            searchPlaceholder="得意先を検索..."
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>商品コード</Label>
           <Input
-            type="number"
-            placeholder="見積番号を入力"
-            value={estimateNo}
-            onChange={(e) => setEstimateNo(e.target.value)}
+            placeholder="商品コードを入力"
+            value={goodsCode}
+            onChange={(e) => setGoodsCode(e.target.value)}
           />
         </div>
         <div className="space-y-2">
@@ -202,11 +219,12 @@ export function EstimateListPage() {
           />
         </div>
         <div className="space-y-2">
-          <Label>商品コード</Label>
+          <Label>見積番号</Label>
           <Input
-            placeholder="商品コードを入力"
-            value={goodsCode}
-            onChange={(e) => setGoodsCode(e.target.value)}
+            type="number"
+            placeholder="見積番号を入力"
+            value={estimateNo}
+            onChange={(e) => setEstimateNo(e.target.value)}
           />
         </div>
         <div className="space-y-2">

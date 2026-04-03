@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
 @Builder
@@ -19,6 +20,8 @@ public class EstimateResponse {
     private LocalDate priceChangeDate;
     private String estimateStatus;
     private String note;
+    private Boolean isIncludeTaxDisplay;
+    private List<EstimateDetailResponse> details;
 
     public static EstimateResponse from(TEstimate e) {
         String partnerCode = null;
@@ -45,5 +48,16 @@ public class EstimateResponse {
                 .estimateStatus(e.getEstimateStatus())
                 .note(e.getNote())
                 .build();
+    }
+
+    public static EstimateResponse fromWithDetails(TEstimate e) {
+        EstimateResponse resp = from(e);
+        resp.setIsIncludeTaxDisplay(e.isIncludeTaxDisplay());
+        List<EstimateDetailResponse> details = e.getTEstimateDetailList().stream()
+                .sorted(java.util.Comparator.comparingInt(d -> d.getDisplayOrder()))
+                .map(EstimateDetailResponse::from)
+                .toList();
+        resp.setDetails(details);
+        return resp;
     }
 }

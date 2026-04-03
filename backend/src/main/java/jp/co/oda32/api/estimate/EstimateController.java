@@ -28,6 +28,7 @@ public class EstimateController {
             @RequestParam(required = false) Integer shopNo,
             @RequestParam(required = false) Integer estimateNo,
             @RequestParam(required = false) Integer partnerNo,
+            @RequestParam(required = false) String partnerName,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) List<String> estimateStatus,
@@ -37,7 +38,7 @@ public class EstimateController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate priceChangeDateTo,
             @RequestParam(required = false) BigDecimal profitRate) {
         List<TEstimate> estimates = tEstimateService.find(
-                shopNo, estimateNo, partnerNo,
+                shopNo, estimateNo, partnerNo, partnerName,
                 goodsName, goodsCode, estimateStatus,
                 estimateDateFrom, estimateDateTo,
                 priceChangeDateFrom, priceChangeDateTo,
@@ -51,7 +52,7 @@ public class EstimateController {
         if (estimate == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(EstimateResponse.from(estimate));
+        return ResponseEntity.ok(EstimateResponse.fromWithDetails(estimate));
     }
 
     @PutMapping("/{estimateNo}/status")

@@ -60,6 +60,15 @@ public class TEstimateSpecification extends CommonSpecification<TEstimate> {
     }
 
     /**
+     * 得意先名の部分一致検索条件（m_partnerのpartnerNameをjoin）
+     */
+    public Specification<TEstimate> partnerNameContains(String partnerName) {
+        if (StringUtil.isEmpty(partnerName)) return null;
+        String normalized = StringUtil.normalizeForSearch(partnerName);
+        return (root, query, cb) -> cb.like(nfkc(cb, root.get("mPartner").get("partnerName")), "%" + normalized + "%");
+    }
+
+    /**
      * 商品名の検索条件
      *
      * @param goodsName 商品名
@@ -99,7 +108,7 @@ public class TEstimateSpecification extends CommonSpecification<TEstimate> {
         String normalized = StringUtil.normalizeForSearch(goodsCode);
         return (root, query, cb) -> {
             Join<TEstimateDetail, TEstimate> joinDetail = root.join("tEstimateDetailList");
-            return cb.like(nfkc(cb, joinDetail.get("goodsCode")), "%" + normalized);
+            return cb.like(nfkc(cb, joinDetail.get("goodsCode")), "%" + normalized + "%");
         };
     }
 

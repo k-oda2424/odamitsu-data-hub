@@ -37,10 +37,15 @@ public class TEstimateService extends CustomService {
     }
 
     public List<TEstimate> find(Integer shopNo, Integer estimateNo, Integer partnerNo, String goodsName, String goodsCode, List<String> estimateStatusList, LocalDate estimateDateFrom, LocalDate estimateDateTo, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, BigDecimal profitRate, Flag delFlg) {
+        return find(shopNo, estimateNo, partnerNo, null, goodsName, goodsCode, estimateStatusList, estimateDateFrom, estimateDateTo, priceChangeDateFrom, priceChangeDateTo, profitRate, delFlg);
+    }
+
+    public List<TEstimate> find(Integer shopNo, Integer estimateNo, Integer partnerNo, String partnerName, String goodsName, String goodsCode, List<String> estimateStatusList, LocalDate estimateDateFrom, LocalDate estimateDateTo, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, BigDecimal profitRate, Flag delFlg) {
         return this.tEstimateRepository.findAll(Specification
                 .where(this.tEstimateSpecification.shopNoContains(shopNo))
                 .and(this.tEstimateSpecification.estimateNoContains(estimateNo))
                 .and(this.tEstimateSpecification.partnerNoContains(partnerNo))
+                .and(this.tEstimateSpecification.partnerNameContains(partnerName))
                 .and(this.tEstimateSpecification.goodsNamesContains(goodsName))
                 .and(this.tEstimateSpecification.goodsCodeContains(goodsCode))
                 .and(this.tEstimateSpecification.estimateStatusListContains(estimateStatusList))

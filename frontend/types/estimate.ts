@@ -1,3 +1,20 @@
+export interface EstimateDetailResponse {
+  estimateDetailNo: number
+  goodsNo: number | null
+  goodsCode: string | null
+  goodsName: string | null
+  specification: string | null
+  goodsPrice: number | null
+  containNum: number | null
+  changeContainNum: number | null
+  estimateCaseNum: number | null
+  estimateNum: number | null
+  purchasePrice: number | null
+  profitRate: number | null
+  detailNote: string | null
+  displayOrder: number
+}
+
 export interface EstimateResponse {
   estimateNo: number
   shopNo: number
@@ -9,7 +26,8 @@ export interface EstimateResponse {
   priceChangeDate: string | null
   estimateStatus: string | null
   note: string | null
-
+  isIncludeTaxDisplay?: boolean
+  details?: EstimateDetailResponse[]
 }
 
 export const ESTIMATE_STATUS_OPTIONS = [
