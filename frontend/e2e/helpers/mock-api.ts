@@ -883,48 +883,6 @@ export async function mockAllApis(page: Page) {
   await page.route(
     (url) => /^\/api\/v1\/send-orders\/\d+\/details\/\d+\/status$/.test(url.pathname),
     async (route) => {
-      if (route.request().method() === 'PUT') {
-        const body = JSON.parse(route.request().postData() || '{}')
-        await json(route, { ...MOCK_SEND_ORDER_DETAILS[0], ...body })
-      } else {
-        await route.fallback()
-      }
-    },
-  )
-
-  await page.route(
-    (url) => url.pathname === '/api/v1/send-orders/details',
-    async (route) => {
-      await json(route, MOCK_SEND_ORDER_DETAILS)
-    },
-  )
-
-  await page.route(
-    (url) => url.pathname === '/api/v1/send-orders',
-    async (route) => {
-      const method = route.request().method()
-      if (method === 'GET') {
-        await json(route, MOCK_SEND_ORDER_DETAILS)
-      } else if (method === 'POST') {
-        await json(route, MOCK_SEND_ORDER_CREATED, 201)
-      } else {
-        await route.fallback()
-      }
-    },
-  )
-
-  // ---- Warehouses ----
-  await page.route(
-    (url) => url.pathname === '/api/v1/masters/warehouses',
-    async (route) => {
-      await json(route, MOCK_WAREHOUSES)
-    },
-  )
-
-  // ---- Send Orders ----
-  await page.route(
-    (url) => /^\/api\/v1\/send-orders\/\d+\/details\/\d+\/status$/.test(url.pathname),
-    async (route) => {
       await json(route, { message: '更新しました' })
     },
   )
@@ -952,6 +910,24 @@ export async function mockAllApis(page: Page) {
       } else {
         await json(route, [])
       }
+    },
+  )
+
+  // ---- Batch Jobs ----
+  await page.route(
+    (url) => url.pathname === '/api/v1/batch/jobs',
+    async (route) => {
+      await json(route, [
+        { jobName: 'goodsFileImport', category: 'マスタ取込', description: 'SMILE商品マスタCSV取込', available: true },
+        { jobName: 'purchaseFileImport', category: 'マスタ取込', description: 'SMILE仕入ファイル取込', available: true },
+      ])
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/batch\/execute\//.test(url.pathname),
+    async (route) => {
+      await json(route, { message: 'ジョブを実行しました' })
     },
   )
 
