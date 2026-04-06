@@ -19,6 +19,7 @@ interface GoodsSearchPopoverProps {
   initialKeyword: string
   onSelect: (goods: { goodsCode: string; goodsNo: number; goodsName: string }) => void
   onSkip: () => void
+  onOpenChange?: (open: boolean) => void
 }
 
 export function GoodsSearchPopover({
@@ -27,6 +28,7 @@ export function GoodsSearchPopover({
   initialKeyword,
   onSelect,
   onSkip,
+  onOpenChange: onOpenChangeProp,
 }: GoodsSearchPopoverProps) {
   const [open, setOpen] = useState(false)
   const [keyword, setKeyword] = useState(initialKeyword)
@@ -75,7 +77,7 @@ export function GoodsSearchPopover({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(v) => { setOpen(v); onOpenChangeProp?.(v) }}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm">
           <Search className="mr-1 h-3 w-3" />

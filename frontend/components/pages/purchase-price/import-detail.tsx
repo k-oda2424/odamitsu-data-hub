@@ -37,6 +37,7 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
   const [supplierNo, setSupplierNo] = useState<string>('')
   const [editingSupplier, setEditingSupplier] = useState(false)
   const [newGoodsDetail, setNewGoodsDetail] = useState<QuoteImportDetailResponse | null>(null)
+  const [activeMatchingRowId, setActiveMatchingRowId] = useState<number | null>(null)
   const [newGoodsDialogOpen, setNewGoodsDialogOpen] = useState(false)
 
   const shopsQuery = useShops(isAdmin)
@@ -268,7 +269,10 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
                 </thead>
                 <tbody>
                   {details.map((d) => (
-                    <tr key={d.quoteImportDetailId} className="border-b hover:bg-muted/30">
+                    <tr
+                      key={d.quoteImportDetailId}
+                      className={`border-b ${activeMatchingRowId === d.quoteImportDetailId ? 'bg-yellow-100' : 'hover:bg-muted/30'}`}
+                    >
                       <td className="px-2 py-2 text-muted-foreground">{d.rowNo ?? '-'}</td>
                       <td className="px-2 py-2 font-mono text-xs">{d.janCode || '(なし)'}</td>
                       <td className="px-2 py-2">{d.quoteGoodsName}</td>
@@ -283,6 +287,7 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
                             initialKeyword={d.quoteGoodsName.split(/\s+/).slice(0, 2).join(' ')}
                             onSelect={(goods) => handleMatch(d.quoteImportDetailId, goods)}
                             onSkip={() => handleSkip(d.quoteImportDetailId)}
+                            onOpenChange={(open) => setActiveMatchingRowId(open ? d.quoteImportDetailId : null)}
                           />
                           <Button
                             variant="outline"
