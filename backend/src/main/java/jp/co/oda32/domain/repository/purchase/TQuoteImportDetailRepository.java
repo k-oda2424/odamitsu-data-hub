@@ -21,4 +21,9 @@ public interface TQuoteImportDetailRepository extends JpaRepository<TQuoteImport
            "FROM TQuoteImportDetail d WHERE d.status = :status AND d.quoteImportId IN :importIds " +
            "GROUP BY d.quoteImportId")
     List<Object[]> countByImportIdsAndStatus(@Param("importIds") List<Integer> importIds, @Param("status") String status);
+
+    List<TQuoteImportDetail> findByJanCodeAndStatus(String janCode, String status);
+
+    @Query(value = "SELECT * FROM t_quote_import_detail WHERE nfkc(quote_goods_name) LIKE CONCAT('%', nfkc(:goodsName), '%') AND status = :status", nativeQuery = true)
+    List<TQuoteImportDetail> findByGoodsNameContainingAndStatus(@Param("goodsName") String goodsName, @Param("status") String status);
 }

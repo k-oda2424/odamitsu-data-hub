@@ -47,3 +47,42 @@ export function getEstimateStatusLabel(code: string | null): string {
   if (!code) return ''
   return ESTIMATE_STATUS_OPTIONS.find((s) => s.value === code)?.label ?? code
 }
+
+export interface EstimateDetailCreateRequest {
+  goodsNo: number | null
+  goodsCode: string
+  goodsName: string
+  specification: string
+  goodsPrice: number
+  purchasePrice: number | null
+  containNum: number | null
+  changeContainNum: number | null
+  profitRate: number | null
+  detailNote: string
+  displayOrder: number
+}
+
+export interface EstimateCreateRequest {
+  shopNo: number
+  partnerNo: number
+  destinationNo: number | null
+  estimateDate: string
+  priceChangeDate: string
+  note: string
+  details: EstimateDetailCreateRequest[]
+}
+
+export interface EstimateGoodsSearchResponse {
+  goodsNo: number | null
+  goodsCode: string
+  goodsName: string
+  specification: string | null
+  purchasePrice: number | null
+  containNum: number | null
+  changeContainNum: number | null
+  nowGoodsPrice: number | null
+  pricePlanInfo: string | null
+  janCode: string | null
+  source: 'GOODS' | 'PRICE_PLAN' | 'QUOTE_IMPORT'
+  purchasePriceChangePlanNo: number | null
+}

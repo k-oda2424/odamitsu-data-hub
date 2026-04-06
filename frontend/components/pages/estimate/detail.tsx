@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ArrowLeft, Printer } from 'lucide-react'
+import { ArrowLeft, Printer, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { EstimateResponse } from '@/types/estimate'
@@ -47,6 +47,21 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
     queryFn: () => api.get<EstimateResponse>(`/estimates/${estimateNo}`),
   })
 
+  const isEditable = (e: EstimateResponse | null | undefined) => {
+    const s = e?.estimateStatus
+    return s === '00' || s === '20'
+  }
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/estimates/${estimateNo}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['estimates'] })
+      toast.success('見積を削除しました')
+      router.push('/estimates')
+    },
+    onError: () => toast.error('見積の削除に失敗しました'),
+  })
+
   const statusMutation = useMutation({
     mutationFn: (status: string) =>
       api.put<EstimateResponse>(`/estimates/${estimateNo}/status`, { estimateStatus: status }),
@@ -72,6 +87,26 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
           title={`見積明細 #${est.estimateNo}`}
           actions={
             <div className="flex gap-2">
+              {isEditable(est) && (
+                <>
+                  <Button onClick={() => router.push(`/estimates/${est.estimateNo}/edit`)}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    修正
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      if (confirm('この見積を削除しますか？')) {
+                        deleteMutation.mutate()
+                      }
+                    }}
+                    disabled={deleteMutation.isPending}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    削除
+                  </Button>
+                </>
+              )}
               <Button variant="outline" onClick={() => window.print()}>
                 <Printer className="mr-2 h-4 w-4" />
                 印刷

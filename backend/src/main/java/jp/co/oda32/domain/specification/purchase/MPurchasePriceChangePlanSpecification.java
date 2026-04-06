@@ -129,4 +129,11 @@ public class MPurchasePriceChangePlanSpecification extends CommonSpecification<M
     public Specification<MPurchasePriceChangePlan> partnerPriceChangePlanCreatedContains(boolean partnerPriceChangePlanCreated) {
         return (root, query, cb) -> cb.or(cb.equal(root.get("partnerPriceChangePlanCreated"), partnerPriceChangePlanCreated), cb.isNull(root.get("partnerPriceChangePlanCreated")));
     }
+
+    /**
+     * 商品名の検索条件（部分一致）
+     */
+    public Specification<MPurchasePriceChangePlan> goodsNameContains(String goodsName) {
+        return likeNormalized("goodsName", goodsName);
+    }
 }

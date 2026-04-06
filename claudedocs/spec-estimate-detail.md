@@ -117,9 +117,13 @@ GET /api/v1/estimates/{estimateNo}
 - `isIncludeTaxDisplay=false` → 「(消費税は含まれておりません)」
 
 #### アクションボタン
+- 「修正」— `/estimates/{estimateNo}/edit` に遷移（ステータス "00"/"20" の場合のみ表示）
+- 「削除」— 確認ダイアログ → `DELETE /api/v1/estimates/{estimateNo}` → 一覧へ遷移（ステータス "00"/"20" の場合のみ表示）
 - 「印刷」— `window.print()` で印刷ダイアログ
 - 「一覧に戻る」— `/estimates` に遷移
 - 「ステータス変更」— プルダウンで変更 → PUT API
+
+※ 削除成功時は見積一覧のクエリキャッシュを無効化する
 
 ---
 
