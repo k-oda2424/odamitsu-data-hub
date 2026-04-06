@@ -15,6 +15,7 @@ import jp.co.oda32.dto.goods.PartnerGoodsUpdateRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -68,6 +69,7 @@ public class PartnerGoodsController {
         return ResponseEntity.ok(PartnerGoodsDetailResponse.from(pg, orderHistory));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{partnerNo}/{destinationNo}/{goodsNo}")
     public ResponseEntity<PartnerGoodsResponse> update(
             @PathVariable Integer partnerNo,
@@ -92,6 +94,7 @@ public class PartnerGoodsController {
         return ResponseEntity.ok(PartnerGoodsResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/{partnerNo}/{destinationNo}/{goodsNo}")
     public ResponseEntity<Void> delete(
             @PathVariable Integer partnerNo,

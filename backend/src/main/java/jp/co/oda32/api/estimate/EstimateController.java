@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -85,6 +86,7 @@ public class EstimateController {
         return ResponseEntity.ok(EstimateResponse.fromWithDetails(estimate));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{estimateNo}/status")
     public ResponseEntity<EstimateResponse> updateStatus(
             @PathVariable Integer estimateNo,
@@ -98,6 +100,7 @@ public class EstimateController {
         return ResponseEntity.ok(EstimateResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping
     public ResponseEntity<EstimateResponse> create(
             @Valid @RequestBody EstimateCreateRequest request) throws Exception {
@@ -106,6 +109,7 @@ public class EstimateController {
                 .body(EstimateResponse.fromWithDetails(estimate));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{estimateNo}")
     public ResponseEntity<EstimateResponse> update(
             @PathVariable Integer estimateNo,
@@ -114,6 +118,7 @@ public class EstimateController {
         return ResponseEntity.ok(EstimateResponse.fromWithDetails(estimate));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/{estimateNo}")
     public ResponseEntity<Void> delete(@PathVariable Integer estimateNo) throws Exception {
         estimateCreateService.deleteEstimate(estimateNo);

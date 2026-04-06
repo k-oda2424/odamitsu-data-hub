@@ -217,6 +217,11 @@ public class QuoteImportService {
                     header.getShopNo(), detail.getMatchedGoodsCode(), header.getEffectiveDate());
         }
 
+        // CREATED の場合、新規作成した商品マスタ・販売商品ワークを論理削除
+        if (STATUS_CREATED.equals(detail.getStatus()) && detail.getMatchedGoodsNo() != null) {
+            cleanupCreatedGoods(header.getShopNo(), detail.getMatchedGoodsNo());
+        }
+
         detail.setStatus(STATUS_PENDING);
         detail.setMatchedGoodsCode(null);
         detail.setMatchedGoodsNo(null);
@@ -237,12 +242,17 @@ public class QuoteImportService {
     public void deleteImport(Integer importId) {
         TQuoteImportHeader header = headerRepository.findById(importId).orElseThrow();
 
-        // マッチ済み明細に対応する仕入価格変更予定を削除
-        List<TQuoteImportDetail> matchedDetails = detailRepository.findByQuoteImportIdAndStatusNotOrderByRowNo(importId, STATUS_PENDING);
-        for (TQuoteImportDetail detail : matchedDetails) {
+        // 処理済み明細に対応するデータを削除
+        List<TQuoteImportDetail> processedDetails = detailRepository.findByQuoteImportIdAndStatusNotOrderByRowNo(importId, STATUS_PENDING);
+        for (TQuoteImportDetail detail : processedDetails) {
+            // 仕入価格変更予定を削除
             if (detail.getMatchedGoodsCode() != null) {
                 changePlanService.deleteByGoodsCodeAndChangePlanDate(
                         header.getShopNo(), detail.getMatchedGoodsCode(), header.getEffectiveDate());
+            }
+            // CREATED の場合、新規作成した商品マスタ・販売商品ワークを論理削除
+            if (STATUS_CREATED.equals(detail.getStatus()) && detail.getMatchedGoodsNo() != null) {
+                cleanupCreatedGoods(header.getShopNo(), detail.getMatchedGoodsNo());
             }
         }
 
@@ -250,5 +260,25 @@ public class QuoteImportService {
         header.setDelFlg(Flag.YES.getValue());
         header.setModifyDateTime(Timestamp.from(Instant.now()));
         headerRepository.save(header);
+    }
+
+    /**
+     * 見積取込で新規作成した商品マスタ・販売商品ワークを論理削除します。
+     */
+    private void cleanupCreatedGoods(Integer shopNo, Integer goodsNo) {
+        try {
+            WSalesGoods wsg = wSalesGoodsService.getByPK(shopNo, goodsNo);
+            if (wsg != null) {
+                wsg.setDelFlg(Flag.YES.getValue());
+                wSalesGoodsService.update(wsg);
+            }
+            MGoods goods = mGoodsService.getByGoodsNo(goodsNo);
+            if (goods != null) {
+                goods.setDelFlg(Flag.YES.getValue());
+                mGoodsService.update(goods);
+            }
+        } catch (Exception e) {
+            // クリーンアップ失敗は主処理を止めない
+        }
     }
 }

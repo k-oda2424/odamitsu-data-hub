@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Table,
   TableBody,
@@ -27,6 +27,7 @@ interface DataTableProps<T> {
   pageSize?: number
   searchPlaceholder?: string
   onRowClick?: (item: T) => void
+  rowKey?: (item: T, index: number) => string | number
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,9 +37,13 @@ export function DataTable<T extends Record<string, any>>({
   pageSize = 20,
   searchPlaceholder = 'テーブル内を検索...',
   onRowClick,
+  rowKey,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
+
+  // データが変わったらページを先頭に戻す
+  useEffect(() => { setPage(0) }, [data])
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -117,7 +122,7 @@ export function DataTable<T extends Record<string, any>>({
             ) : (
               paged.map((item, i) => (
                 <TableRow
-                  key={i}
+                  key={rowKey ? rowKey(item, i) : i}
                   className={`text-sm ${onRowClick ? 'cursor-pointer' : ''} ${i % 2 === 1 ? 'bg-muted/20' : ''}`}
                   onClick={() => onRowClick?.(item)}
                 >

@@ -18,6 +18,7 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -61,6 +62,7 @@ public class FinanceController {
         return ResponseEntity.ok(invoices.stream().map(InvoiceResponse::from).collect(Collectors.toList()));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/invoices/{invoiceId}/payment-date")
     public ResponseEntity<?> updatePaymentDate(
             @PathVariable Integer invoiceId,
@@ -74,6 +76,7 @@ public class FinanceController {
         return ResponseEntity.ok(InvoiceResponse.from(invoice));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/invoices/import")
     public ResponseEntity<?> importInvoices(@RequestParam("file") MultipartFile file) {
         try {
@@ -89,6 +92,7 @@ public class FinanceController {
         }
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/invoices/bulk-payment-date")
     public ResponseEntity<?> bulkUpdatePaymentDate(@Valid @RequestBody BulkPaymentDateRequest request) {
         List<TInvoice> invoices = tInvoiceService.findByIds(request.getInvoiceIds());
@@ -111,6 +115,7 @@ public class FinanceController {
         return ResponseEntity.ok(groups.stream().map(PartnerGroupResponse::from).collect(Collectors.toList()));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/partner-groups")
     public ResponseEntity<PartnerGroupResponse> createPartnerGroup(
             @Valid @RequestBody PartnerGroupRequest request) {
@@ -118,6 +123,7 @@ public class FinanceController {
         return ResponseEntity.ok(PartnerGroupResponse.from(group));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/partner-groups/{id}")
     public ResponseEntity<PartnerGroupResponse> updatePartnerGroup(
             @PathVariable Integer id, @Valid @RequestBody PartnerGroupRequest request) {
@@ -125,6 +131,7 @@ public class FinanceController {
         return ResponseEntity.ok(PartnerGroupResponse.from(group));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/partner-groups/{id}")
     public ResponseEntity<?> deletePartnerGroup(@PathVariable Integer id) {
         partnerGroupService.delete(id);

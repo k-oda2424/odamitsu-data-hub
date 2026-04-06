@@ -5,6 +5,7 @@ import jp.co.oda32.constant.SendOrderDetailStatus;
 import jp.co.oda32.domain.model.embeddable.TSendOrderDetailPK;
 import jp.co.oda32.domain.model.purchase.TSendOrder;
 import jp.co.oda32.domain.model.purchase.TSendOrderDetail;
+import jp.co.oda32.domain.model.master.MShop;
 import jp.co.oda32.domain.service.master.MShopService;
 import jp.co.oda32.domain.service.purchase.TSendOrderDetailService;
 import jp.co.oda32.domain.service.purchase.TSendOrderService;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -65,10 +67,15 @@ public class SendOrderController {
         return ResponseEntity.ok(SendOrderResponse.from(order));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping
     public ResponseEntity<SendOrderResponse> create(@Valid @RequestBody SendOrderCreateRequest request) throws Exception {
         // ショップの会社番号を取得
-        Integer companyNo = mShopService.getByShopNo(request.getShopNo()).getCompanyNo();
+        MShop shop = mShopService.getByShopNo(request.getShopNo());
+        if (shop == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        Integer companyNo = shop.getCompanyNo();
 
         // ヘッダー作成
         TSendOrder sendOrder = TSendOrder.builder()
@@ -115,6 +122,7 @@ public class SendOrderController {
         return ResponseEntity.ok(SendOrderResponse.from(result));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{sendOrderNo}/details/{sendOrderDetailNo}/status")
     public ResponseEntity<?> updateDetailStatus(
             @PathVariable Integer sendOrderNo,

@@ -7,8 +7,11 @@ import jp.co.oda32.domain.model.master.MShop;
 import jp.co.oda32.domain.model.master.MSupplier;
 import jp.co.oda32.domain.model.master.MWarehouse;
 import jp.co.oda32.domain.model.order.MDeliveryDestination;
+import jakarta.validation.Valid;
 import jp.co.oda32.domain.service.master.MMakerService;
+import jp.co.oda32.domain.model.master.MShopLinkedFile;
 import jp.co.oda32.domain.service.master.MPartnerService;
+import jp.co.oda32.domain.service.master.MShopLinkedFileService;
 import jp.co.oda32.domain.service.master.MShopService;
 import jp.co.oda32.domain.service.master.MSupplierService;
 import jp.co.oda32.domain.service.master.MWarehouseService;
@@ -16,11 +19,14 @@ import jp.co.oda32.domain.service.order.MDeliveryDestinationService;
 import jp.co.oda32.dto.master.DeliveryDestinationResponse;
 import jp.co.oda32.dto.master.MakerResponse;
 import jp.co.oda32.dto.master.PartnerResponse;
+import jp.co.oda32.dto.master.ShopLinkedFileResponse;
+import jp.co.oda32.dto.master.ShopLinkedFileUpdateRequest;
 import jp.co.oda32.dto.master.ShopResponse;
 import jp.co.oda32.dto.master.SupplierResponse;
 import jp.co.oda32.dto.master.WarehouseResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -37,6 +43,7 @@ public class MasterController {
     private final MSupplierService mSupplierService;
     private final MPartnerService mPartnerService;
     private final MDeliveryDestinationService mDeliveryDestinationService;
+    private final MShopLinkedFileService mShopLinkedFileService;
 
     @GetMapping("/shops")
     public ResponseEntity<List<ShopResponse>> listShops() {
@@ -82,6 +89,35 @@ public class MasterController {
         return ResponseEntity.ok(partners.stream()
                 .map(PartnerResponse::from)
                 .collect(Collectors.toList()));
+    }
+
+    @GetMapping("/shop-linked-files")
+    public ResponseEntity<List<ShopLinkedFileResponse>> listShopLinkedFiles() {
+        List<MShopLinkedFile> files = mShopLinkedFileService.findAll();
+        return ResponseEntity.ok(files.stream()
+                .map(ShopLinkedFileResponse::from)
+                .collect(Collectors.toList()));
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/shop-linked-files/{shopNo}")
+    public ResponseEntity<ShopLinkedFileResponse> updateShopLinkedFile(
+            @PathVariable Integer shopNo,
+            @Valid @RequestBody ShopLinkedFileUpdateRequest request) throws Exception {
+        MShopLinkedFile file = mShopLinkedFileService.getByShopNo(shopNo);
+        if (file == null) {
+            return ResponseEntity.notFound().build();
+        }
+        file.setSmileOrderInputFileName(request.getSmileOrderInputFileName());
+        file.setSmilePurchaseFileName(request.getSmilePurchaseFileName());
+        file.setSmileOrderOutputFileName(request.getSmileOrderOutputFileName());
+        file.setSmilePartnerOutputFileName(request.getSmilePartnerOutputFileName());
+        file.setSmileDestinationOutputFileName(request.getSmileDestinationOutputFileName());
+        file.setSmileGoodsImportFileName(request.getSmileGoodsImportFileName());
+        file.setBCartLogisticsImportFileName(request.getBCartLogisticsImportFileName());
+        file.setInvoiceFilePath(request.getInvoiceFilePath());
+        mShopLinkedFileService.update(file);
+        return ResponseEntity.ok(ShopLinkedFileResponse.from(file));
     }
 
     @GetMapping("/destinations")

@@ -25,9 +25,12 @@ import java.util.Set;
 public class BatchController {
 
     private static final List<Map<String, String>> JOB_DEFINITIONS = List.of(
+            Map.of("jobName", "bCartOrderImport", "category", "B-CART連携", "description", "新規受注取込", "requiresShopNo", "false"),
+            Map.of("jobName", "smileOrderFileImport", "category", "B-CART連携", "description", "売上明細取込", "requiresShopNo", "true"),
+            Map.of("jobName", "bCartLogisticsCsvExport", "category", "B-CART連携", "description", "出荷実績CSV出力", "requiresShopNo", "false"),
+            Map.of("jobName", "bCartMemberUpdate", "category", "B-CART連携", "description", "新規会員取込", "requiresShopNo", "false"),
             Map.of("jobName", "goodsFileImport", "category", "マスタ取込", "description", "SMILE商品マスタCSV取込", "requiresShopNo", "true"),
             Map.of("jobName", "purchaseFileImport", "category", "SMILE取込", "description", "SMILE仕入ファイル取込", "requiresShopNo", "true"),
-            Map.of("jobName", "smileOrderFileImport", "category", "SMILE取込", "description", "SMILE受注ファイル取込", "requiresShopNo", "true"),
             Map.of("jobName", "smilePaymentImport", "category", "SMILE取込", "description", "SMILE支払情報取込", "requiresShopNo", "true"),
             Map.of("jobName", "accountsPayableAggregation", "category", "買掛金", "description", "買掛金集計", "requiresShopNo", "false"),
             Map.of("jobName", "accountsPayableVerification", "category", "買掛金", "description", "買掛金検証", "requiresShopNo", "false"),
@@ -56,6 +59,11 @@ public class BatchController {
     private final JobExplorer jobExplorer;
     private final ApplicationContext applicationContext;
 
+    @jakarta.annotation.PreDestroy
+    public void shutdownExecutor() {
+        BATCH_EXECUTOR.shutdown();
+    }
+
     @GetMapping("/jobs")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<Map<String, Object>>> listJobs() {
@@ -80,7 +88,12 @@ public class BatchController {
         if (executions.isEmpty()) {
             return ResponseEntity.ok(Map.of("status", "NONE", "jobName", jobName));
         }
-        var latest = executions.get(0);
+        // 最新の実行を取得（createTime降順でソート）
+        var latest = executions.stream()
+                .sorted(java.util.Comparator.comparing(
+                        org.springframework.batch.core.JobExecution::getCreateTime,
+                        java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())).reversed())
+                .findFirst().orElse(executions.get(0));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("jobName", jobName);
         result.put("status", latest.getStatus().toString());

@@ -5,6 +5,7 @@ import jp.co.oda32.domain.service.bcart.BCartOrderService;
 import jp.co.oda32.dto.bcart.BCartShippingResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,6 +25,7 @@ public class BCartController {
         return ResponseEntity.ok(orders.stream().map(BCartShippingResponse::from).collect(Collectors.toList()));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/shipping/{orderId}/status")
     public ResponseEntity<Void> updateShippingStatus(
             @PathVariable Long orderId,

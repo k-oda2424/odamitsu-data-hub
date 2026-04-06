@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -44,6 +45,7 @@ public class PurchasePriceChangePlanController {
                 .collect(Collectors.toList()));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping
     public ResponseEntity<PurchasePriceChangePlanResponse> create(
             @Valid @RequestBody PurchasePriceChangePlanCreateRequest request) throws Exception {
@@ -68,6 +70,7 @@ public class PurchasePriceChangePlanController {
                 .body(PurchasePriceChangePlanResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/bulk")
     public ResponseEntity<List<PurchasePriceChangePlanResponse>> bulkCreate(
             @Valid @RequestBody PurchasePriceChangePlanBulkRequest request) throws Exception {
@@ -94,6 +97,7 @@ public class PurchasePriceChangePlanController {
         return ResponseEntity.status(HttpStatus.CREATED).body(results);
     }
 
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Integer id) throws Exception {
         MPurchasePriceChangePlan plan = changePlanRepository.findById(id).orElse(null);

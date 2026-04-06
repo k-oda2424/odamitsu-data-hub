@@ -17,6 +17,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -79,6 +80,7 @@ public class GoodsController {
         return ResponseEntity.ok(goods.stream().map(GoodsResponse::from).collect(Collectors.toList()));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping
     public ResponseEntity<GoodsResponse> create(@Valid @RequestBody GoodsCreateRequest request) throws Exception {
         MGoods goods = new MGoods();
@@ -94,6 +96,7 @@ public class GoodsController {
         return ResponseEntity.ok(GoodsResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{goodsNo}")
     public ResponseEntity<GoodsResponse> update(@PathVariable Integer goodsNo, @Valid @RequestBody GoodsCreateRequest request) throws Exception {
         MGoods goods = mGoodsService.getByGoodsNo(goodsNo);
@@ -112,6 +115,7 @@ public class GoodsController {
         return ResponseEntity.ok(GoodsResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/{goodsNo}/sales-goods")
     public ResponseEntity<SalesGoodsResponse> createSalesGoods(
             @PathVariable Integer goodsNo,
@@ -123,6 +127,7 @@ public class GoodsController {
         return ResponseEntity.ok(SalesGoodsResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/{goodsNo}")
     public ResponseEntity<Void> delete(@PathVariable Integer goodsNo) throws Exception {
         MGoods goods = mGoodsService.getByGoodsNo(goodsNo);

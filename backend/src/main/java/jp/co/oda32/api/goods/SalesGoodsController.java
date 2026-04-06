@@ -13,6 +13,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -73,6 +74,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(master));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/work")
     public ResponseEntity<SalesGoodsDetailResponse> createWork(
             @Valid @RequestBody SalesGoodsCreateRequest request) throws Exception {
@@ -95,6 +97,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/work/{shopNo}/{goodsNo}")
     public ResponseEntity<SalesGoodsDetailResponse> updateWork(
             @PathVariable Integer shopNo,
@@ -122,6 +125,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/master/{shopNo}/{goodsNo}")
     public ResponseEntity<SalesGoodsDetailResponse> updateMaster(
             @PathVariable Integer shopNo,
@@ -149,6 +153,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/work/{shopNo}/{goodsNo}/reflect")
     public ResponseEntity<SalesGoodsDetailResponse> reflectToMaster(
             @PathVariable Integer shopNo,
@@ -160,6 +165,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/work/{shopNo}/{goodsNo}")
     public ResponseEntity<Void> deleteWork(
             @PathVariable Integer shopNo,

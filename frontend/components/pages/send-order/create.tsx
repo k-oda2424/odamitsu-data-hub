@@ -19,12 +19,17 @@ import { formatNumber } from '@/lib/utils'
 import type { SendOrderResponse, SendOrderCreateRequest } from '@/types/send-order'
 
 interface DetailRow {
+  id: string
   goodsNo: number | null
   goodsCode: string
   goodsName: string
   goodsPrice: number
   sendOrderNum: number
   containNum: number | null
+}
+
+function createDetailRow(): DetailRow {
+  return { id: crypto.randomUUID(), goodsNo: null, goodsCode: '', goodsName: '', goodsPrice: 0, sendOrderNum: 0, containNum: null }
 }
 
 function getNowDateTimeLocal(): string {
@@ -50,7 +55,7 @@ export function SendOrderCreatePage() {
 
   // Detail rows
   const [details, setDetails] = useState<DetailRow[]>([
-    { goodsNo: null, goodsCode: '', goodsName: '', goodsPrice: 0, sendOrderNum: 0, containNum: null },
+    createDetailRow(),
   ])
 
   // Master data queries
@@ -66,27 +71,30 @@ export function SendOrderCreatePage() {
     setShopNo(value)
     setSupplierNo('')
     setWarehouseNo('')
-    setDetails([{ goodsNo: null, goodsCode: '', goodsName: '', goodsPrice: 0, sendOrderNum: 0, containNum: null }])
+    setDetails([createDetailRow()])
   }
 
   const handleSupplierChange = (value: string) => {
     setSupplierNo(value)
-    setDetails([{ goodsNo: null, goodsCode: '', goodsName: '', goodsPrice: 0, sendOrderNum: 0, containNum: null }])
+    setDetails([createDetailRow()])
   }
 
   const handleGoodsSelect = (index: number, goodsNoStr: string) => {
     const goods = (salesGoodsQuery.data ?? []).find((g) => String(g.goodsNo) === goodsNoStr)
     if (!goods) return
-    const updated = [...details]
-    updated[index] = {
-      goodsNo: goods.goodsNo,
-      goodsCode: goods.goodsCode,
-      goodsName: goods.goodsName,
-      goodsPrice: goods.purchasePrice ?? 0,
-      sendOrderNum: updated[index].sendOrderNum || 1,
-      containNum: null, // caseContainNum not in SalesGoodsDetailResponse
-    }
-    setDetails(updated)
+    setDetails((prev) => {
+      const updated = [...prev]
+      updated[index] = {
+        ...updated[index],
+        goodsNo: goods.goodsNo,
+        goodsCode: goods.goodsCode,
+        goodsName: goods.goodsName,
+        goodsPrice: goods.purchasePrice ?? 0,
+        sendOrderNum: updated[index].sendOrderNum || 1,
+        containNum: null,
+      }
+      return updated
+    })
   }
 
   const handleDetailChange = (index: number, field: keyof DetailRow, value: string | number) => {
@@ -96,7 +104,7 @@ export function SendOrderCreatePage() {
   }
 
   const addDetailRow = () => {
-    setDetails([...details, { goodsNo: null, goodsCode: '', goodsName: '', goodsPrice: 0, sendOrderNum: 0, containNum: null }])
+    setDetails([...details, createDetailRow()])
   }
 
   const removeDetailRow = (index: number) => {
@@ -152,7 +160,7 @@ export function SendOrderCreatePage() {
     setSupplierNo('')
     setSendOrderDateTime(getNowDateTimeLocal())
     setDesiredDeliveryDate('')
-    setDetails([{ goodsNo: null, goodsCode: '', goodsName: '', goodsPrice: 0, sendOrderNum: 0, containNum: null }])
+    setDetails([createDetailRow()])
   }
 
   // ===== STEP: INPUT =====
@@ -260,7 +268,7 @@ export function SendOrderCreatePage() {
             ) : (
               <div className="space-y-3">
                 {details.map((row, index) => (
-                  <div key={index} className="flex items-end gap-3 border-b pb-3">
+                  <div key={row.id} className="flex items-end gap-3 border-b pb-3">
                     <div className="flex-1 space-y-1">
                       <Label className="text-xs">商品</Label>
                       <SearchableSelect

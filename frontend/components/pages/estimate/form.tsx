@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
@@ -190,14 +190,14 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
   })
 
   // 前回検索済みコードを記録（二重呼び出し防止）
-  const [lastSearchedCodes, setLastSearchedCodes] = useState<Record<string, string>>({})
+  const lastSearchedCodesRef = useRef<Record<string, string>>({})
 
   // 商品コード/JANコード入力 → Ajax検索
   const searchGoodsByCode = useCallback(
     async (rowId: string, code: string) => {
       if (!code.trim() || !shopNo) return
-      if (lastSearchedCodes[rowId] === code) return
-      setLastSearchedCodes((prev) => ({ ...prev, [rowId]: code }))
+      if (lastSearchedCodesRef.current[rowId] === code) return
+      lastSearchedCodesRef.current = { ...lastSearchedCodesRef.current, [rowId]: code }
       try {
         const params = new URLSearchParams({ shopNo, code })
         if (partnerNo) params.append('partnerNo', partnerNo)
@@ -228,7 +228,7 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
         toast.error(`商品コード「${code}」が見つかりません`)
       }
     },
-    [shopNo, partnerNo, destinationNo, lastSearchedCodes],
+    [shopNo, partnerNo, destinationNo],
   )
 
   // ポップアップから商品選択
