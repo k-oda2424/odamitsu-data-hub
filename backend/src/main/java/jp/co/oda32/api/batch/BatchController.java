@@ -7,7 +7,10 @@ import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.JobParametersBuilder;
 import org.springframework.batch.core.explore.JobExplorer;
 import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -29,6 +32,8 @@ public class BatchController {
             Map.of("jobName", "smileOrderFileImport", "category", "B-CART連携", "description", "売上明細取込", "requiresShopNo", "true"),
             Map.of("jobName", "bCartLogisticsCsvExport", "category", "B-CART連携", "description", "出荷実績CSV出力", "requiresShopNo", "false"),
             Map.of("jobName", "bCartMemberUpdate", "category", "B-CART連携", "description", "新規会員取込", "requiresShopNo", "false"),
+            Map.of("jobName", "bCartCategorySync", "category", "B-CART連携", "description", "カテゴリマスタ同期", "requiresShopNo", "false"),
+            Map.of("jobName", "bCartCategoryUpdate", "category", "B-CART連携", "description", "カテゴリマスタ反映", "requiresShopNo", "false"),
             Map.of("jobName", "goodsFileImport", "category", "マスタ取込", "description", "SMILE商品マスタCSV取込", "requiresShopNo", "true"),
             Map.of("jobName", "purchaseFileImport", "category", "SMILE取込", "description", "SMILE仕入ファイル取込", "requiresShopNo", "true"),
             Map.of("jobName", "smilePaymentImport", "category", "SMILE取込", "description", "SMILE支払情報取込", "requiresShopNo", "true"),
@@ -44,25 +49,26 @@ public class BatchController {
             JOB_DEFINITIONS.stream().map(d -> d.get("jobName")).toList()
     );
 
-    private static final ThreadPoolTaskExecutor BATCH_EXECUTOR;
-    static {
-        BATCH_EXECUTOR = new ThreadPoolTaskExecutor();
-        BATCH_EXECUTOR.setCorePoolSize(1);
-        BATCH_EXECUTOR.setMaxPoolSize(2);
-        BATCH_EXECUTOR.setQueueCapacity(5);
-        BATCH_EXECUTOR.setThreadNamePrefix("batch-");
-        BATCH_EXECUTOR.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
-        BATCH_EXECUTOR.initialize();
+    @Configuration
+    static class BatchExecutorConfig {
+        @Bean(name = "batchTaskExecutor", destroyMethod = "shutdown")
+        public ThreadPoolTaskExecutor batchTaskExecutor() {
+            ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+            executor.setCorePoolSize(1);
+            executor.setMaxPoolSize(2);
+            executor.setQueueCapacity(5);
+            executor.setThreadNamePrefix("batch-");
+            executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+            executor.initialize();
+            return executor;
+        }
     }
 
     private final JobLauncher jobLauncher;
     private final JobExplorer jobExplorer;
     private final ApplicationContext applicationContext;
-
-    @jakarta.annotation.PreDestroy
-    public void shutdownExecutor() {
-        BATCH_EXECUTOR.shutdown();
-    }
+    @Qualifier("batchTaskExecutor")
+    private final ThreadPoolTaskExecutor batchExecutor;
 
     @GetMapping("/jobs")
     @PreAuthorize("hasRole('ADMIN')")
@@ -130,7 +136,7 @@ public class BatchController {
             }
             // 非同期で実行（APIは即座にレスポンスを返す）
             var asyncJobParams = params.toJobParameters();
-            BATCH_EXECUTOR.execute(() -> {
+            batchExecutor.execute(() -> {
                 try {
                     jobLauncher.run(job, asyncJobParams);
                     log.info("バッチジョブ完了: jobName={}", jobName);

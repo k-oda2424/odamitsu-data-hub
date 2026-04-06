@@ -112,7 +112,10 @@ const menuGroups: MenuGroup[] = [
     collapsible: true,
     items: [
       { title: 'B-CART出荷', icon: Globe, href: '/bcart/shipping' },
-      { title: 'マスタ管理', icon: Database, href: '/masters' },
+      { title: 'B-CARTカテゴリ', icon: Database, href: '/bcart/categories' },
+      { title: 'メーカー', icon: Database, href: '/masters/makers' },
+      { title: '倉庫', icon: Database, href: '/masters/warehouses' },
+      { title: '連携ファイル設定', icon: FileText, href: '/masters/linked-files' },
       { title: 'バッチ管理', icon: Cog, href: '/batch' },
     ],
   },
