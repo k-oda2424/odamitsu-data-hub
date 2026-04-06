@@ -43,7 +43,7 @@ public class SupplierQuoteDataController {
             sql.append(" AND h.supplier_code = :supplierCode");
         }
         if (StringUtil.isNotEmpty(goodsName)) {
-            sql.append(" AND nfkc(d.quote_goods_name) LIKE '%' || :goodsName || '%'");
+            sql.append(" AND nfkc(d.quote_goods_name) LIKE :goodsName");
         }
 
         sql.append(" ORDER BY d.jan_code, h.effective_date DESC, d.quote_import_detail_id DESC");
@@ -55,7 +55,9 @@ public class SupplierQuoteDataController {
             query.setParameter("supplierCode", supplierCode);
         }
         if (StringUtil.isNotEmpty(goodsName)) {
-            query.setParameter("goodsName", StringUtil.normalizeForSearch(goodsName));
+            String escaped = StringUtil.normalizeForSearch(goodsName)
+                    .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+            query.setParameter("goodsName", "%" + escaped + "%");
         }
 
         @SuppressWarnings("unchecked")

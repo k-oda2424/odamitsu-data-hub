@@ -37,8 +37,9 @@ export function BatchManagementPage() {
   const isAdmin = user?.shopNo === 0
   const queryClient = useQueryClient()
   const [selectedShopNo, setSelectedShopNo] = useState<string>(isAdmin ? '1' : String(user?.shopNo ?? '1'))
-  // ポーリング対象のジョブ名セット
+  // ポーリング対象のジョブ名セットと起動時刻
   const [pollingJobs, setPollingJobs] = useState<Set<string>>(new Set())
+  const [launchedAtMap, setLaunchedAtMap] = useState<Record<string, string>>({})
 
   const shopsQuery = useShops(isAdmin)
 
@@ -66,6 +67,9 @@ export function BatchManagementPage() {
     if (!statusQuery.data) return
     const finishedJobs: string[] = []
     for (const [jobName, status] of Object.entries(statusQuery.data)) {
+      // 起動後に開始された実行のみ判定（前回の結果を無視）
+      const launched = launchedAtMap[jobName]
+      if (launched && status.startTime && new Date(status.startTime).getTime() < new Date(launched).getTime()) continue
       if (status.status === 'COMPLETED') {
         toast.success(`${jobName} が完了しました`)
         finishedJobs.push(jobName)
@@ -81,16 +85,19 @@ export function BatchManagementPage() {
         return next
       })
     }
-  }, [statusQuery.data])
+  }, [statusQuery.data, launchedAtMap])
 
   const executeMutation = useMutation({
     mutationFn: ({ jobName, shopNo }: { jobName: string; shopNo?: number }) => {
       const params = shopNo != null ? `?shopNo=${shopNo}` : ''
       return api.post<{ message: string }>(`/batch/execute/${jobName}${params}`)
     },
+    onMutate: ({ jobName }) => {
+      setLaunchedAtMap((prev) => ({ ...prev, [jobName]: new Date().toISOString() }))
+    },
     onSuccess: (_, { jobName }) => {
-      // ポーリング対象に追加
-      setPollingJobs((prev) => new Set(prev).add(jobName))
+      // 非同期実行のため、ジョブレコード作成を待ってからポーリング開始
+      setTimeout(() => setPollingJobs((prev) => new Set(prev).add(jobName)), 3000)
       toast.info(`${jobName} を起動しました`)
     },
     onError: (error: Error, { jobName }) => {

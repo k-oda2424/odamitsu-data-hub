@@ -38,7 +38,7 @@ public class InvoiceImportService {
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
     @Transactional
-    public InvoiceImportResult importFromExcel(MultipartFile file) throws IOException {
+    public InvoiceImportResult importFromExcel(MultipartFile file, Integer shopNoParam) throws IOException {
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null || originalFilename.isBlank()) {
             throw new IllegalArgumentException("ファイル名が取得できません");
@@ -51,7 +51,9 @@ public class InvoiceImportService {
             throw new IllegalArgumentException("Excelファイル（.xlsx）のみ対応しています");
         }
 
-        int shopNo = originalFilename.contains("松山") ? 2 : 1;
+        // shopNoが指定されればそれを使用、未指定ならファイル名から推定
+        int shopNo = shopNoParam != null ? shopNoParam
+                : (originalFilename.contains("松山") ? 2 : 1);
         boolean isMatsuyama = shopNo == 2;
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {

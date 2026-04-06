@@ -5,8 +5,7 @@ import jp.co.oda32.constant.SendOrderDetailStatus;
 import jp.co.oda32.domain.model.embeddable.TSendOrderDetailPK;
 import jp.co.oda32.domain.model.purchase.TSendOrder;
 import jp.co.oda32.domain.model.purchase.TSendOrderDetail;
-import jp.co.oda32.domain.model.master.MShop;
-import jp.co.oda32.domain.service.master.MShopService;
+import jp.co.oda32.domain.service.purchase.SendOrderCreateService;
 import jp.co.oda32.domain.service.purchase.TSendOrderDetailService;
 import jp.co.oda32.domain.service.purchase.TSendOrderService;
 import jp.co.oda32.dto.purchase.SendOrderCreateRequest;
@@ -23,7 +22,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -36,7 +34,7 @@ public class SendOrderController {
 
     private final TSendOrderService tSendOrderService;
     private final TSendOrderDetailService tSendOrderDetailService;
-    private final MShopService mShopService;
+    private final SendOrderCreateService sendOrderCreateService;
 
     @GetMapping("/details")
     public ResponseEntity<List<SendOrderDetailResponse>> listDetails(
@@ -70,56 +68,11 @@ public class SendOrderController {
     @PreAuthorize("isAuthenticated()")
     @PostMapping
     public ResponseEntity<SendOrderResponse> create(@Valid @RequestBody SendOrderCreateRequest request) throws Exception {
-        // ショップの会社番号を取得
-        MShop shop = mShopService.getByShopNo(request.getShopNo());
-        if (shop == null) {
+        SendOrderResponse response = sendOrderCreateService.createSendOrder(request);
+        if (response == null) {
             return ResponseEntity.badRequest().build();
         }
-        Integer companyNo = shop.getCompanyNo();
-
-        // ヘッダー作成
-        TSendOrder sendOrder = TSendOrder.builder()
-                .sendOrderDateTime(request.getSendOrderDateTime())
-                .desiredDeliveryDate(request.getDesiredDeliveryDate())
-                .shopNo(request.getShopNo())
-                .companyNo(companyNo)
-                .supplierNo(request.getSupplierNo())
-                .sendOrderStatus(SendOrderDetailStatus.SEND_ORDER.getCode())
-                .warehouseNo(request.getWarehouseNo())
-                .build();
-        TSendOrder saved = tSendOrderService.insert(sendOrder);
-        log.info("発注登録 sendOrderNo:{}, supplierNo:{}", saved.getSendOrderNo(), saved.getSupplierNo());
-
-        // 明細作成
-        List<TSendOrderDetail> detailList = new ArrayList<>();
-        int detailNo = 1;
-        for (SendOrderCreateRequest.SendOrderDetailCreateRequest d : request.getDetails()) {
-            BigDecimal caseNum = null;
-            if (d.getContainNum() != null && d.getContainNum() > 0) {
-                caseNum = new BigDecimal(d.getSendOrderNum()).divide(new BigDecimal(d.getContainNum()), 2, java.math.RoundingMode.HALF_UP);
-            }
-            TSendOrderDetail detail = TSendOrderDetail.builder()
-                    .sendOrderNo(saved.getSendOrderNo())
-                    .sendOrderDetailNo(detailNo++)
-                    .shopNo(request.getShopNo())
-                    .companyNo(companyNo)
-                    .warehouseNo(request.getWarehouseNo())
-                    .goodsNo(d.getGoodsNo())
-                    .goodsCode(d.getGoodsCode())
-                    .goodsName(d.getGoodsName())
-                    .goodsPrice(d.getGoodsPrice())
-                    .sendOrderNum(d.getSendOrderNum())
-                    .sendOrderCaseNum(caseNum)
-                    .containNum(d.getContainNum())
-                    .sendOrderDetailStatus(SendOrderDetailStatus.SEND_ORDER.getCode())
-                    .build();
-            detailList.add(detail);
-        }
-        tSendOrderDetailService.insert(detailList);
-
-        // 登録結果を返す
-        TSendOrder result = tSendOrderService.getByPK(saved.getSendOrderNo());
-        return ResponseEntity.ok(SendOrderResponse.from(result));
+        return ResponseEntity.ok(response);
     }
 
     @PreAuthorize("isAuthenticated()")

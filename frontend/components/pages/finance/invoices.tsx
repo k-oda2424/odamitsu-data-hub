@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -165,9 +165,9 @@ export function InvoiceListPage() {
 
   // ==================== Handlers ====================
 
-  const handlePaymentDateChange = (invoiceId: number, value: string) => {
+  const handlePaymentDateChange = useCallback((invoiceId: number, value: string) => {
     paymentDateMutation.mutate({ invoiceId, paymentDate: value || null })
-  }
+  }, [paymentDateMutation])
 
   const handleSearch = () => {
     setSelectedIds(new Set())

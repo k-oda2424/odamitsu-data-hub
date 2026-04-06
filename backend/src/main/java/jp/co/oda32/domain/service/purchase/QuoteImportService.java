@@ -13,6 +13,7 @@ import jp.co.oda32.domain.service.goods.WSalesGoodsService;
 import jp.co.oda32.dto.purchase.QuoteImportCreateNewRequest;
 import jp.co.oda32.dto.purchase.QuoteImportCreateRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class QuoteImportService {
@@ -279,6 +281,7 @@ public class QuoteImportService {
             }
         } catch (Exception e) {
             // クリーンアップ失敗は主処理を止めない
+            log.warn("クリーンアップ失敗: {}", e.getMessage(), e);
         }
     }
 }

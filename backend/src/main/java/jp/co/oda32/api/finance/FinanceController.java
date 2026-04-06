@@ -14,7 +14,7 @@ import jp.co.oda32.dto.finance.InvoiceImportResult;
 import jp.co.oda32.dto.finance.InvoiceResponse;
 import jp.co.oda32.dto.finance.PartnerGroupRequest;
 import jp.co.oda32.dto.finance.PartnerGroupResponse;
-import lombok.Data;
+import jp.co.oda32.dto.finance.PaymentDateUpdateRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -66,7 +66,7 @@ public class FinanceController {
     @PutMapping("/invoices/{invoiceId}/payment-date")
     public ResponseEntity<?> updatePaymentDate(
             @PathVariable Integer invoiceId,
-            @RequestBody PaymentDateUpdateRequest request) {
+            @Valid @RequestBody PaymentDateUpdateRequest request) {
         TInvoice invoice = tInvoiceService.getInvoiceById(invoiceId);
         if (invoice == null) {
             return ResponseEntity.notFound().build();
@@ -78,9 +78,11 @@ public class FinanceController {
 
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/invoices/import")
-    public ResponseEntity<?> importInvoices(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<?> importInvoices(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) Integer shopNo) {
         try {
-            InvoiceImportResult result = invoiceImportService.importFromExcel(file);
+            InvoiceImportResult result = invoiceImportService.importFromExcel(file, shopNo);
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             log.warn("請求実績インポートエラー: {}", e.getMessage());
@@ -138,8 +140,4 @@ public class FinanceController {
         return ResponseEntity.noContent().build();
     }
 
-    @Data
-    static class PaymentDateUpdateRequest {
-        private LocalDate paymentDate;
-    }
 }

@@ -138,7 +138,7 @@ class InvoiceImportServiceTest {
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-            InvoiceImportResult result = service.importFromExcel(file);
+            InvoiceImportResult result = service.importFromExcel(file, null);
 
             assertEquals("2026/02/末", result.getClosingDate());
             assertEquals(1, result.getShopNo());
@@ -173,7 +173,7 @@ class InvoiceImportServiceTest {
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-            InvoiceImportResult result = service.importFromExcel(file);
+            InvoiceImportResult result = service.importFromExcel(file, null);
 
             assertEquals(2, result.getShopNo());
             assertEquals(1, result.getInsertedRows());
@@ -195,7 +195,7 @@ class InvoiceImportServiceTest {
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-            InvoiceImportResult result = service.importFromExcel(file);
+            InvoiceImportResult result = service.importFromExcel(file, null);
 
             assertEquals(2, result.getTotalRows());
             assertEquals(1, result.getInsertedRows());
@@ -217,7 +217,7 @@ class InvoiceImportServiceTest {
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-            InvoiceImportResult result = service.importFromExcel(file);
+            InvoiceImportResult result = service.importFromExcel(file, null);
 
             assertEquals(1, result.getShopNo());
             assertEquals(1, result.getInsertedRows());
@@ -261,7 +261,7 @@ class InvoiceImportServiceTest {
                     .thenReturn(List.of(existingInvoice));
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-            InvoiceImportResult result = service.importFromExcel(file);
+            InvoiceImportResult result = service.importFromExcel(file, null);
 
             assertEquals(0, result.getInsertedRows());
             assertEquals(1, result.getUpdatedRows());
@@ -279,7 +279,7 @@ class InvoiceImportServiceTest {
             MockMultipartFile file = new MockMultipartFile(
                     "file", "test.csv", "text/csv", new byte[0]);
 
-            assertThrows(IllegalArgumentException.class, () -> service.importFromExcel(file));
+            assertThrows(IllegalArgumentException.class, () -> service.importFromExcel(file, null));
         }
 
         @Test
@@ -287,7 +287,7 @@ class InvoiceImportServiceTest {
             MockMultipartFile file = new MockMultipartFile(
                     "file", null, "application/octet-stream", new byte[0]);
 
-            assertThrows(IllegalArgumentException.class, () -> service.importFromExcel(file));
+            assertThrows(IllegalArgumentException.class, () -> service.importFromExcel(file, null));
         }
 
         @Test
@@ -305,7 +305,7 @@ class InvoiceImportServiceTest {
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-            InvoiceImportResult result = service.importFromExcel(file);
+            InvoiceImportResult result = service.importFromExcel(file, null);
 
             assertEquals(1, result.getTotalRows());
             assertEquals(1, result.getInsertedRows());

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -97,11 +97,13 @@ export function SendOrderCreatePage() {
     })
   }
 
-  const handleDetailChange = (index: number, field: keyof DetailRow, value: string | number) => {
-    const updated = [...details]
-    updated[index] = { ...updated[index], [field]: value }
-    setDetails(updated)
-  }
+  const handleDetailChange = useCallback((index: number, field: keyof DetailRow, value: string | number) => {
+    setDetails((prev) => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], [field]: value }
+      return updated
+    })
+  }, [])
 
   const addDetailRow = () => {
     setDetails([...details, createDetailRow()])
