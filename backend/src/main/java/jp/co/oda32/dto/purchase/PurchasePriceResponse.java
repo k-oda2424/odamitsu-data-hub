@@ -20,7 +20,9 @@ public class PurchasePriceResponse {
     private String supplierCode;
     private Integer shopNo;
     private Integer partnerNo;
+    private String partnerName;
     private Integer destinationNo;
+    private String destinationName;
     private BigDecimal goodsPrice;
     private BigDecimal includeTaxGoodsPrice;
     private BigDecimal taxRate;
@@ -43,8 +45,8 @@ public class PurchasePriceResponse {
 
         if (pp.getMGoods() != null) {
             builder.goodsName(pp.getMGoods().getGoodsName());
-            if (pp.getMGoods().getMakerNo() != null) {
-                // makerName is loaded via wSalesGoods or goods relationship
+            if (pp.getMGoods().getMaker() != null) {
+                builder.makerName(pp.getMGoods().getMaker().getMakerName());
             }
         }
         if (pp.getWSalesGoods() != null) {
@@ -53,6 +55,12 @@ public class PurchasePriceResponse {
         if (pp.getMSupplier() != null) {
             builder.supplierName(pp.getMSupplier().getSupplierName());
             builder.supplierCode(pp.getMSupplier().getSupplierCode());
+        }
+        if (pp.getMPartner() != null) {
+            builder.partnerName(pp.getMPartner().getPartnerName());
+        }
+        if (pp.getMDeliveryDestination() != null) {
+            builder.destinationName(pp.getMDeliveryDestination().getDestinationName());
         }
         return builder.build();
     }

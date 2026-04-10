@@ -20,4 +20,5 @@ public class EstimateGoodsSearchResponse {
     private String janCode;
     private String source;
     private Integer purchasePriceChangePlanNo;
+    private Integer supplierNo;
 }

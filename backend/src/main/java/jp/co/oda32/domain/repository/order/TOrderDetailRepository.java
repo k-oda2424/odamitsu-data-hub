@@ -38,4 +38,19 @@ public interface TOrderDetailRepository extends JpaRepository<TOrderDetail, Inte
      */
     @Query("SELECT od FROM TOrderDetail od WHERE od.deliveryNo IN :deliveryNos AND od.delFlg = '0'")
     List<TOrderDetail> findByDeliveryNos(@Param("deliveryNos") List<Integer> deliveryNos);
+
+    /**
+     * 得意先・商品コードの最終納品単価を取得します。
+     */
+    /**
+     * 指定ショップ・商品コードの、得意先ごとの過去2年以内の最終納品単価を一括取得します。
+     * 戻り値: [partner_no, goods_price] の配列リスト
+     */
+    @Query(value = "SELECT DISTINCT ON (o.partner_no) o.partner_no, od.goods_price " +
+            "FROM t_order_detail od " +
+            "JOIN t_order o ON od.order_no = o.order_no AND od.shop_no = o.shop_no " +
+            "WHERE o.shop_no = :shopNo AND od.goods_code = :goodsCode AND od.del_flg = '0' " +
+            "AND o.order_date_time >= NOW() - INTERVAL '2 years' " +
+            "ORDER BY o.partner_no, o.order_date_time DESC", nativeQuery = true)
+    List<Object[]> findLastDeliveredPricesByGoodsCode(@Param("shopNo") Integer shopNo, @Param("goodsCode") String goodsCode);
 }

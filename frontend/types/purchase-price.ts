@@ -8,8 +8,10 @@ export interface PurchasePriceResponse {
   supplierName: string | null
   supplierCode: string | null
   shopNo: number
-  partnerNo: number
-  destinationNo: number
+  partnerNo: number | null
+  partnerName: string | null
+  destinationNo: number | null
+  destinationName: string | null
   goodsPrice: number | null
   includeTaxGoodsPrice: number | null
   taxRate: number | null
@@ -30,10 +32,26 @@ export interface PurchasePriceChangePlanResponse {
   changePlanDate: string
   changeReason: string
   changeContainNum: number | null
-  partnerNo: number
-  destinationNo: number
+  partnerNo: number | null
+  partnerName: string | null
+  destinationNo: number | null
+  destinationName: string | null
   partnerPriceChangePlanCreated: boolean
   purchasePriceReflect: boolean
+}
+
+/** 価格スコープ: 標準/特値/全て */
+export const PRICE_SCOPE_OPTIONS = [
+  { value: 'all', label: '全て' },
+  { value: 'standard', label: '標準のみ' },
+  { value: 'partner', label: '得意先別のみ' },
+] as const
+
+export type PriceScope = (typeof PRICE_SCOPE_OPTIONS)[number]['value']
+
+/** 価格の種別を判定（標準 or 得意先別） */
+export function isPartnerSpecificPrice(partnerNo: number | null, destinationNo: number | null): boolean {
+  return (partnerNo != null && partnerNo !== 0) || (destinationNo != null && destinationNo !== 0)
 }
 
 export const CHANGE_REASON_OPTIONS = [

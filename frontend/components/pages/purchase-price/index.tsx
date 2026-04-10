@@ -21,12 +21,34 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { PriceChangeDialog } from './PriceChangeDialog'
-import type { PurchasePriceResponse } from '@/types/purchase-price'
+import type { PurchasePriceResponse, PriceScope } from '@/types/purchase-price'
+import { Badge } from '@/components/ui/badge'
+import { PRICE_SCOPE_OPTIONS, isPartnerSpecificPrice } from '@/types/purchase-price'
 
 const columns: Column<PurchasePriceResponse>[] = [
+  {
+    key: 'partnerNo',
+    header: '種別',
+    render: (item) =>
+      isPartnerSpecificPrice(item.partnerNo, item.destinationNo) ? (
+        <Badge variant="secondary">得意先別</Badge>
+      ) : (
+        <Badge variant="outline">標準</Badge>
+      ),
+  },
   { key: 'goodsCode', header: '商品コード', sortable: true },
   { key: 'goodsName', header: '商品名', sortable: true },
   { key: 'supplierName', header: '仕入先' },
+  {
+    key: 'partnerName',
+    header: '得意先',
+    render: (item) => item.partnerName ?? '-',
+  },
+  {
+    key: 'destinationName',
+    header: '配送先',
+    render: (item) => item.destinationName ?? '-',
+  },
   {
     key: 'goodsPrice',
     header: '仕入価格',
@@ -47,6 +69,7 @@ export function PurchasePriceListPage() {
   const [goodsName, setGoodsName] = useState('')
   const [goodsCode, setGoodsCode] = useState('')
   const [supplierNo, setSupplierNo] = useState<string>('')
+  const [scope, setScope] = useState<PriceScope>('all')
   const [selectedShopNo, setSelectedShopNo] = useState<string>(
     isAdmin ? '' : String(user?.shopNo ?? '')
   )
@@ -67,19 +90,21 @@ export function PurchasePriceListPage() {
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
       if (searchParams?.goodsCode) params.append('goodsCode', searchParams.goodsCode)
       if (searchParams?.supplierNo) params.append('supplierNo', searchParams.supplierNo)
+      if (searchParams?.scope && searchParams.scope !== 'all') params.append('scope', searchParams.scope)
       return api.get<PurchasePriceResponse[]>(`/purchase-prices?${params.toString()}`)
     },
     enabled: searchParams !== null && !!effectiveShopNo,
   })
 
   const handleSearch = () => {
-    setSearchParams({ goodsName, goodsCode, supplierNo })
+    setSearchParams({ goodsName, goodsCode, supplierNo, scope })
   }
 
   const handleReset = () => {
     setGoodsName('')
     setGoodsCode('')
     setSupplierNo('')
+    setScope('all')
     setSearchParams(null)
   }
 
@@ -139,6 +164,21 @@ export function PurchasePriceListPage() {
             }))}
             searchPlaceholder="仕入先を検索..."
           />
+        </div>
+        <div className="space-y-2">
+          <Label>価格種別</Label>
+          <Select value={scope} onValueChange={(v) => setScope(v as PriceScope)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRICE_SCOPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </SearchForm>
 

@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -35,13 +36,17 @@ import {
   Send,
   FileSearch,
   ChevronRight,
+  Users,
+  ArrowLeftRight,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useAuth } from '@/lib/auth'
 
 interface MenuItem {
   title: string
   icon: LucideIcon
   href: string
+  adminOnly?: boolean
 }
 
 interface MenuGroup {
@@ -102,6 +107,7 @@ const menuGroups: MenuGroup[] = [
     collapsible: true,
     items: [
       { title: '見積一覧', icon: FileText, href: '/estimates' },
+      { title: '比較見積', icon: ArrowLeftRight, href: '/estimates/compare' },
       { title: '買掛金', icon: BarChart3, href: '/finance/accounts-payable' },
       { title: '請求書', icon: Receipt, href: '/finance/invoices' },
     ],
@@ -113,9 +119,13 @@ const menuGroups: MenuGroup[] = [
     items: [
       { title: 'B-CART出荷', icon: Globe, href: '/bcart/shipping' },
       { title: 'B-CARTカテゴリ', icon: Database, href: '/bcart/categories' },
+      { title: 'B-CART商品', icon: Package, href: '/bcart/products' },
+      { title: '仕入先', icon: Database, href: '/masters/suppliers' },
       { title: 'メーカー', icon: Database, href: '/masters/makers' },
       { title: '倉庫', icon: Database, href: '/masters/warehouses' },
+      { title: '得意先', icon: ClipboardList, href: '/masters/partners' },
       { title: '連携ファイル設定', icon: FileText, href: '/masters/linked-files' },
+      { title: 'ユーザー管理', icon: Users, href: '/masters/users', adminOnly: true },
       { title: 'バッチ管理', icon: Cog, href: '/batch' },
     ],
   },
@@ -138,6 +148,16 @@ function isGroupActive(pathname: string, items: MenuItem[]): boolean {
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const { user } = useAuth()
+  const isAdmin = user?.shopNo === 0
+
+  const filteredGroups = useMemo(
+    () => menuGroups.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.adminOnly || isAdmin),
+    })),
+    [isAdmin],
+  )
 
   return (
     <Sidebar>
@@ -153,7 +173,7 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        {menuGroups.map((group) => {
+        {filteredGroups.map((group) => {
           if (!group.collapsible) {
             return (
               <SidebarGroup key={group.label}>

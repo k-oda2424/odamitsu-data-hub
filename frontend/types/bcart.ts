@@ -34,6 +34,63 @@ export interface BCartCategoryUpdateRequest {
   version: number
 }
 
+export interface BCartProduct {
+  id: number
+  mainNo: string
+  name: string
+  catchCopy: string
+  categoryId: number | null
+  categoryName: string | null
+  subCategoryId: string | null
+  description: string
+  size: string
+  sozai: string
+  caution: string
+  tag: string | null
+  metaTitle: string
+  metaKeywords: string
+  metaDescription: string
+  image: string | null
+  prependText: string
+  appendText: string
+  middleText: string
+  rvPrependText: string
+  rvAppendText: string
+  rvMiddleText: string
+  flag: string // '表示' or '非表示'
+  priority: number
+  updatedAt: string | null
+  setCount: number
+  sets?: BCartProductSet[]
+}
+
+export interface BCartProductSet {
+  id: number
+  productNo: string
+  janCode: string
+  name: string
+  unitPrice: number | null
+  purchasePrice: number | null
+  stock: number | null
+  setFlag: string
+  bCartPriceReflected: boolean
+}
+
+export interface BCartProductDescriptionUpdate {
+  name?: string
+  catchCopy?: string
+  description?: string
+  prependText?: string
+  appendText?: string
+  middleText?: string
+  rvPrependText?: string
+  rvAppendText?: string
+  rvMiddleText?: string
+  metaTitle?: string
+  metaKeywords?: string
+  metaDescription?: string
+}
+
 export interface BCartChangeHistory {
   id: number
   targetType: string

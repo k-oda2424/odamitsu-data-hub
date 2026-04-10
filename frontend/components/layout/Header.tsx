@@ -28,7 +28,7 @@ export function Header() {
   const { user, logout } = useAuth()
 
   return (
-    <header className="flex h-14 items-center gap-4 border-b bg-background px-4">
+    <header className="flex h-14 items-center gap-4 border-b bg-background px-4 print:hidden">
       <SidebarTrigger />
       <div className="flex items-baseline gap-3 min-w-0">
         <span className="text-sm font-medium truncate">

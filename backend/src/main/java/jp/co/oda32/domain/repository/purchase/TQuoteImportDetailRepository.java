@@ -24,6 +24,6 @@ public interface TQuoteImportDetailRepository extends JpaRepository<TQuoteImport
 
     List<TQuoteImportDetail> findByJanCodeAndStatus(String janCode, String status);
 
-    @Query(value = "SELECT * FROM t_quote_import_detail WHERE nfkc(quote_goods_name) LIKE CONCAT('%', nfkc(:goodsName), '%') AND status = :status", nativeQuery = true)
+    @Query(value = "SELECT * FROM t_quote_import_detail WHERE nfkc(quote_goods_name) LIKE CONCAT('%', nfkc(:goodsName), '%') ESCAPE '\\' AND status = :status", nativeQuery = true)
     List<TQuoteImportDetail> findByGoodsNameContainingAndStatus(@Param("goodsName") String goodsName, @Param("status") String status);
 }

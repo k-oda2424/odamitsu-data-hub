@@ -13,7 +13,19 @@ export interface Supplier {
   supplierNo: number
   supplierCode: string | null
   supplierName: string
+  supplierNameDisplay: string | null
   shopNo: number
+  standardLeadTime: number | null
+  paymentSupplierNo: number | null
+  paymentSupplierName: string | null
+}
+
+/** 支払先（仕入先のグループ単位）。比較見積等でドロップダウン表示用 */
+export interface PaymentSupplier {
+  paymentSupplierNo: number
+  paymentSupplierCode: string | null
+  paymentSupplierName: string
+  shopNo: number | null
 }
 
 export interface GoodsResponse {

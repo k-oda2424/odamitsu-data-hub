@@ -123,9 +123,9 @@ export function QuoteImportDetailPage({ importId }: QuoteImportDetailPageProps) 
       <PageHeader
         title="商品突合"
         actions={
-          <Button variant="outline" onClick={() => router.push('/purchase-prices/imports')}>
+          <Button variant="outline" onClick={() => router.back()}>
             <ArrowLeft className="mr-2 h-4 w-4" />
-            一覧に戻る
+            戻る
           </Button>
         }
       />

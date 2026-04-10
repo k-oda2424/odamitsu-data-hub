@@ -9,6 +9,7 @@ export interface SupplierQuoteDataResponse {
   supplierName: string | null
   supplierCode: string | null
   quoteImportDetailId: number
+  makerName: string | null
 }
 
 export interface SupplierQuoteHistoryResponse {

@@ -101,12 +101,59 @@ async function uploadForm<T>(endpoint: string, formData: FormData): Promise<T> {
   return response.json()
 }
 
+/**
+ * バイナリレスポンスを取得する（PDF, Excel 等）。
+ * Content-Disposition からファイル名を抽出して { blob, filename } を返す。
+ */
+async function downloadBlob(endpoint: string): Promise<{ blob: Blob; filename: string | null }> {
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_BASE}${endpoint}`, { headers })
+
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    }
+    throw new ApiError(401, 'Unauthorized')
+  }
+
+  if (!response.ok) {
+    throw new ApiError(response.status, response.statusText)
+  }
+
+  const blob = await response.blob()
+
+  // Content-Disposition から filename を抽出（filename*= 優先, fallback で filename=）
+  const disposition = response.headers.get('Content-Disposition')
+  let filename: string | null = null
+  if (disposition) {
+    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/)
+    if (utf8Match) {
+      filename = decodeURIComponent(utf8Match[1])
+    } else {
+      const plainMatch = disposition.match(/filename="?([^";]+)"?/)
+      if (plainMatch) {
+        filename = plainMatch[1]
+      }
+    }
+  }
+
+  return { blob, filename }
+}
+
 export const api = {
   get: <T>(endpoint: string) => request<T>(endpoint),
   post: <T>(endpoint: string, body?: unknown) => request<T>(endpoint, { method: 'POST', body }),
   put: <T>(endpoint: string, body?: unknown) => request<T>(endpoint, { method: 'PUT', body }),
   delete: (endpoint: string) => request<void>(endpoint, { method: 'DELETE' }),
   postForm: <T>(endpoint: string, formData: FormData) => uploadForm<T>(endpoint, formData),
+  download: (endpoint: string) => downloadBlob(endpoint),
 }
 
 export { ApiError }

@@ -8,6 +8,7 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -19,6 +20,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/supplier-quote-data")
 @RequiredArgsConstructor
+@PreAuthorize("isAuthenticated()")
 public class SupplierQuoteDataController {
 
     @PersistenceContext
@@ -28,15 +30,19 @@ public class SupplierQuoteDataController {
     public ResponseEntity<List<SupplierQuoteDataResponse>> list(
             @RequestParam Integer shopNo,
             @RequestParam(required = false) String supplierCode,
-            @RequestParam(required = false) String goodsName) {
+            @RequestParam(required = false) String goodsName,
+            @RequestParam(required = false) Integer makerNo) {
 
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT DISTINCT ON (d.jan_code) ");
         sql.append("d.jan_code, d.quote_goods_name, d.specification, d.quantity_per_case, ");
         sql.append("d.new_price, d.new_box_price, ");
-        sql.append("h.effective_date, h.supplier_name, h.supplier_code, d.quote_import_detail_id ");
+        sql.append("h.effective_date, h.supplier_name, h.supplier_code, d.quote_import_detail_id, ");
+        sql.append("mk.maker_name ");
         sql.append("FROM t_quote_import_detail d ");
         sql.append("JOIN t_quote_import_header h ON d.quote_import_id = h.quote_import_id ");
+        sql.append("LEFT JOIN m_goods g ON d.jan_code = g.jan_code ");
+        sql.append("LEFT JOIN m_maker mk ON g.maker_no = mk.maker_no ");
         sql.append("WHERE h.del_flg = '0' AND h.shop_no = :shopNo AND d.jan_code IS NOT NULL");
 
         if (StringUtil.isNotEmpty(supplierCode)) {
@@ -44,6 +50,9 @@ public class SupplierQuoteDataController {
         }
         if (StringUtil.isNotEmpty(goodsName)) {
             sql.append(" AND nfkc(d.quote_goods_name) LIKE :goodsName");
+        }
+        if (makerNo != null) {
+            sql.append(" AND g.maker_no = :makerNo");
         }
 
         sql.append(" ORDER BY d.jan_code, h.effective_date DESC, d.quote_import_detail_id DESC");
@@ -58,6 +67,9 @@ public class SupplierQuoteDataController {
             String escaped = StringUtil.normalizeForSearch(goodsName)
                     .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
             query.setParameter("goodsName", "%" + escaped + "%");
+        }
+        if (makerNo != null) {
+            query.setParameter("makerNo", makerNo);
         }
 
         @SuppressWarnings("unchecked")
@@ -76,6 +88,7 @@ public class SupplierQuoteDataController {
                     .supplierName((String) row[7])
                     .supplierCode((String) row[8])
                     .quoteImportDetailId(toInteger(row[9]))
+                    .makerName((String) row[10])
                     .build());
         }
 

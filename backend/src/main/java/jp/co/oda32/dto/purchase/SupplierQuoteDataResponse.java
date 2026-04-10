@@ -19,4 +19,5 @@ public class SupplierQuoteDataResponse {
     private String supplierName;
     private String supplierCode;
     private Integer quoteImportDetailId;
+    private String makerName;
 }

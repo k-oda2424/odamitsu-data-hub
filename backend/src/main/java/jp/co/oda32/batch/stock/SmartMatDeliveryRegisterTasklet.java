@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
 public class SmartMatDeliveryRegisterTasklet implements Tasklet {
     @Value("${delivery.register.api.url}")
     private String DELIVERY_REGISTER_API_URL = "http://smart-mat.local:8880/api/deliveryRegister";
-    @Value("#{jobParameters['spanMonths']}")
+    @Value("#{jobParameters['spanMonths'] ?: 1}")
     protected Integer spanMonths;
     @NonNull
     MSmartMatService mSmartMatService;

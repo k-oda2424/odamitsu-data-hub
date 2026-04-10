@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
-import type { Maker, Supplier, Shop } from '@/types/goods'
+import type { Maker, Supplier, Shop, PaymentSupplier } from '@/types/goods'
 import type { PartnerResponse, DeliveryDestinationResponse } from '@/types/partner-goods'
 import type { WarehouseResponse } from '@/types/send-order'
 import type { SalesGoodsDetailResponse } from '@/types/goods'
@@ -32,6 +32,19 @@ export function useSuppliers(shopNo: string | number | undefined) {
     staleTime: MASTER_STALE_TIME,
   })
 }
+
+/**
+ * 支払先一覧（グループ単位の仕入先）。比較見積等のドロップダウン用。
+ */
+export function usePaymentSuppliers(shopNo: string | number | undefined) {
+  return useQuery({
+    queryKey: ['payment-suppliers', shopNo],
+    queryFn: () => api.get<PaymentSupplier[]>(`/masters/payment-suppliers?shopNo=${shopNo}`),
+    enabled: !!shopNo,
+    staleTime: MASTER_STALE_TIME,
+  })
+}
+
 
 export function usePartners(shopNo: string | number | undefined) {
   return useQuery({

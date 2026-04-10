@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
-import { useShops, usePartners, useDestinations } from '@/hooks/use-master-data'
+import { useShops, usePartners, useDestinations, useSuppliers } from '@/hooks/use-master-data'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
 import { ErrorMessage } from '@/components/features/common/ErrorMessage'
@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Plus, Trash2, Search, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { GoodsSearchDialog, type SelectedGoods } from './GoodsSearchDialog'
@@ -29,7 +30,7 @@ import type {
   EstimateCreateRequest,
   EstimateGoodsSearchResponse,
 } from '@/types/estimate'
-import { formatNumber } from '@/lib/utils'
+import { calcProfit, calcProfitRate, calcCaseProfit, fmt, fmtRate } from '@/lib/estimate-calc'
 
 interface EstimateDetailRow {
   id: string
@@ -45,6 +46,7 @@ interface EstimateDetailRow {
   profitRate: number | null
   detailNote: string
   displayOrder: number
+  supplierNo: number | null
 }
 
 interface EstimateFormPageProps {
@@ -70,37 +72,8 @@ function createEmptyRow(displayOrder: number): EstimateDetailRow {
     profitRate: null,
     detailNote: '',
     displayOrder,
+    supplierNo: null,
   }
-}
-
-function calcProfit(goodsPrice: number | null, purchasePrice: number | null): number | null {
-  if (goodsPrice == null || purchasePrice == null) return null
-  return goodsPrice - purchasePrice
-}
-
-function calcProfitRate(goodsPrice: number | null, purchasePrice: number | null): number | null {
-  if (goodsPrice == null || purchasePrice == null || goodsPrice === 0) return null
-  return Math.round((1 - purchasePrice / goodsPrice) * 1000) / 10
-}
-
-function calcCaseProfit(
-  goodsPrice: number | null,
-  purchasePrice: number | null,
-  containNum: number | null,
-): number | null {
-  const profit = calcProfit(goodsPrice, purchasePrice)
-  if (profit == null || containNum == null) return null
-  return profit * containNum
-}
-
-function fmt(val: number | null | undefined): string {
-  if (val == null) return '-'
-  return formatNumber(val)
-}
-
-function fmtRate(val: number | null | undefined): string {
-  if (val == null) return '-'
-  return `${val.toFixed(1)}%`
 }
 
 export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
@@ -118,10 +91,14 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
   )
   const [priceChangeDate, setPriceChangeDate] = useState<string>('')
   const [note, setNote] = useState<string>('')
+  const [requirement, setRequirement] = useState<string>('')
+  const [recipientName, setRecipientName] = useState<string>('')
+  const [proposalMessage, setProposalMessage] = useState<string>('')
 
   // Detail rows
   const [rows, setRows] = useState<EstimateDetailRow[]>([createEmptyRow(1)])
-  const [initialized, setInitialized] = useState(!isEditMode)
+  // 初期値は常に false。edit モードは API データ待ち、create モードは prefill チェック後に true にする
+  const [initialized, setInitialized] = useState(false)
 
   // Goods search dialog
   const [goodsDialogOpen, setGoodsDialogOpen] = useState(false)
@@ -131,6 +108,7 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
   const shopsQuery = useShops(isAdmin)
   const partnersQuery = usePartners(shopNo)
   const destinationsQuery = useDestinations(partnerNo)
+  const suppliersQuery = useSuppliers(shopNo)
 
   // Load existing estimate for edit mode
   const estimateQuery = useQuery({
@@ -149,6 +127,9 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
     setEstimateDate(est.estimateDate ?? '')
     setPriceChangeDate(est.priceChangeDate ?? '')
     setNote(est.note ?? '')
+    setRequirement(est.requirement ?? '')
+    setRecipientName(est.recipientName ?? '')
+    setProposalMessage(est.proposalMessage ?? '')
 
     if (est.details && est.details.length > 0) {
       setRows(
@@ -166,11 +147,67 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
           profitRate: d.profitRate,
           detailNote: d.detailNote ?? '',
           displayOrder: d.displayOrder ?? i + 1,
+          supplierNo: null,
         })),
       )
     }
     setInitialized(true)
   }, [isEditMode, estimateQuery.data, initialized])
+
+  // Initialize from comparison page prefill (sessionStorage)
+  useEffect(() => {
+    if (isEditMode || initialized) return
+    const raw = sessionStorage.getItem('estimate-prefill')
+    if (!raw) {
+      setInitialized(true)
+      return
+    }
+    try {
+      const prefill = JSON.parse(raw) as {
+        shopNo?: number
+        partnerNo?: number
+        destinationNo?: number | null
+        details?: Array<{
+          goodsNo: number | null
+          goodsCode: string
+          goodsName: string
+          specification?: string
+          goodsPrice: number | null
+          purchasePrice: number | null
+          containNum: number | null
+          supplierNo: number | null
+        }>
+      }
+      if (prefill.shopNo) setShopNo(String(prefill.shopNo))
+      if (prefill.partnerNo) setPartnerNo(String(prefill.partnerNo))
+      if (prefill.destinationNo) setDestinationNo(String(prefill.destinationNo))
+      if (prefill.details && prefill.details.length > 0) {
+        setRows(
+          prefill.details.map((d, i) => ({
+            id: generateRowId(),
+            goodsNo: d.goodsNo,
+            goodsCode: d.goodsCode ?? '',
+            goodsName: d.goodsName ?? '',
+            specification: d.specification ?? '',
+            purchasePrice: d.purchasePrice,
+            pricePlanInfo: '',
+            goodsPrice: d.goodsPrice,
+            containNum: d.containNum,
+            changeContainNum: null,
+            profitRate: null,
+            detailNote: '',
+            displayOrder: i + 1,
+            supplierNo: d.supplierNo,
+          })),
+        )
+      }
+    } catch {
+      // ignore invalid JSON
+    } finally {
+      sessionStorage.removeItem('estimate-prefill')
+      setInitialized(true)
+    }
+  }, [isEditMode, initialized])
 
   // Save mutation
   const saveMutation = useMutation({
@@ -220,12 +257,13 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
                   containNum: result.containNum,
                   changeContainNum: result.changeContainNum,
                   pricePlanInfo: result.pricePlanInfo ?? '',
+                  supplierNo: result.supplierNo ?? row.supplierNo,
                 }
               : row,
           ),
         )
       } catch {
-        toast.error(`商品コード「${code}」が見つかりません`)
+        toast.info(`商品コード「${code}」が見つかりません。商品名・原価を手入力できます。`)
       }
     },
     [shopNo, partnerNo, destinationNo],
@@ -279,7 +317,15 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
       const filtered = prev.filter((r) => r.id !== rowId)
       return filtered.length === 0 ? [createEmptyRow(1)] : filtered
     })
+    // 行削除時に検索キャッシュもクリア
+    delete lastSearchedCodesRef.current[rowId]
   }, [])
+
+  // 得意先・配送先・店舗が変わったら検索キャッシュをクリア
+  // （特値の取得結果が変わるため、同じ商品コードでも再検索が必要）
+  useEffect(() => {
+    lastSearchedCodesRef.current = {}
+  }, [shopNo, partnerNo, destinationNo])
 
   const handleSave = () => {
     if (!shopNo) {
@@ -299,7 +345,15 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
       return
     }
 
-    const validRows = rows.filter((r) => r.goodsCode.trim() && r.goodsPrice != null && r.goodsPrice > 0)
+    const validRows = rows.filter(
+      (r) => r.goodsCode.trim() && r.goodsPrice != null && r.goodsPrice > 0,
+    )
+    // 新規商品（goodsNo=null）は商品名必須
+    const invalidNewGoods = validRows.find((r) => r.goodsNo == null && !r.goodsName.trim())
+    if (invalidNewGoods) {
+      toast.error('新規商品の商品名を入力してください')
+      return
+    }
     if (validRows.length === 0) {
       toast.error('有効な明細を1件以上入力してください')
       return
@@ -312,6 +366,9 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
       estimateDate,
       priceChangeDate,
       note,
+      requirement: requirement || null,
+      recipientName: recipientName || null,
+      proposalMessage: proposalMessage || null,
       details: validRows.map((r) => ({
         goodsNo: r.goodsNo,
         goodsCode: r.goodsCode,
@@ -324,6 +381,7 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
         profitRate: calcProfitRate(r.goodsPrice, r.purchasePrice),
         detailNote: r.detailNote,
         displayOrder: r.displayOrder,
+        supplierNo: r.goodsNo == null ? r.supplierNo : null,
       })),
     }
 
@@ -344,9 +402,9 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
               <Save className="mr-2 h-4 w-4" />
               {saveMutation.isPending ? '保存中...' : '保存'}
             </Button>
-            <Button variant="outline" onClick={() => router.push('/estimates')}>
+            <Button variant="outline" onClick={() => router.back()}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              一覧に戻る
+              戻る
             </Button>
           </div>
         }
@@ -425,11 +483,37 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label>備考</Label>
+              <Label>担当者名（宛名）</Label>
+              <Input
+                value={recipientName}
+                onChange={(e) => setRecipientName(e.target.value)}
+                placeholder="例: 森社長"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>要件（得意先向け・印刷表示）</Label>
+              <Input
+                value={requirement}
+                onChange={(e) => setRequirement(e.target.value)}
+                placeholder="例: ○○仕様で見積依頼"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>社内メモ（印刷非表示）</Label>
               <Input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="見積要件・備考"
+                placeholder="社内向けメモ"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2 lg:col-span-3">
+              <Label>提案文（得意先向けメッセージ・明細後に表示）</Label>
+              <textarea
+                value={proposalMessage}
+                onChange={(e) => setProposalMessage(e.target.value)}
+                placeholder="例: 価格をご確認いただき、問題なければサンプルを取寄せますのでホルダーに入るかどうかの確認に進ませていただきたい。"
+                className="flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                rows={3}
               />
             </div>
           </div>
@@ -468,6 +552,7 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
                     </>
                   )}
                   <th className="px-2 py-2 text-left font-medium w-32">備考</th>
+                  <th className="px-2 py-2 text-left font-medium w-32">仕入先</th>
                   <th className="px-2 py-2 text-center font-medium w-16">順</th>
                   <th className="px-2 py-2 w-10"></th>
                 </tr>
@@ -506,7 +591,19 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
                     </td>
                     {/* 商品名 */}
                     <td className="px-2 py-1">
-                      <span className="text-sm">{row.goodsName}</span>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          value={row.goodsName}
+                          onChange={(e) => updateRow(row.id, 'goodsName', e.target.value)}
+                          className="h-8 text-xs"
+                          placeholder="商品名"
+                        />
+                        {!row.goodsNo && row.goodsName && (
+                          <Badge variant="outline" className="shrink-0 text-[10px] px-1 py-0 border-orange-400 text-orange-600">
+                            新規
+                          </Badge>
+                        )}
+                      </div>
                       {row.specification && (
                         <span className="ml-1 text-xs text-muted-foreground">
                           {row.specification}
@@ -516,8 +613,20 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
                     {/* 原価 (admin) */}
                     {isAdmin && (
                       <>
-                        <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
-                          {fmt(row.purchasePrice)}
+                        <td className="px-2 py-1">
+                          <Input
+                            type="number"
+                            value={row.purchasePrice ?? ''}
+                            onChange={(e) =>
+                              updateRow(
+                                row.id,
+                                'purchasePrice',
+                                e.target.value ? Number(e.target.value) : null,
+                              )
+                            }
+                            className="h-8 text-right tabular-nums"
+                            min={0}
+                          />
                         </td>
                         <td className="px-2 py-1 text-xs text-muted-foreground">
                           {row.pricePlanInfo}
@@ -541,8 +650,20 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
                       />
                     </td>
                     {/* 入数 */}
-                    <td className="px-2 py-1 text-right tabular-nums">
-                      {row.containNum ?? '-'}
+                    <td className="px-2 py-1">
+                      <Input
+                        type="number"
+                        value={row.containNum ?? ''}
+                        onChange={(e) =>
+                          updateRow(
+                            row.id,
+                            'containNum',
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="h-8 w-20 text-right tabular-nums"
+                        min={1}
+                      />
                     </td>
                     {/* 粗利系 (admin) */}
                     {isAdmin && (
@@ -566,6 +687,28 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
                         className="h-8 text-xs"
                         placeholder="備考"
                       />
+                    </td>
+                    {/* 仕入先 */}
+                    <td className="px-2 py-1">
+                      {!row.goodsNo ? (
+                        <SearchableSelect
+                          value={row.supplierNo != null ? String(row.supplierNo) : ''}
+                          onValueChange={(v) => updateRow(row.id, 'supplierNo', v ? Number(v) : null)}
+                          options={(suppliersQuery.data ?? []).map((s) => ({
+                            value: String(s.supplierNo),
+                            label: `${s.supplierCode ?? ''} ${s.supplierName}`.trim(),
+                          }))}
+                          placeholder="仕入先"
+                          searchPlaceholder="仕入先を検索..."
+                          clearable
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {row.supplierNo
+                            ? (suppliersQuery.data ?? []).find((s) => s.supplierNo === row.supplierNo)?.supplierName ?? '-'
+                            : '-'}
+                        </span>
+                      )}
                     </td>
                     {/* 表示順 */}
                     <td className="px-2 py-1">

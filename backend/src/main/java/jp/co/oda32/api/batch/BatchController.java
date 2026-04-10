@@ -32,8 +32,10 @@ public class BatchController {
             Map.of("jobName", "smileOrderFileImport", "category", "B-CART連携", "description", "売上明細取込", "requiresShopNo", "true"),
             Map.of("jobName", "bCartLogisticsCsvExport", "category", "B-CART連携", "description", "出荷実績CSV出力", "requiresShopNo", "false"),
             Map.of("jobName", "bCartMemberUpdate", "category", "B-CART連携", "description", "新規会員取込", "requiresShopNo", "false"),
+            Map.of("jobName", "bCartProductsImport", "category", "B-CART連携", "description", "商品マスタ同期", "requiresShopNo", "false"),
             Map.of("jobName", "bCartCategorySync", "category", "B-CART連携", "description", "カテゴリマスタ同期", "requiresShopNo", "false"),
             Map.of("jobName", "bCartCategoryUpdate", "category", "B-CART連携", "description", "カテゴリマスタ反映", "requiresShopNo", "false"),
+            Map.of("jobName", "bCartProductDescriptionUpdate", "category", "B-CART連携", "description", "商品説明反映", "requiresShopNo", "false"),
             Map.of("jobName", "goodsFileImport", "category", "マスタ取込", "description", "SMILE商品マスタCSV取込", "requiresShopNo", "true"),
             Map.of("jobName", "purchaseFileImport", "category", "SMILE取込", "description", "SMILE仕入ファイル取込", "requiresShopNo", "true"),
             Map.of("jobName", "smilePaymentImport", "category", "SMILE取込", "description", "SMILE支払情報取込", "requiresShopNo", "true"),
@@ -42,7 +44,8 @@ public class BatchController {
             Map.of("jobName", "accountsPayableSummary", "category", "買掛金", "description", "買掛金サマリ", "requiresShopNo", "false"),
             Map.of("jobName", "accountsReceivableSummary", "category", "売掛金", "description", "売掛金サマリ", "requiresShopNo", "false"),
             Map.of("jobName", "purchaseJournalIntegration", "category", "仕訳連携", "description", "買掛仕入CSV出力（マネーフォワード連携）", "requiresShopNo", "false"),
-            Map.of("jobName", "salesJournalIntegration", "category", "仕訳連携", "description", "売掛売上CSV出力（マネーフォワード連携）", "requiresShopNo", "false")
+            Map.of("jobName", "salesJournalIntegration", "category", "仕訳連携", "description", "売掛売上CSV出力（マネーフォワード連携）", "requiresShopNo", "false"),
+            Map.of("jobName", "partnerPriceChangePlanCreate", "category", "見積管理", "description", "得意先価格変更予定作成・見積自動生成", "requiresShopNo", "false")
     );
 
     private static final Set<String> ALLOWED_JOBS = Set.copyOf(

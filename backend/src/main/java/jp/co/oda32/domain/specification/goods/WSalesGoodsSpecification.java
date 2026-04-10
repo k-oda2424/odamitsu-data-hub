@@ -104,6 +104,14 @@ public class WSalesGoodsSpecification extends CommonSpecification<WSalesGoods> {
     }
 
     /**
+     * 仕入先番号のIN条件（複数仕入先での検索）
+     */
+    public Specification<WSalesGoods> supplierNoListContains(java.util.Collection<Integer> supplierNoList) {
+        return (supplierNoList == null || supplierNoList.isEmpty()) ? null
+                : (root, query, cb) -> root.get("supplierNo").in(supplierNoList);
+    }
+
+    /**
      * キーワードの検索条件
      *
      * @param keyword 商品名

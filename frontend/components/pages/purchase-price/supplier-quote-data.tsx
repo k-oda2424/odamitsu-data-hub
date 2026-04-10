@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
-import { useShops, useSuppliers } from '@/hooks/use-master-data'
+import { useShops, useSuppliers, useMakers } from '@/hooks/use-master-data'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
@@ -31,6 +31,7 @@ const columns: Column<SupplierQuoteDataResponse>[] = [
   { key: 'currentPrice', header: '現行単価', render: (item) => item.currentPrice?.toLocaleString() ?? '-' },
   { key: 'effectiveDate', header: '適用日', sortable: true },
   { key: 'supplierName', header: '仕入先' },
+  { key: 'makerName', header: 'メーカー', sortable: true },
 ]
 
 export function SupplierQuoteDataPage() {
@@ -38,6 +39,7 @@ export function SupplierQuoteDataPage() {
   const isAdmin = user?.shopNo === 0
 
   const [goodsName, setGoodsName] = useState('')
+  const [makerNo, setMakerNo] = useState('')
   const [supplierCode, setSupplierCode] = useState('')
   const [selectedShopNo, setSelectedShopNo] = useState<string>(
     isAdmin ? '' : String(user?.shopNo ?? '')
@@ -50,6 +52,7 @@ export function SupplierQuoteDataPage() {
   const shopsQuery = useShops()
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
   const suppliersQuery = useSuppliers(effectiveShopNo)
+  const makersQuery = useMakers()
 
   const listQuery = useQuery({
     queryKey: ['supplier-quote-data', effectiveShopNo, searchParams],
@@ -58,18 +61,20 @@ export function SupplierQuoteDataPage() {
       if (effectiveShopNo) params.append('shopNo', effectiveShopNo)
       if (searchParams?.supplierCode) params.append('supplierCode', searchParams.supplierCode)
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
+      if (searchParams?.makerNo) params.append('makerNo', searchParams.makerNo)
       return api.get<SupplierQuoteDataResponse[]>(`/supplier-quote-data?${params.toString()}`)
     },
     enabled: searchParams !== null && !!effectiveShopNo,
   })
 
   const handleSearch = () => {
-    setSearchParams({ supplierCode, goodsName })
+    setSearchParams({ supplierCode, goodsName, makerNo })
   }
 
   const handleReset = () => {
     setSupplierCode('')
     setGoodsName('')
+    setMakerNo('')
     setSearchParams(null)
   }
 
@@ -120,6 +125,20 @@ export function SupplierQuoteDataPage() {
             placeholder="商品名を入力"
             value={goodsName}
             onChange={(e) => setGoodsName(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>メーカー</Label>
+          <SearchableSelect
+            value={makerNo}
+            onValueChange={setMakerNo}
+            options={(makersQuery.data ?? []).map((m) => ({
+              value: String(m.makerNo),
+              label: m.makerName,
+            }))}
+            placeholder="メーカーを選択"
+            searchPlaceholder="メーカーを検索..."
+            clearable
           />
         </div>
       </SearchForm>

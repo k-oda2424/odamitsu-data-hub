@@ -151,9 +151,9 @@ export function PurchasePriceBulkInputPage() {
       <PageHeader
         title="仕入価格変更一括入力"
         actions={
-          <Button variant="outline" onClick={() => router.push('/purchase-prices/changes')}>
+          <Button variant="outline" onClick={() => router.back()}>
             <ArrowLeft className="mr-2 h-4 w-4" />
-            変更一覧に戻る
+            戻る
           </Button>
         }
       />

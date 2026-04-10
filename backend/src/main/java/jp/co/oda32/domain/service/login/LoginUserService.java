@@ -44,6 +44,10 @@ public class LoginUserService extends CustomService implements UserDetailsServic
                 .and(this.loginUserSpecification.delFlgContains(delFlg)));
     }
 
+    public MLoginUser findByLoginId(String loginId) {
+        return loginUserRepository.findByLoginId(loginId);
+    }
+
     public MLoginUser getLoginUser() throws Exception {
         LoginUser loginUser = LoginUserUtil.getLoginUserInfo();
         return loginUser.getUser();
@@ -60,6 +64,10 @@ public class LoginUserService extends CustomService implements UserDetailsServic
         return this.insert(this.loginUserRepository, saveLoginUser);
     }
 
+    public MLoginUser updateUser(MLoginUser user) throws Exception {
+        return this.update(this.loginUserRepository, user);
+    }
+
     public MLoginUser updatePassword(String loginId, String newPassword) throws Exception {
         MLoginUser saveLoginUser = this.loginUserRepository.findByLoginId(loginId);
         if (newPassword != null) {
@@ -67,6 +75,10 @@ public class LoginUserService extends CustomService implements UserDetailsServic
             saveLoginUser.setPassword(encodedPassword);
         }
         return this.update(this.loginUserRepository, saveLoginUser);
+    }
+
+    public void deleteUser(MLoginUser user) throws Exception {
+        this.delete(this.loginUserRepository, user);
     }
 
     @Override

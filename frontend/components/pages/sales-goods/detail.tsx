@@ -213,7 +213,7 @@ export function SalesGoodsDetailPage({ shopNo, goodsNo, isWork }: SalesGoodsDeta
   const data = detailQuery.data
   if (!data) return <ErrorMessage onRetry={() => detailQuery.refetch()} />
 
-  const fallbackPath = isWork ? '/sales-goods/work' : '/sales-goods'
+
   const margin = data.goodsPrice != null && data.purchasePrice != null
     ? data.goodsPrice - data.purchasePrice
     : null
@@ -274,15 +274,9 @@ export function SalesGoodsDetailPage({ shopNo, goodsNo, isWork }: SalesGoodsDeta
                 )}
               </>
             )}
-            <Button variant="outline" onClick={() => {
-              if (window.history.length > 1) {
-                router.back()
-              } else {
-                router.push(fallbackPath)
-              }
-            }}>
+            <Button variant="outline" onClick={() => router.back()}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              一覧に戻る
+              戻る
             </Button>
           </div>
         }

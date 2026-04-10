@@ -20,4 +20,6 @@ public class EstimateDetailCreateRequest {
     private BigDecimal profitRate;
     private String detailNote;
     private int displayOrder;
+    /** 新規商品の仕入先番号（仕入先見積データ自動登録用） */
+    private Integer supplierNo;
 }

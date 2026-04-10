@@ -4,14 +4,26 @@ import { type Page, type Route } from '@playwright/test'
 
 export const MOCK_TOKEN = 'mock-jwt-token-for-e2e-testing'
 
+/**
+ * E2E テスト用のデフォルトユーザー（admin 権限）。
+ * shopNo=0 は admin (全店舗アクセス可) を意味する。
+ * 非 admin ユーザーをテストする場合は、テストごとに `/api/v1/auth/me` を route.fulfill で
+ * 上書きして shopNo を 1 などの実店舗番号に差し替えること。
+ */
 export const MOCK_USER = {
   loginUserNo: 1,
   userName: 'テスト管理者',
   loginId: 'admin',
   companyNo: 1,
   companyType: 'ADMIN',
-  shopNo: 1,
+  shopNo: 0,
 }
+
+export const MOCK_USERS = [
+  { loginUserNo: 1, loginId: 'admin', userName: 'テスト管理者', companyNo: 1, companyType: 'ADMIN', addDateTime: '2024-01-01T00:00:00' },
+  { loginUserNo: 2, loginId: 'user1', userName: '一般ユーザー', companyNo: 1, companyType: 'SHOP', addDateTime: '2024-06-01T00:00:00' },
+  { loginUserNo: 3, loginId: 'partner1', userName: 'パートナーユーザー', companyNo: 2, companyType: 'PARTNER', addDateTime: '2025-01-15T00:00:00' },
+]
 
 export const MOCK_MAKERS = [
   { makerNo: 1, makerName: 'メーカーA' },
@@ -525,6 +537,41 @@ export const MOCK_PURCHASE_PRICE_CHANGES = [
   },
 ]
 
+export const MOCK_COMPARE_GOODS = [
+  {
+    goodsNo: 1,
+    goodsCode: 'KAO-001',
+    goodsName: '花王 除菌洗浄剤',
+    specification: '5L',
+    janCode: '4901234567890',
+    makerName: 'メーカーA',
+    supplierName: '仕入先A',
+    supplierNo: 1,
+    purchasePrice: 1200,
+    nowGoodsPrice: 1800,
+    containNum: 3,
+    changeContainNum: null,
+    pricePlanInfo: '2026-05-01より1200→1300',
+    planAfterPrice: 1300,
+  },
+  {
+    goodsNo: 2,
+    goodsCode: 'LION-001',
+    goodsName: 'ライオン 除菌洗浄剤',
+    specification: '4.5L',
+    janCode: '4901234567891',
+    makerName: 'メーカーB',
+    supplierName: '仕入先B',
+    supplierNo: 2,
+    purchasePrice: 1050,
+    nowGoodsPrice: 1700,
+    containNum: 3,
+    changeContainNum: null,
+    pricePlanInfo: null,
+    planAfterPrice: null,
+  },
+]
+
 // ==================== Helpers ====================
 
 async function json(route: Route, data: unknown, status = 200) {
@@ -584,18 +631,136 @@ export async function mockAllApis(page: Page) {
     },
   )
 
-  // ---- Masters ----
+  // ---- Users ----
+  await page.route(
+    (url) => /^\/api\/v1\/users\/\d+$/.test(url.pathname),
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        await json(route, MOCK_USERS[0])
+      } else if (method === 'PUT') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { ...MOCK_USERS[0], ...body })
+      } else if (method === 'DELETE') {
+        await route.fulfill({ status: 204 })
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        await json(route, MOCK_USERS)
+      } else if (method === 'POST') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { loginUserNo: 99, ...body, companyType: 'ADMIN', addDateTime: new Date().toISOString() })
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  // ---- Masters (CRUD) ----
+  await page.route(
+    (url) => /^\/api\/v1\/masters\/makers\/\d+$/.test(url.pathname),
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'PUT') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { makerNo: 1, ...body })
+      } else if (method === 'DELETE') {
+        await route.fulfill({ status: 204 })
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
   await page.route(
     (url) => url.pathname === '/api/v1/masters/makers',
     async (route) => {
-      await json(route, MOCK_MAKERS)
+      const method = route.request().method()
+      if (method === 'POST') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { makerNo: 99, ...body })
+      } else {
+        await json(route, MOCK_MAKERS)
+      }
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/masters\/suppliers\/\d+$/.test(url.pathname),
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'PUT') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { supplierNo: 1, ...body })
+      } else if (method === 'DELETE') {
+        await route.fulfill({ status: 204 })
+      } else {
+        await route.fallback()
+      }
     },
   )
 
   await page.route(
     (url) => url.pathname === '/api/v1/masters/suppliers',
     async (route) => {
-      await json(route, MOCK_SUPPLIERS)
+      const method = route.request().method()
+      if (method === 'POST') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { supplierNo: 99, ...body })
+      } else {
+        await json(route, MOCK_SUPPLIERS)
+      }
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/masters\/warehouses\/\d+$/.test(url.pathname),
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'PUT') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { warehouseNo: 1, ...body })
+      } else if (method === 'DELETE') {
+        await route.fulfill({ status: 204 })
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/masters\/partners\/\d+$/.test(url.pathname),
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'PUT') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { partnerNo: 1, ...body })
+      } else if (method === 'DELETE') {
+        await route.fulfill({ status: 204 })
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/masters/partners',
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'POST') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { partnerNo: 99, ...body })
+      } else {
+        await json(route, MOCK_PARTNERS)
+      }
     },
   )
 
@@ -727,14 +892,7 @@ export async function mockAllApis(page: Page) {
     },
   )
 
-  // ---- Partners & Destinations ----
-  await page.route(
-    (url) => url.pathname === '/api/v1/masters/partners',
-    async (route) => {
-      await json(route, MOCK_PARTNERS)
-    },
-  )
-
+  // ---- Destinations ----
   await page.route(
     (url) => url.pathname === '/api/v1/masters/destinations',
     async (route) => {
@@ -1022,6 +1180,17 @@ export async function mockAllApis(page: Page) {
           paymentDate: null,
         },
       ])
+    },
+  )
+
+  // ---- Estimate Compare Goods ----
+  await page.route(
+    (url) => url.pathname === '/api/v1/estimates/compare-goods',
+    async (route) => {
+      const url = new URL(route.request().url())
+      const goodsNoList = url.searchParams.getAll('goodsNoList').map(Number)
+      const filtered = MOCK_COMPARE_GOODS.filter((g) => goodsNoList.includes(g.goodsNo))
+      await json(route, filtered)
     },
   )
 

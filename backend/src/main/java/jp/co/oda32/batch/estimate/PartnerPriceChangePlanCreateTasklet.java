@@ -12,6 +12,7 @@ import jp.co.oda32.domain.service.master.MPartnerService;
 import jp.co.oda32.domain.service.master.MShopService;
 import jp.co.oda32.domain.service.purchase.MPurchasePriceChangePlanService;
 import jp.co.oda32.util.BigDecimalUtil;
+import java.time.LocalDate;
 import jp.co.oda32.util.CollectionUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -28,6 +29,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -52,6 +54,8 @@ public class PartnerPriceChangePlanCreateTasklet implements Tasklet {
     MPartnerService mPartnerService;
     @NonNull
     MPartnerGoodsService mPartnerGoodsService;
+    @NonNull
+    jp.co.oda32.domain.repository.order.TOrderDetailRepository tOrderDetailRepository;
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
@@ -61,7 +65,14 @@ public class PartnerPriceChangePlanCreateTasklet implements Tasklet {
             // 仕入金額変更予定検索
             List<MPurchasePriceChangePlan> purchasePriceChangePlanList = mPurchasePriceChangePlanService.findPartnerPriceChangePlanNotCreate(mShop.getShopNo());
             // 該当商品1件ずつ、注文履歴のある得意先の価格変更情報を作成する
+            LocalDate today = LocalDate.now();
             for (MPurchasePriceChangePlan mPurchasePriceChangePlan : purchasePriceChangePlanList) {
+                if (mPurchasePriceChangePlan.getChangePlanDate() != null && !mPurchasePriceChangePlan.getChangePlanDate().isAfter(today)) {
+                    // 価格変更日が今日以前のものはスキップ（フラグだけ立てる）
+                    mPurchasePriceChangePlan.setPartnerPriceChangePlanCreated(true);
+                    mPurchasePriceChangePlanService.update(mPurchasePriceChangePlan);
+                    continue;
+                }
                 this.createPartnerPriceChangePlan(mPurchasePriceChangePlan);
             }
         }
@@ -106,15 +117,49 @@ public class PartnerPriceChangePlanCreateTasklet implements Tasklet {
                     , Flag.NO);
         }
         List<Integer> goodsNoList = mPartnerGoodsList.stream().map(MPartnerGoods::getGoodsNo).distinct().collect(Collectors.toList());
-        // 既存の得意先商品価格変更予定レコード(まとめて検索)
+        // 既存の得意先商品価格変更予定レコード(まとめて検索、destinationNo=nullで全納品先を対象)
         List<MPartnerGoodsPriceChangePlan> existPartnerPriceChangePlanList = this.mPartnerGoodsPriceChangePlanService.findParentGoodsPriceChangePlanNotCreated(purchasePriceChangePlan.getShopNo()
                 , goodsNoList
                 , purchasePriceChangePlan.getPartnerNo()
-                , purchasePriceChangePlan.getDestinationNo()
+                , null
                 , purchasePriceChangePlan.getChangePlanDate());
+        // 過去2年以内の最終納品単価を得意先ごとに一括取得
+        Map<Integer, BigDecimal> lastPriceMap = new java.util.HashMap<>();
+        List<Object[]> lastPrices = tOrderDetailRepository.findLastDeliveredPricesByGoodsCode(
+                purchasePriceChangePlan.getShopNo(), purchasePriceChangePlan.getGoodsCode());
+        for (Object[] row : lastPrices) {
+            Integer pNo = ((Number) row[0]).intValue();
+            BigDecimal price = (BigDecimal) row[1];
+            lastPriceMap.put(pNo, price);
+        }
+
         for (MPartnerGoods mPartnerGoods : mPartnerGoodsList) {
             if (BigDecimalUtil.isZero(mPartnerGoods.getGoodsPrice())) {
-                // 売価が0円のものは省く
+                continue;
+            }
+
+            Integer partnerNo = mPartnerGoods.getMCompany().getPartnerNo();
+            BigDecimal lastDeliveredPrice = lastPriceMap.get(partnerNo);
+            if (lastDeliveredPrice == null) {
+                // 過去2年以内に納品実績がない→見積不要
+                continue;
+            }
+            // 最終納品単価と得意先商品単価が異なる場合は補正
+            if (lastDeliveredPrice.compareTo(mPartnerGoods.getGoodsPrice()) != 0) {
+                log.info("得意先商品単価を最終納品単価に更新: partnerNo={}, goodsCode={}, 旧単価={}, 最終納品単価={}",
+                        partnerNo, purchasePriceChangePlan.getGoodsCode(), mPartnerGoods.getGoodsPrice(), lastDeliveredPrice);
+                mPartnerGoods.setGoodsPrice(lastDeliveredPrice);
+                try {
+                    mPartnerGoodsService.update(mPartnerGoods);
+                } catch (Exception e) {
+                    log.warn("得意先商品単価更新失敗: {}", e.getMessage());
+                }
+            }
+
+            if (purchasePriceChangePlan.getBeforePrice() == null || BigDecimalUtil.isZero(purchasePriceChangePlan.getBeforePrice())) {
+                // 旧仕入価格が0またはnullの場合（新規取扱商品）は掛け率計算不可のためスキップ
+                // afterPrice をそのまま使用（掛け率1.0とみなす）
+                log.info("旧仕入価格が0のためスキップ: goodsCode={}, goodsName={}", purchasePriceChangePlan.getGoodsCode(), purchasePriceChangePlan.getGoodsName());
                 continue;
             }
             BigDecimal beforeProfitRate = mPartnerGoods.getGoodsPrice().divide(purchasePriceChangePlan.getBeforePrice(), 10, RoundingMode.HALF_UP);
@@ -125,7 +170,7 @@ public class PartnerPriceChangePlanCreateTasklet implements Tasklet {
                     .companyNo(mPartnerGoods.getCompanyNo())
                     .partnerNo(mPartnerGoods.getMCompany().getPartnerNo())
                     .partnerCode(mPartnerGoods.getMCompany().getPartner().getPartnerCode())
-                    .destinationNo(purchasePriceChangePlan.getDestinationNo())
+                    .destinationNo(mPartnerGoods.getDestinationNo())
                     .changePlanDate(purchasePriceChangePlan.getChangePlanDate())
                     .goodsCode(purchasePriceChangePlan.getGoodsCode())
                     .beforePurchasePrice(purchasePriceChangePlan.getBeforePrice())
@@ -149,6 +194,7 @@ public class PartnerPriceChangePlanCreateTasklet implements Tasklet {
             MPartnerGoodsPriceChangePlan existPartnerPriceChangePlan = existPartnerPriceChangePlanList.stream()
                     .filter(existPlan -> Objects.equals(existPlan.getPartnerNo(), mPartnerGoods.getMCompany().getPartnerNo()))
                     .filter(existPlan -> Objects.equals(existPlan.getGoodsNo(), mPartnerGoods.getGoodsNo()))
+                    .filter(existPlan -> Objects.equals(existPlan.getDestinationNo(), mPartnerGoods.getDestinationNo()))
                     .findFirst().orElse(null);
             if (existPartnerPriceChangePlan != null) {
                 mPartnerGoodsPriceChangePlan.setPartnerGoodsPriceChangePlanNo(existPartnerPriceChangePlan.getPartnerGoodsPriceChangePlanNo());

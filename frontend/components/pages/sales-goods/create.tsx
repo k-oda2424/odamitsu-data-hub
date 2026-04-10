@@ -195,9 +195,9 @@ export function SalesGoodsCreatePage() {
                 商品マスタ選択に戻る
               </Button>
             )}
-            <Button variant="outline" onClick={() => router.push('/sales-goods/work')}>
+            <Button variant="outline" onClick={() => router.back()}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              一覧に戻る
+              戻る
             </Button>
           </div>
         }

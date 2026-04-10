@@ -20,6 +20,9 @@ public class EstimateCreateRequest {
     @NotNull(message = "価格改定日は必須です")
     private LocalDate priceChangeDate;
     private String note;
+    private String requirement;
+    private String recipientName;
+    private String proposalMessage;
     @Valid
     @NotEmpty(message = "明細は1件以上必要です")
     private List<EstimateDetailCreateRequest> details;

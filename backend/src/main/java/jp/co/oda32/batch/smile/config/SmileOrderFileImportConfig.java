@@ -81,7 +81,7 @@ public class SmileOrderFileImportConfig {
                 // stockAllocateStep: t_stockベースの在庫引当は使用しない方針のため除外
                 .next(orderStatusUpdateStep())
                 .next(partnerGoodsSyncStep())
-                .next(shopAppropriateStockCalculateStep())
+                // shopAppropriateStockCalculateStep: 適正在庫計算は一旦除外
                 .next(vSalesMonthlySummaryRefreshStep())
                 .next(fileMoveStep())
                 .end()

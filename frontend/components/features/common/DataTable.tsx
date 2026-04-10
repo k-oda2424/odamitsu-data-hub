@@ -28,6 +28,8 @@ interface DataTableProps<T> {
   searchPlaceholder?: string
   onRowClick?: (item: T) => void
   rowKey?: (item: T, index: number) => string | number
+  defaultSortKey?: string
+  defaultSortDir?: 'asc' | 'desc'
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,14 +40,16 @@ export function DataTable<T extends Record<string, any>>({
   searchPlaceholder = 'テーブル内を検索...',
   onRowClick,
   rowKey,
+  defaultSortKey,
+  defaultSortDir = 'asc',
 }: DataTableProps<T>) {
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
 
   // データが変わったらページを先頭に戻す
   useEffect(() => { setPage(0) }, [data])
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir)
 
   const filtered = useMemo(() => {
     if (search === '') return data

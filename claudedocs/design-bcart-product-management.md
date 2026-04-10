@@ -500,18 +500,21 @@ interface BCartCategoryTree extends BCartCategory {
 
 ## 9. ロールアウト計画
 
-### Phase 1: カテゴリマスタ + 基盤（1週間）
-- [ ] DB マイグレーション（b_cart_categories, b_cart_change_history, b_cart_scheduled_change）
-- [ ] BCartCategories Entity / Repository / Service
-- [ ] カテゴリ同期バッチ（GET /api/v1/categories → DB）
-- [ ] BCartCategoryController API
-- [ ] カテゴリマスタ画面（ツリー + 詳細編集）
+### Phase 1: カテゴリマスタ + 基盤（1週間）✅ 完了
+- [x] DB マイグレーション（b_cart_categories, b_cart_change_history）
+- [x] BCartCategories Entity / Repository / Service
+- [x] カテゴリ同期バッチ（GET /api/v1/categories → DB）+ 削除検知
+- [x] カテゴリ反映バッチ（PATCH /api/v1/categories/{id}）
+- [x] BCartCategoryController API（ツリー/詳細/更新/履歴）
+- [x] カテゴリマスタ画面（ツリー + 詳細編集 + ポーリング監視）
+- [x] 全49カテゴリの説明文設定 + B-CART反映確認
 
-### Phase 2: 商品説明管理（1週間）
-- [ ] 変更履歴保存ロジック（共通Service）
-- [ ] 商品説明更新API + 履歴保存
-- [ ] 商品説明反映バッチ（PATCH /products/{id}、form-urlencoded形式）
-- [ ] B-CART商品一覧/詳細画面
+### Phase 2: 商品説明管理（1週間）✅ 完了
+- [x] BCartProductDescriptionService（変更フィールドごとの履歴記録 + @Transactional）
+- [x] BCartProductController API（一覧検索/詳細/説明更新/履歴）
+- [x] 商品説明反映バッチ bCartProductDescriptionUpdate（PATCH /products/{id}、form-urlencoded）
+- [x] B-CART商品一覧画面（検索: 名前/カテゴリ/表示状態）
+- [x] B-CART商品詳細画面（タブ: 商品情報編集/セット一覧/変更履歴）
 
 ### Phase 3: 価格管理（1週間）
 - [ ] 価格更新API + 履歴保存

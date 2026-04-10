@@ -84,7 +84,8 @@ export function DashboardPage() {
             icon={LifeBuoy}
             color="rose"
             step={2}
-            jobName="oneDayClose"
+            jobName="smileOrderFileImport"
+            shopNo={1}
           />
           <BatchPanel
             title="出荷実績CSV"

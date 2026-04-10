@@ -3,9 +3,11 @@ package jp.co.oda32.api.goods;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.goods.MSalesGoods;
 import jp.co.oda32.domain.model.goods.WSalesGoods;
+import jp.co.oda32.domain.model.master.MSupplier;
 import jp.co.oda32.domain.service.goods.MGoodsService;
 import jp.co.oda32.domain.service.goods.MSalesGoodsService;
 import jp.co.oda32.domain.service.goods.WSalesGoodsService;
+import jp.co.oda32.domain.service.master.MSupplierService;
 import jp.co.oda32.dto.goods.SalesGoodsCreateRequest;
 import jp.co.oda32.dto.goods.SalesGoodsDetailResponse;
 import jp.co.oda32.dto.goods.SalesGoodsUpdateRequest;
@@ -17,6 +19,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -27,26 +30,65 @@ public class SalesGoodsController {
     private final WSalesGoodsService wSalesGoodsService;
     private final MSalesGoodsService mSalesGoodsService;
     private final MGoodsService mGoodsService;
+    private final MSupplierService mSupplierService;
 
+    /**
+     * 販売商品ワーク一覧。
+     * paymentSupplierNo が指定された場合は、紐づく全 m_supplier をグループ展開して
+     * supplier_no IN (...) でフィルタする。**この場合 supplierNo パラメータは無視される。**
+     */
     @GetMapping("/work")
     public ResponseEntity<List<SalesGoodsDetailResponse>> listWork(
             @RequestParam Integer shopNo,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer supplierNo) {
-        List<WSalesGoods> list = wSalesGoodsService.find(shopNo, null, goodsName, null, goodsCode, keyword, supplierNo, Flag.NO);
+            @RequestParam(required = false) Integer supplierNo,
+            @RequestParam(required = false) Integer paymentSupplierNo) {
+        List<WSalesGoods> list;
+        if (paymentSupplierNo != null) {
+            // paymentSupplierNo 指定時: グループ展開して SQL レベルで supplier_no IN フィルタ
+            List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
+            if (siblings.isEmpty()) {
+                return ResponseEntity.ok(List.of());
+            }
+            Set<Integer> siblingNos = siblings.stream()
+                    .map(MSupplier::getSupplierNo)
+                    .collect(Collectors.toSet());
+            list = wSalesGoodsService.findBySupplierNoList(shopNo, goodsName, goodsCode, siblingNos, Flag.NO);
+        } else {
+            list = wSalesGoodsService.find(shopNo, null, goodsName, null, goodsCode, keyword, supplierNo, Flag.NO);
+        }
         return ResponseEntity.ok(list.stream().map(SalesGoodsDetailResponse::from).collect(Collectors.toList()));
     }
 
+    /**
+     * 販売商品マスタ一覧。
+     * paymentSupplierNo が指定された場合は、紐づく全 m_supplier をグループ展開して
+     * supplier_no IN (...) でフィルタする。**この場合 supplierNo パラメータは無視される。**
+     */
     @GetMapping("/master")
     public ResponseEntity<List<SalesGoodsDetailResponse>> listMaster(
             @RequestParam Integer shopNo,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer supplierNo) {
-        List<MSalesGoods> list = mSalesGoodsService.find(shopNo, null, goodsName, goodsCode, keyword, supplierNo, Flag.NO);
+            @RequestParam(required = false) Integer supplierNo,
+            @RequestParam(required = false) Integer paymentSupplierNo) {
+        List<MSalesGoods> list;
+        if (paymentSupplierNo != null) {
+            // paymentSupplierNo 指定時: グループ展開して SQL レベルで supplier_no IN フィルタ
+            List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
+            if (siblings.isEmpty()) {
+                return ResponseEntity.ok(List.of());
+            }
+            Set<Integer> siblingNos = siblings.stream()
+                    .map(MSupplier::getSupplierNo)
+                    .collect(Collectors.toSet());
+            list = mSalesGoodsService.findBySupplierNoList(shopNo, goodsName, goodsCode, siblingNos, Flag.NO);
+        } else {
+            list = mSalesGoodsService.find(shopNo, null, goodsName, goodsCode, keyword, supplierNo, Flag.NO);
+        }
         return ResponseEntity.ok(list.stream().map(SalesGoodsDetailResponse::from).collect(Collectors.toList()));
     }
 

@@ -1,14 +1,18 @@
 package jp.co.oda32.domain.service.master;
 
 import jp.co.oda32.constant.Flag;
+import jp.co.oda32.domain.model.master.MPaymentSupplier;
 import jp.co.oda32.domain.model.master.MSupplier;
 import jp.co.oda32.domain.repository.master.MSupplierRepository;
+import jp.co.oda32.domain.repository.purchase.MPaymentSupplierRepository;
 import jp.co.oda32.domain.service.CustomService;
 import jp.co.oda32.domain.specification.master.MSupplierSpecification;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
+import jakarta.persistence.criteria.Predicate;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -20,11 +24,13 @@ import java.util.List;
 @Service
 public class MSupplierService extends CustomService {
     private final MSupplierRepository mSupplierRepository;
+    private final MPaymentSupplierRepository mPaymentSupplierRepository;
     private MSupplierSpecification supplierSpecification = new MSupplierSpecification();
 
     @Autowired
-    public MSupplierService(MSupplierRepository supplierRepository) {
+    public MSupplierService(MSupplierRepository supplierRepository, MPaymentSupplierRepository paymentSupplierRepository) {
         this.mSupplierRepository = supplierRepository;
+        this.mPaymentSupplierRepository = paymentSupplierRepository;
     }
 
     public List<MSupplier> findAll() {
@@ -43,6 +49,51 @@ public class MSupplierService extends CustomService {
 
     public MSupplier getBySupplierNo(Integer supplierNo) {
         return mSupplierRepository.findById(supplierNo).orElse(null);
+    }
+
+    /**
+     * supplierNo リストに含まれる仕入先Entityを一括取得します。
+     */
+    public List<MSupplier> findBySupplierNoList(List<Integer> supplierNoList) {
+        if (supplierNoList == null || supplierNoList.isEmpty()) {
+            return List.of();
+        }
+        return this.mSupplierRepository.findAllById(supplierNoList);
+    }
+
+    /**
+     * payment_supplier_no で紐づく全 m_supplier を取得します（同グループの全仕入先）。
+     * 親レコード（payment_supplier_no IS NULL かつ supplier_code = m_payment_supplier.payment_supplier_code）も含みます。
+     */
+    public List<MSupplier> findByPaymentSupplierNo(Integer shopNo, Integer paymentSupplierNo) {
+        if (paymentSupplierNo == null) {
+            return List.of();
+        }
+        // m_payment_supplier から payment_supplier_code を取得（親レコード照合用）
+        MPaymentSupplier ps = mPaymentSupplierRepository.findById(paymentSupplierNo).orElse(null);
+        final String paymentSupplierCode = ps != null ? ps.getPaymentSupplierCode() : null;
+
+        return this.mSupplierRepository.findAll((root, query, cb) -> {
+            List<Predicate> preds = new ArrayList<>();
+            if (shopNo != null) {
+                preds.add(cb.equal(root.get("shopNo"), shopNo));
+            }
+            preds.add(cb.equal(root.get("delFlg"), Flag.NO.getValue()));
+
+            // 子（payment_supplier_no = ?） OR 親（payment_supplier_no IS NULL かつ supplier_code 一致）
+            Predicate childMatch = cb.equal(root.get("paymentSupplierNo"), paymentSupplierNo);
+            Predicate combined;
+            if (paymentSupplierCode != null && !paymentSupplierCode.isBlank()) {
+                Predicate parentMatch = cb.and(
+                        cb.isNull(root.get("paymentSupplierNo")),
+                        cb.equal(root.get("supplierCode"), paymentSupplierCode));
+                combined = cb.or(childMatch, parentMatch);
+            } else {
+                combined = childMatch;
+            }
+            preds.add(combined);
+            return cb.and(preds.toArray(new Predicate[0]));
+        });
     }
 
     public List<MSupplier> findByShopNo(Integer shopNo) {

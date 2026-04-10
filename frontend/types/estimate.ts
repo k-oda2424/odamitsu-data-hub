@@ -22,10 +22,14 @@ export interface EstimateResponse {
   partnerCode: string | null
   partnerName: string | null
   destinationNo: number | null
+  destinationName: string | null
   estimateDate: string | null
   priceChangeDate: string | null
   estimateStatus: string | null
   note: string | null
+  requirement: string | null
+  recipientName: string | null
+  proposalMessage: string | null
   isIncludeTaxDisplay?: boolean
   details?: EstimateDetailResponse[]
 }
@@ -60,6 +64,7 @@ export interface EstimateDetailCreateRequest {
   profitRate: number | null
   detailNote: string
   displayOrder: number
+  supplierNo: number | null
 }
 
 export interface EstimateCreateRequest {
@@ -69,6 +74,9 @@ export interface EstimateCreateRequest {
   estimateDate: string
   priceChangeDate: string
   note: string
+  requirement: string | null
+  recipientName: string | null
+  proposalMessage: string | null
   details: EstimateDetailCreateRequest[]
 }
 
@@ -85,4 +93,50 @@ export interface EstimateGoodsSearchResponse {
   janCode: string | null
   source: 'GOODS' | 'PRICE_PLAN' | 'QUOTE_IMPORT'
   purchasePriceChangePlanNo: number | null
+  supplierNo: number | null
+}
+
+/** compare-goods API response (for registered goods with goodsNo) */
+export interface CompareGoodsResponse {
+  goodsNo: number
+  goodsCode: string
+  goodsName: string
+  specification: string | null
+  janCode: string | null
+  makerName: string | null
+  supplierName: string | null
+  supplierNo: number | null
+  purchasePrice: number | null
+  nowGoodsPrice: number | null
+  containNum: number | null
+  changeContainNum: number | null
+  pricePlanInfo: string | null
+  planAfterPrice: number | null
+}
+
+/** Unified goods data for comparison table (API + unregistered goods) */
+export interface ComparisonGoodsData {
+  goodsNo: number | null
+  goodsCode: string
+  goodsName: string
+  specification: string | null
+  janCode: string | null
+  makerName: string | null
+  supplierName: string | null
+  supplierNo: number | null
+  purchasePrice: number | null
+  nowGoodsPrice: number | null
+  containNum: number | null
+  changeContainNum: number | null
+  pricePlanInfo: string | null
+  planAfterPrice: number | null
+  source: 'GOODS' | 'PRICE_PLAN' | 'QUOTE_IMPORT'
+}
+
+export interface ComparisonItem {
+  id: string
+  goods: ComparisonGoodsData
+  isBase: boolean
+  simulatedPrice: number | null
+  simulatedQty: number | null
 }

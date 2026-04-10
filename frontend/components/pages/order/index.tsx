@@ -54,9 +54,9 @@ function formatDateTime(dt: string | null): string {
   })
 }
 
-function getOneMonthAgo(): string {
+function getThreeMonthsAgo(): string {
   const d = new Date()
-  d.setMonth(d.getMonth() - 1)
+  d.setMonth(d.getMonth() - 3)
   return d.toISOString().slice(0, 16)
 }
 
@@ -118,7 +118,7 @@ export function OrderListPage() {
   const [goodsName, setGoodsName] = useState('')
   const [goodsCode, setGoodsCode] = useState('')
   const [orderDetailStatus, setOrderDetailStatus] = useState<string>('')
-  const [orderDateTimeFrom, setOrderDateTimeFrom] = useState(getOneMonthAgo())
+  const [orderDateTimeFrom, setOrderDateTimeFrom] = useState(getThreeMonthsAgo())
   const [orderDateTimeTo, setOrderDateTimeTo] = useState('')
   const [slipDateFrom, setSlipDateFrom] = useState('')
   const [slipDateTo, setSlipDateTo] = useState('')
@@ -170,7 +170,7 @@ export function OrderListPage() {
     setGoodsName('')
     setGoodsCode('')
     setOrderDetailStatus('')
-    setOrderDateTimeFrom(getOneMonthAgo())
+    setOrderDateTimeFrom(getThreeMonthsAgo())
     setOrderDateTimeTo('')
     setSlipDateFrom('')
     setSlipDateTo('')

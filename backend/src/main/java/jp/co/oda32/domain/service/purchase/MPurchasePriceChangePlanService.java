@@ -95,6 +95,18 @@ public class MPurchasePriceChangePlanService extends CustomService {
     }
 
     /**
+     * 仕入価格を一括登録します。途中で例外が発生した場合は全件ロールバック。
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public List<MPurchasePriceChangePlan> bulkInsert(List<MPurchasePriceChangePlan> plans) throws Exception {
+        List<MPurchasePriceChangePlan> result = new java.util.ArrayList<>();
+        for (MPurchasePriceChangePlan plan : plans) {
+            result.add(this.insert(plan));
+        }
+        return result;
+    }
+
+    /**
      * 仕入価格を更新します。
      *
      * @param purchasePriceChangePlan 仕入価格Entity

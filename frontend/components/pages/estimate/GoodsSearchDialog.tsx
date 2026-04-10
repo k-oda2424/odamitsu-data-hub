@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
-import { useSuppliers, useMakers } from '@/hooks/use-master-data'
+import { usePaymentSuppliers, useMakers } from '@/hooks/use-master-data'
 import { SearchableSelect } from '@/components/features/common/SearchableSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,55 +38,69 @@ export interface SelectedGoods {
 }
 
 export function GoodsSearchDialog({ open, onOpenChange, shopNo, onSelect }: GoodsSearchDialogProps) {
-  const [supplierNo, setSupplierNo] = useState('')
+  const [paymentSupplierNo, setPaymentSupplierNo] = useState('')
   const [makerNo, setMakerNo] = useState('')
   const [goodsName, setGoodsName] = useState('')
   const [searchParams, setSearchParams] = useState<{
-    supplierNo: string; makerNo: string; goodsName: string
+    paymentSupplierNo: string; makerNo: string; goodsName: string
   } | null>(null)
 
   // ダイアログを開くたびに検索条件をリセット
   useEffect(() => {
     if (open) {
-      setSupplierNo('')
+      setPaymentSupplierNo('')
       setMakerNo('')
       setGoodsName('')
       setSearchParams(null)
     }
   }, [open])
 
-  const suppliersQuery = useSuppliers(shopNo)
+  const paymentSuppliersQuery = usePaymentSuppliers(shopNo)
   const makersQuery = useMakers()
 
-  // 販売商品マスタ検索
+  // 販売商品マスタ検索（paymentSupplierNo でグループ展開フィルタ）
   const salesGoodsQuery = useQuery({
-    queryKey: ['estimate-goods-popup-sales', shopNo, searchParams?.supplierNo, searchParams?.goodsName],
+    queryKey: ['estimate-goods-popup-sales', shopNo, searchParams?.paymentSupplierNo, searchParams?.goodsName],
     queryFn: () => {
       const params = new URLSearchParams({ shopNo })
-      if (searchParams?.supplierNo) params.append('supplierNo', searchParams.supplierNo)
+      if (searchParams?.paymentSupplierNo) params.append('paymentSupplierNo', searchParams.paymentSupplierNo)
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
       return api.get<SalesGoodsDetailResponse[]>(`/sales-goods/master?${params.toString()}`)
     },
     enabled: searchParams !== null && !!shopNo,
   })
 
-  // 仕入価格変更予定検索（メーカー見積商品）
+  // 販売商品ワーク検索（マスタに昇格前の商品。AI見積取込で登録された商品もここに入る）
+  const workGoodsQuery = useQuery({
+    queryKey: ['estimate-goods-popup-work', shopNo, searchParams?.paymentSupplierNo, searchParams?.goodsName],
+    queryFn: () => {
+      const params = new URLSearchParams({ shopNo })
+      if (searchParams?.paymentSupplierNo) params.append('paymentSupplierNo', searchParams.paymentSupplierNo)
+      if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
+      return api.get<SalesGoodsDetailResponse[]>(`/sales-goods/work?${params.toString()}`)
+    },
+    enabled: searchParams !== null && !!shopNo,
+  })
+
+  // 仕入価格変更予定検索（メーカー見積商品） — paymentSupplierNo/makerNo でバックエンド絞り込み
   const pricePlanQuery = useQuery({
-    queryKey: ['estimate-goods-popup-plans', shopNo, searchParams?.goodsName],
+    queryKey: ['estimate-goods-popup-plans', shopNo, searchParams?.goodsName, searchParams?.paymentSupplierNo, searchParams?.makerNo],
     queryFn: () => {
       const params = new URLSearchParams({ shopNo })
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
+      if (searchParams?.paymentSupplierNo) params.append('paymentSupplierNo', searchParams.paymentSupplierNo)
+      if (searchParams?.makerNo) params.append('makerNo', searchParams.makerNo)
       return api.get<EstimateGoodsSearchResponse[]>(`/estimates/price-plan-goods?${params.toString()}`)
     },
     enabled: searchParams !== null && !!shopNo,
   })
 
   const handleSearch = () => {
-    setSearchParams({ supplierNo, makerNo, goodsName })
+    setSearchParams({ paymentSupplierNo, makerNo, goodsName })
   }
 
   const handleReset = () => {
-    setSupplierNo('')
+    setPaymentSupplierNo('')
     setMakerNo('')
     setGoodsName('')
     setSearchParams(null)
@@ -97,23 +111,36 @@ export function GoodsSearchDialog({ open, onOpenChange, shopNo, onSelect }: Good
     onOpenChange(false)
   }
 
-  // 販売商品をフィルタ（メーカーはフロント側フィルタ）
-  const filteredSalesGoods = (salesGoodsQuery.data ?? []).filter((g) => {
-    if (searchParams?.makerNo && g.makerName) {
-      const maker = (makersQuery.data ?? []).find((m) => String(m.makerNo) === searchParams.makerNo)
-      if (maker && g.makerName !== maker.makerName) return false
-    }
+  // メーカーフィルタヘルパー
+  const matchesMaker = (g: SalesGoodsDetailResponse): boolean => {
+    if (!searchParams?.makerNo) return true
+    if (!g.makerName) return false
+    const maker = (makersQuery.data ?? []).find((m) => String(m.makerNo) === searchParams.makerNo)
+    return !!maker && g.makerName === maker.makerName
+  }
+
+  // 販売商品マスタ + ワークをマージ（ワークはマスタに無いものだけ追加）
+  const filteredMasterGoods = (salesGoodsQuery.data ?? []).filter(matchesMaker)
+  const masterGoodsCodes = new Set(filteredMasterGoods.map((s) => s.goodsCode))
+  const filteredWorkGoods = (workGoodsQuery.data ?? [])
+    .filter(matchesMaker)
+    .filter((g) => !masterGoodsCodes.has(g.goodsCode))
+  const filteredSalesGoods = [...filteredMasterGoods, ...filteredWorkGoods]
+
+  // 仕入変更予定（販売商品マスタ・ワークと重複する商品コード/JANコードは除外）
+  const salesCodes = new Set<string>()
+  const salesJans = new Set<string>()
+  filteredSalesGoods.forEach((s) => {
+    if (s.goodsCode) salesCodes.add(s.goodsCode)
+    if (s.janCode) salesJans.add(s.janCode)
+  })
+  const filteredPricePlans = (pricePlanQuery.data ?? []).filter((g) => {
+    if (g.goodsCode && salesCodes.has(g.goodsCode)) return false
+    if (g.janCode && salesJans.has(g.janCode)) return false
     return true
   })
 
-  // 仕入変更予定（販売商品と重複する商品コードは除外）
-  const salesCodes = new Set(filteredSalesGoods.map((s) => s.goodsCode))
-  const filteredPricePlans = (pricePlanQuery.data ?? []).filter((g) => {
-    const code = g.goodsCode || g.janCode
-    return !(code && salesCodes.has(code))
-  })
-
-  const isLoading = salesGoodsQuery.isLoading || pricePlanQuery.isLoading
+  const isLoading = salesGoodsQuery.isLoading || workGoodsQuery.isLoading || pricePlanQuery.isLoading
   const hasSearched = searchParams !== null
 
   return (
@@ -128,11 +155,11 @@ export function GoodsSearchDialog({ open, onOpenChange, shopNo, onSelect }: Good
           <div className="space-y-1">
             <Label className="text-xs">仕入先</Label>
             <SearchableSelect
-              value={supplierNo}
-              onValueChange={setSupplierNo}
-              options={(suppliersQuery.data ?? []).map((s) => ({
-                value: String(s.supplierNo),
-                label: `${s.supplierCode ?? ''} ${s.supplierName}`,
+              value={paymentSupplierNo}
+              onValueChange={setPaymentSupplierNo}
+              options={(paymentSuppliersQuery.data ?? []).map((p) => ({
+                value: String(p.paymentSupplierNo),
+                label: `${p.paymentSupplierCode ?? ''} ${p.paymentSupplierName}`,
               }))}
               placeholder="仕入先を選択"
               searchPlaceholder="仕入先を検索..."
@@ -200,8 +227,8 @@ export function GoodsSearchDialog({ open, onOpenChange, shopNo, onSelect }: Good
               <tbody>
                 {filteredSalesGoods.map((g) => (
                   <tr
-                    key={`sg-${g.goodsNo}-${g.goodsCode}`}
-                    className="border-b hover:bg-accent cursor-pointer"
+                    key={`sg-${g.isWork ? 'w' : 'm'}-${g.goodsNo}-${g.goodsCode}`}
+                    className={`border-b hover:bg-accent cursor-pointer ${g.isWork ? 'bg-amber-50/40' : ''}`}
                     onClick={() => handleSelect({
                       goodsNo: g.goodsNo,
                       goodsCode: g.goodsCode,
@@ -213,7 +240,10 @@ export function GoodsSearchDialog({ open, onOpenChange, shopNo, onSelect }: Good
                       source: 'GOODS',
                     })}
                   >
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{g.supplierName}</td>
+                    <td className="px-3 py-2 text-xs text-muted-foreground">
+                      {g.isWork && <span className="text-amber-700 mr-1">(ワーク)</span>}
+                      {g.supplierName}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs">{g.goodsCode}</td>
                     <td className="px-3 py-2">{g.goodsName}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatNumber(g.purchasePrice ?? 0)}</td>
@@ -258,7 +288,7 @@ export function GoodsSearchDialog({ open, onOpenChange, shopNo, onSelect }: Good
 
         {hasSearched && !isLoading && (
           <div className="text-xs text-muted-foreground text-right">
-            販売商品 {filteredSalesGoods.length}件 + 仕入変更予定 {filteredPricePlans.length}件
+            販売商品マスタ {filteredMasterGoods.length}件 + ワーク {filteredWorkGoods.length}件 + 仕入変更予定 {filteredPricePlans.length}件
           </div>
         )}
       </DialogContent>
