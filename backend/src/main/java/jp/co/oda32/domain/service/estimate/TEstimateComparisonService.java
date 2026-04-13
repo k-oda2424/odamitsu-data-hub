@@ -36,11 +36,7 @@ public class TEstimateComparisonService extends CustomService {
 
     @Transactional(readOnly = true)
     public TEstimateComparison getByComparisonNo(int comparisonNo) {
-        TEstimateComparison c = comparisonRepository.findById(comparisonNo).orElse(null);
-        if (c == null) return null;
-        // Lazy 初期化: グループ → 明細
-        c.getComparisonGroupList().forEach(g -> g.getComparisonDetailList().size());
-        return c;
+        return comparisonRepository.findWithGroupsAndDetailsByComparisonNo(comparisonNo).orElse(null);
     }
 
     @Transactional(readOnly = true)

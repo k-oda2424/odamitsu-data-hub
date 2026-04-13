@@ -2,7 +2,6 @@ package jp.co.oda32.api.purchase;
 
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.purchase.MPurchasePriceChangePlan;
-import jp.co.oda32.domain.repository.purchase.MPurchasePriceChangePlanRepository;
 import jp.co.oda32.domain.service.purchase.MPurchasePriceChangePlanService;
 import jp.co.oda32.dto.purchase.PurchasePriceChangePlanBulkRequest;
 import jp.co.oda32.dto.purchase.PurchasePriceChangePlanCreateRequest;
@@ -29,7 +28,6 @@ import java.util.stream.Collectors;
 public class PurchasePriceChangePlanController {
 
     private final MPurchasePriceChangePlanService changePlanService;
-    private final MPurchasePriceChangePlanRepository changePlanRepository;
 
     @GetMapping
     public ResponseEntity<List<PurchasePriceChangePlanResponse>> list(
@@ -116,7 +114,7 @@ public class PurchasePriceChangePlanController {
     @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Integer id) throws Exception {
-        MPurchasePriceChangePlan plan = changePlanRepository.findById(id).orElse(null);
+        MPurchasePriceChangePlan plan = changePlanService.getById(id);
         if (plan == null) {
             return ResponseEntity.notFound().build();
         }

@@ -88,6 +88,26 @@ public class TOrderDetailService extends CustomService {
     }
 
     /**
+     * 受注一覧画面用の検索（partnerNoを含む）
+     */
+    public List<TOrderDetail> searchForList(Integer shopNo, Integer companyNo, Integer partnerNo, String slipNo,
+                                            String goodsName, String goodsCode, String[] orderDetailStatus,
+                                            LocalDateTime orderDateTimeFrom, LocalDateTime orderDateTimeTo,
+                                            LocalDate slipDateFrom, LocalDate slipDateTo, Flag delFlg) {
+        return this.tOrderDetailRepository.findAll(Specification
+                .where(this.tOrderDetailSpecification.shopNoContains(shopNo))
+                .and(this.tOrderDetailSpecification.companyNoContains(companyNo))
+                .and(this.tOrderDetailSpecification.partnerNoContains(partnerNo))
+                .and(this.tOrderDetailSpecification.slipNoContains(slipNo))
+                .and(this.tOrderDetailSpecification.orderDetailStatusListContains(orderDetailStatus))
+                .and(this.tOrderDetailSpecification.goodsCodeContains(goodsCode))
+                .and(this.tOrderDetailSpecification.goodsNameContains(goodsName))
+                .and(this.tOrderDetailSpecification.orderDateTimeContains(orderDateTimeFrom, orderDateTimeTo))
+                .and(this.tOrderDetailSpecification.slipDateContains(slipDateFrom, slipDateTo))
+                .and(this.tOrderDetailSpecification.delFlgContains(delFlg)));
+    }
+
+    /**
      * 伝票日付の範囲で検索します
      *
      * @param slipDateFrom 伝票日付from

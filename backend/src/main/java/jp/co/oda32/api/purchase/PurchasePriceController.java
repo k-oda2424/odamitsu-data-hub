@@ -1,9 +1,7 @@
 package jp.co.oda32.api.purchase;
 
 import jp.co.oda32.constant.Flag;
-import jp.co.oda32.domain.model.goods.MGoods;
 import jp.co.oda32.domain.model.purchase.MPurchasePrice;
-import jp.co.oda32.domain.service.goods.MGoodsService;
 import jp.co.oda32.domain.service.purchase.MPurchasePriceService;
 import jp.co.oda32.dto.purchase.PurchasePriceCreateRequest;
 import jp.co.oda32.dto.purchase.PurchasePriceResponse;
@@ -15,9 +13,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -32,7 +27,6 @@ import java.util.stream.Collectors;
 public class PurchasePriceController {
 
     private final MPurchasePriceService mPurchasePriceService;
-    private final MGoodsService mGoodsService;
     private final jp.co.oda32.domain.service.login.LoginUserService loginUserService;
 
     @GetMapping
@@ -88,7 +82,7 @@ public class PurchasePriceController {
     @PostMapping
     public ResponseEntity<PurchasePriceResponse> create(@Valid @RequestBody PurchasePriceCreateRequest request) throws Exception {
         if (checkShopDenied(request.getShopNo())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        MPurchasePrice pp = buildEntity(null, request);
+        MPurchasePrice pp = mPurchasePriceService.createFromRequest(request);
         MPurchasePrice saved = mPurchasePriceService.save(pp);
         return ResponseEntity.status(HttpStatus.CREATED).body(PurchasePriceResponse.from(saved));
     }
@@ -100,7 +94,7 @@ public class PurchasePriceController {
         MPurchasePrice existing = mPurchasePriceService.getByPK(purchasePriceNo);
         if (existing == null) return ResponseEntity.notFound().build();
         if (checkShopDenied(existing.getShopNo())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        MPurchasePrice pp = buildEntity(purchasePriceNo, request);
+        MPurchasePrice pp = mPurchasePriceService.updateFromRequest(purchasePriceNo, request);
         MPurchasePrice saved = mPurchasePriceService.save(pp);
         return ResponseEntity.ok(PurchasePriceResponse.from(saved));
     }
@@ -124,42 +118,4 @@ public class PurchasePriceController {
         }
     }
 
-    private MPurchasePrice buildEntity(Integer purchasePriceNo, PurchasePriceCreateRequest req) {
-        BigDecimal goodsPrice;
-        BigDecimal includeTaxGoodsPrice;
-        BigDecimal taxRate = req.getTaxRate() != null ? req.getTaxRate() : BigDecimal.TEN;
-        BigDecimal multiplyTaxRate = BigDecimal.ONE.add(taxRate.divide(new BigDecimal(100), 4, RoundingMode.HALF_UP));
-
-        if (req.isIncludeTaxFlg()) {
-            includeTaxGoodsPrice = req.getGoodsPrice();
-            goodsPrice = req.getGoodsPrice().divide(multiplyTaxRate, 2, RoundingMode.DOWN);
-        } else {
-            goodsPrice = req.getGoodsPrice();
-            includeTaxGoodsPrice = req.getGoodsPrice().multiply(multiplyTaxRate).setScale(2, RoundingMode.UP);
-        }
-
-        int taxCategory = 0;
-        MGoods goods = mGoodsService.getByGoodsNo(req.getGoodsNo());
-        if (goods != null) {
-            taxCategory = goods.isApplyReducedTaxRate() ? 1 : 0;
-        }
-
-        return MPurchasePrice.builder()
-                .purchasePriceNo(purchasePriceNo)
-                .shopNo(req.getShopNo())
-                .goodsNo(req.getGoodsNo())
-                .supplierNo(req.getSupplierNo())
-                .partnerNo(req.getPartnerNo() != null ? req.getPartnerNo() : 0)
-                .destinationNo(req.getDestinationNo() != null ? req.getDestinationNo() : 0)
-                .goodsPrice(goodsPrice)
-                .includeTaxGoodsPrice(includeTaxGoodsPrice)
-                .taxRate(taxRate)
-                .taxCategory(taxCategory)
-                .includeTaxFlg(req.isIncludeTaxFlg() ? "1" : "0")
-                .periodFrom(req.getPeriodFrom())
-                .periodTo(req.getPeriodTo())
-                .note(req.getNote())
-                .delFlg(Flag.NO.getValue())
-                .build();
-    }
 }

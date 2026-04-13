@@ -134,6 +134,10 @@ public class MPurchasePriceChangePlanService extends CustomService {
                 .and(this.mPurchasePriceChangePlanSpecification.delFlgContains(Flag.NO)));
     }
 
+    public MPurchasePriceChangePlan getById(Integer id) {
+        return this.mPurchasePriceChangePlanRepository.findById(id).orElse(null);
+    }
+
     public void deleteByGoodsCodeAndChangePlanDate(Integer shopNo, String goodsCode, LocalDate changePlanDate) {
         this.mPurchasePriceChangePlanRepository.deleteByShopNoAndGoodsCodeAndChangePlanDate(shopNo, goodsCode, changePlanDate);
     }

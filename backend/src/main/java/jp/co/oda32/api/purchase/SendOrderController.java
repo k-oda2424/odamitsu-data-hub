@@ -1,8 +1,6 @@
 package jp.co.oda32.api.purchase;
 
 import jp.co.oda32.constant.Flag;
-import jp.co.oda32.constant.SendOrderDetailStatus;
-import jp.co.oda32.domain.model.embeddable.TSendOrderDetailPK;
 import jp.co.oda32.domain.model.purchase.TSendOrder;
 import jp.co.oda32.domain.model.purchase.TSendOrderDetail;
 import jp.co.oda32.domain.service.purchase.SendOrderCreateService;
@@ -20,7 +18,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -82,53 +79,16 @@ public class SendOrderController {
             @PathVariable Integer sendOrderNo,
             @PathVariable Integer sendOrderDetailNo,
             @Valid @RequestBody SendOrderDetailStatusUpdateRequest request) throws Exception {
-        TSendOrderDetail detail = tSendOrderDetailService.getByPK(
-                TSendOrderDetailPK.builder()
-                        .sendOrderNo(sendOrderNo)
-                        .sendOrderDetailNo(sendOrderDetailNo)
-                        .build());
-        if (detail == null) {
-            return ResponseEntity.notFound().build();
+        try {
+            TSendOrderDetail updated = tSendOrderDetailService.transitionStatus(sendOrderNo, sendOrderDetailNo, request);
+            if (updated == null) {
+                return ResponseEntity.notFound().build();
+            }
+            log.info("発注明細ステータス更新 sendOrderNo:{}, detailNo:{}, status:{}",
+                    sendOrderNo, sendOrderDetailNo, request.getSendOrderDetailStatus());
+            return ResponseEntity.ok(java.util.Map.of("message", "更新しました"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage()));
         }
-
-        // ステータス後退チェック
-        String currentStatus = detail.getSendOrderDetailStatus();
-        String newStatus = request.getSendOrderDetailStatus();
-        if (currentStatus.compareTo(newStatus) >= 0) {
-            return ResponseEntity.badRequest()
-                    .body(java.util.Map.of("message", "ステータスを後退させることはできません"));
-        }
-
-        // ステータス別バリデーション
-        SendOrderDetailStatus status = SendOrderDetailStatus.purse(newStatus);
-        if (status == null) {
-            return ResponseEntity.badRequest()
-                    .body(java.util.Map.of("message", "無効なステータスです"));
-        }
-        if (status == SendOrderDetailStatus.ARRIVAL_TO_PROMISE && request.getArrivePlanDate() == null) {
-            return ResponseEntity.badRequest()
-                    .body(java.util.Map.of("message", "入荷予定日は必須です"));
-        }
-        if (status == SendOrderDetailStatus.ARRIVED && (request.getArrivedNum() == null || request.getArrivedNum().compareTo(BigDecimal.ZERO) <= 0)) {
-            return ResponseEntity.badRequest()
-                    .body(java.util.Map.of("message", "入荷数量は必須です"));
-        }
-
-        // 更新
-        detail.setSendOrderDetailStatus(newStatus);
-        if (request.getArrivePlanDate() != null) {
-            detail.setArrivePlanDate(request.getArrivePlanDate());
-        }
-        if (request.getArrivedDate() != null) {
-            detail.setArrivedDate(request.getArrivedDate());
-        }
-        if (request.getArrivedNum() != null) {
-            detail.setArrivedNum(request.getArrivedNum());
-            detail.setDifferenceNum(request.getArrivedNum().subtract(new BigDecimal(detail.getSendOrderNum())));
-        }
-
-        tSendOrderDetailService.update(detail);
-        log.info("発注明細ステータス更新 sendOrderNo:{}, detailNo:{}, status:{}", sendOrderNo, sendOrderDetailNo, newStatus);
-        return ResponseEntity.ok(java.util.Map.of("message", "更新しました"));
     }
 }
