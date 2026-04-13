@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ConfirmDialog } from '@/components/features/common/ConfirmDialog'
 import { ArrowLeft, Printer, Pencil, Trash2, Download, ArrowLeftRight } from 'lucide-react'
 import type { ComparisonResponse } from '@/types/estimate-comparison'
 import { fmt } from '@/lib/estimate-calc'
@@ -46,6 +47,9 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
     queryKey: ['estimate', estimateNo],
     queryFn: () => api.get<EstimateResponse>(`/estimates/${estimateNo}`),
   })
+
+  const [pendingOutput, setPendingOutput] = useState<{ type: 'print' | 'pdf'; notified: string } | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const isEditable = (e: EstimateResponse | null | undefined) => {
     const s = e?.estimateStatus
@@ -96,24 +100,18 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
     }
   }, [estimateNo, queryClient])
 
-  const handlePrint = useCallback(async () => {
-    const notified = getNotifiedStatus(estimateQuery.data?.estimateStatus ?? null)
-    const willChange = notified !== null && notified !== estimateQuery.data?.estimateStatus
-    if (willChange) {
-      if (!confirm(`印刷しますか？ステータスが「${getEstimateStatusLabel(notified)}」に更新されます。`)) return
-    }
+  const executePrint = useCallback(async () => {
+    const currentStatus = estimateQuery.data?.estimateStatus ?? null
+    const notified = getNotifiedStatus(currentStatus)
     window.print()
-    if (willChange) {
-      await updateStatusOnOutput(estimateQuery.data?.estimateStatus ?? null)
+    if (notified !== null && notified !== currentStatus) {
+      await updateStatusOnOutput(currentStatus)
     }
   }, [estimateQuery.data?.estimateStatus, updateStatusOnOutput])
 
-  const handleDownloadPdf = useCallback(async () => {
-    const notified = getNotifiedStatus(estimateQuery.data?.estimateStatus ?? null)
-    const willChange = notified !== null && notified !== estimateQuery.data?.estimateStatus
-    if (willChange) {
-      if (!confirm(`PDFをダウンロードしますか？ステータスが「${getEstimateStatusLabel(notified)}」に更新されます。`)) return
-    }
+  const executeDownloadPdf = useCallback(async () => {
+    const currentStatus = estimateQuery.data?.estimateStatus ?? null
+    const notified = getNotifiedStatus(currentStatus)
     try {
       const params = new URLSearchParams()
       if (user?.userName) params.append('userName', user.userName)
@@ -132,10 +130,30 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
       toast.error('PDFのダウンロードに失敗しました')
       return
     }
-    if (willChange) {
-      await updateStatusOnOutput(estimateQuery.data?.estimateStatus ?? null)
+    if (notified !== null && notified !== currentStatus) {
+      await updateStatusOnOutput(currentStatus)
     }
   }, [estimateNo, user?.userName, estimateQuery.data?.estimateStatus, updateStatusOnOutput])
+
+  const handlePrint = useCallback(() => {
+    const currentStatus = estimateQuery.data?.estimateStatus ?? null
+    const notified = getNotifiedStatus(currentStatus)
+    if (notified !== null && notified !== currentStatus) {
+      setPendingOutput({ type: 'print', notified })
+      return
+    }
+    void executePrint()
+  }, [estimateQuery.data?.estimateStatus, executePrint])
+
+  const handleDownloadPdf = useCallback(() => {
+    const currentStatus = estimateQuery.data?.estimateStatus ?? null
+    const notified = getNotifiedStatus(currentStatus)
+    if (notified !== null && notified !== currentStatus) {
+      setPendingOutput({ type: 'pdf', notified })
+      return
+    }
+    void executeDownloadPdf()
+  }, [estimateQuery.data?.estimateStatus, executeDownloadPdf])
 
   if (estimateQuery.isLoading) return <LoadingSpinner />
   if (estimateQuery.isError) return <ErrorMessage onRetry={() => estimateQuery.refetch()} />
@@ -163,11 +181,7 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
                   </Button>
                   <Button
                     variant="destructive"
-                    onClick={() => {
-                      if (confirm('この見積を削除しますか？')) {
-                        deleteMutation.mutate()
-                      }
-                    }}
+                    onClick={() => setDeleteOpen(true)}
                     disabled={deleteMutation.isPending}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
@@ -458,6 +472,31 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
       <div className="text-sm text-muted-foreground print:hidden">
         {est.isIncludeTaxDisplay ? '(税込です)' : '(消費税は含まれておりません)'}
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="削除確認"
+        description="この見積を削除しますか？"
+        confirmLabel="削除"
+        variant="destructive"
+        onConfirm={() => deleteMutation.mutate()}
+      />
+
+      <ConfirmDialog
+        open={pendingOutput !== null}
+        onOpenChange={(o) => { if (!o) setPendingOutput(null) }}
+        title={pendingOutput?.type === 'pdf' ? 'PDFダウンロード確認' : '印刷確認'}
+        description={
+          pendingOutput
+            ? `${pendingOutput.type === 'pdf' ? 'PDFをダウンロード' : '印刷'}しますか？ステータスが「${getEstimateStatusLabel(pendingOutput.notified)}」に更新されます。`
+            : ''
+        }
+        onConfirm={() => {
+          if (pendingOutput?.type === 'pdf') void executeDownloadPdf()
+          else if (pendingOutput?.type === 'print') void executePrint()
+        }}
+      />
     </div>
   )
 }

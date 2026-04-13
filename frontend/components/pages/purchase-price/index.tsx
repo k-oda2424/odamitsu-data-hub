@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
 import { useShops, useSuppliers } from '@/hooks/use-master-data'
+import { useSearchParamsStorage } from '@/hooks/use-search-params-storage'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
@@ -65,19 +66,37 @@ export function PurchasePriceListPage() {
   const { user } = useAuth()
   const isAdmin = user?.shopNo === 0
 
-  const [goodsName, setGoodsName] = useState('')
-  const [goodsCode, setGoodsCode] = useState('')
-  const [supplierNo, setSupplierNo] = useState<string>('')
-  const [scope, setScope] = useState<PriceScope>('all')
-  const [selectedShopNo, setSelectedShopNo] = useState<string>(
-    isAdmin ? '' : String(user?.shopNo ?? '')
-  )
-  const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
+  interface PurchasePriceSearchState {
+    goodsName: string
+    goodsCode: string
+    supplierNo: string
+    scope: PriceScope
+    selectedShopNo: string
+    searchParams: Record<string, string> | null
+  }
+  const defaultState: PurchasePriceSearchState = {
+    goodsName: '',
+    goodsCode: '',
+    supplierNo: '',
+    scope: 'all',
+    selectedShopNo: isAdmin ? '' : String(user?.shopNo ?? ''),
+    searchParams: null,
+  }
+  const [state, setState] = useSearchParamsStorage('purchase-price-list-search', defaultState)
+  const { goodsName, goodsCode, supplierNo, scope, selectedShopNo, searchParams } = state
+  const updateField = <K extends keyof PurchasePriceSearchState>(key: K, value: PurchasePriceSearchState[K]) => {
+    setState({ ...state, [key]: value })
+  }
+  const setGoodsName = (v: string) => updateField('goodsName', v)
+  const setGoodsCode = (v: string) => updateField('goodsCode', v)
+  const setSupplierNo = (v: string) => updateField('supplierNo', v)
+  const setScope = (v: PriceScope) => updateField('scope', v)
+  const setSelectedShopNo = (v: string) => updateField('selectedShopNo', v)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedPrice, setSelectedPrice] = useState<PurchasePriceResponse | null>(null)
 
-  const shopsQuery = useShops()
+  const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
   const suppliersQuery = useSuppliers(effectiveShopNo)
 
@@ -96,15 +115,11 @@ export function PurchasePriceListPage() {
   })
 
   const handleSearch = () => {
-    setSearchParams({ goodsName, goodsCode, supplierNo, scope })
+    setState({ ...state, searchParams: { goodsName, goodsCode, supplierNo, scope } })
   }
 
   const handleReset = () => {
-    setGoodsName('')
-    setGoodsCode('')
-    setSupplierNo('')
-    setScope('all')
-    setSearchParams(null)
+    setState({ ...defaultState, selectedShopNo: state.selectedShopNo })
   }
 
   const handleRowClick = (item: PurchasePriceResponse) => {

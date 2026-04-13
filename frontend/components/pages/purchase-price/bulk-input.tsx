@@ -49,7 +49,7 @@ export function PurchasePriceBulkInputPage() {
   ])
 
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
-  const shopsQuery = useShops()
+  const shopsQuery = useShops(isAdmin)
   const suppliersQuery = useSuppliers(effectiveShopNo)
 
   const selectedSupplier = (suppliersQuery.data ?? []).find(

@@ -95,7 +95,7 @@ export function PurchasePriceChangeListPage() {
   )
   const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
 
-  const shopsQuery = useShops()
+  const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
 
   const listQuery = useQuery({

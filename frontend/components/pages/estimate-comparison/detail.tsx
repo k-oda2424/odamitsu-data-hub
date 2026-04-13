@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import type { ComparisonResponse } from '@/types/estimate-comparison'
 import { ESTIMATE_STATUS_OPTIONS, getEstimateStatusLabel, getNotifiedStatus } from '@/types/estimate'
 import { ComparisonGroupSection } from './ComparisonGroupSection'
+import { ConfirmDialog } from '@/components/features/common/ConfirmDialog'
 
 interface Props {
   comparisonNo: number
@@ -71,14 +72,14 @@ export function ComparisonDetailPage({ comparisonNo }: Props) {
     onError: () => toast.error('ステータスの更新に失敗しました'),
   })
 
-  const handlePrint = useCallback(async () => {
-    const notified = getNotifiedStatus(detailQuery.data?.comparisonStatus ?? null)
-    const willChange = notified !== null && notified !== detailQuery.data?.comparisonStatus
-    if (willChange) {
-      if (!confirm(`印刷しますか？ステータスが「${getEstimateStatusLabel(notified)}」に更新されます。`)) return
-    }
+  const [pendingPrintNotified, setPendingPrintNotified] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+
+  const executePrint = useCallback(async () => {
+    const currentStatus = detailQuery.data?.comparisonStatus ?? null
+    const notified = getNotifiedStatus(currentStatus)
     window.print()
-    if (willChange) {
+    if (notified !== null && notified !== currentStatus) {
       try {
         await api.put(`/estimate-comparisons/${comparisonNo}/status`, { comparisonStatus: notified })
         queryClient.invalidateQueries({ queryKey: ['estimate-comparison', comparisonNo] })
@@ -89,6 +90,16 @@ export function ComparisonDetailPage({ comparisonNo }: Props) {
       }
     }
   }, [comparisonNo, detailQuery.data?.comparisonStatus, queryClient])
+
+  const handlePrint = useCallback(() => {
+    const currentStatus = detailQuery.data?.comparisonStatus ?? null
+    const notified = getNotifiedStatus(currentStatus)
+    if (notified !== null && notified !== currentStatus) {
+      setPendingPrintNotified(notified)
+      return
+    }
+    void executePrint()
+  }, [detailQuery.data?.comparisonStatus, executePrint])
 
   if (detailQuery.isLoading) return <LoadingSpinner />
   if (detailQuery.isError) return <ErrorMessage onRetry={() => detailQuery.refetch()} />
@@ -113,11 +124,7 @@ export function ComparisonDetailPage({ comparisonNo }: Props) {
                   </Button>
                   <Button
                     variant="destructive"
-                    onClick={() => {
-                      if (confirm('この比較見積を削除しますか？')) {
-                        deleteMutation.mutate()
-                      }
-                    }}
+                    onClick={() => setDeleteOpen(true)}
                     disabled={deleteMutation.isPending}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
@@ -342,6 +349,28 @@ export function ComparisonDetailPage({ comparisonNo }: Props) {
           <p>※上記価格に消費税は含まれておりません。</p>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="削除確認"
+        description="この比較見積を削除しますか？"
+        confirmLabel="削除"
+        variant="destructive"
+        onConfirm={() => deleteMutation.mutate()}
+      />
+
+      <ConfirmDialog
+        open={pendingPrintNotified !== null}
+        onOpenChange={(o) => { if (!o) setPendingPrintNotified(null) }}
+        title="印刷確認"
+        description={
+          pendingPrintNotified
+            ? `印刷しますか？ステータスが「${getEstimateStatusLabel(pendingPrintNotified)}」に更新されます。`
+            : ''
+        }
+        onConfirm={() => void executePrint()}
+      />
     </div>
   )
 }

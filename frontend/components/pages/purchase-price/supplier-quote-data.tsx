@@ -49,7 +49,7 @@ export function SupplierQuoteDataPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<SupplierQuoteDataResponse | null>(null)
 
-  const shopsQuery = useShops()
+  const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
   const suppliersQuery = useSuppliers(effectiveShopNo)
   const makersQuery = useMakers()
