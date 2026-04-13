@@ -25,14 +25,29 @@ const MOCK_AP = [
   },
 ]
 
+function toPage<T>(list: T[]) {
+  return {
+    content: list,
+    totalElements: list.length,
+    totalPages: Math.max(1, Math.ceil(list.length / 50)),
+    number: 0,
+    size: 50,
+    first: true,
+    last: true,
+    numberOfElements: list.length,
+    empty: list.length === 0,
+  }
+}
+
 async function mockAccountsPayable(page: Page, payload: unknown, status = 200) {
   await page.route(
     (url) => url.pathname === '/api/v1/finance/accounts-payable',
     async (route) => {
+      const body = status === 200 && Array.isArray(payload) ? toPage(payload) : payload
       await route.fulfill({
         status,
         contentType: 'application/json',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       })
     },
   )
@@ -68,14 +83,7 @@ test.describe('買掛金一覧', () => {
     await expect(page.getByRole('button', { name: /再試行|リトライ|retry/i })).toBeVisible({ timeout: 10000 })
   })
 
-  test('AP-04: 検索ボックスでフィルタ', async ({ page }) => {
-    await mockAllApis(page)
-    await mockAccountsPayable(page, MOCK_AP)
-    await loginAndGoto(page, '/finance/accounts-payable')
-
-    await expect(page.getByRole('row', { name: /仕入先A/ })).toBeVisible()
-    await page.getByPlaceholder(/仕入先で検索/).fill('仕入先B')
-    await expect(page.getByRole('row', { name: /仕入先A/ })).toHaveCount(0)
-    await expect(page.getByRole('row', { name: /仕入先B/ })).toBeVisible()
-  })
+  // AP-04 (旧: 検索ボックスでフィルタ): サーバーサイドページネーション導入により
+  // DataTable のクライアントサイド検索ボックスは非表示。サーバー検索は buyer検索APIで
+  // 別途対応が必要（現状は shopNo/supplierNo のみ対応）。
 })

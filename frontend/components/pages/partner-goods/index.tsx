@@ -18,6 +18,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useRouter } from 'next/navigation'
 
 import type { PartnerGoodsResponse } from '@/types/partner-goods'
+import { emptyPage, type Paginated } from '@/types/paginated'
+
+const PAGE_SIZE = 50
 
 const columns: Column<PartnerGoodsResponse>[] = [
   { key: 'goodsNo', header: '商品番号', sortable: true },
@@ -67,13 +70,14 @@ export function PartnerGoodsListPage() {
   const [goodsCode, setGoodsCode] = useState('')
   const [keyword, setKeyword] = useState('')
   const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
+  const [page, setPage] = useState(0)
 
   const shopsQuery = useShops(isAdmin)
   const partnersQuery = usePartners(shopNo)
   const destinationsQuery = useDestinations(partnerNo)
 
   const partnerGoodsQuery = useQuery({
-    queryKey: ['partner-goods', searchParams],
+    queryKey: ['partner-goods', searchParams, page],
     queryFn: () => {
       const params = new URLSearchParams()
       if (searchParams?.shopNo) params.append('shopNo', searchParams.shopNo)
@@ -82,8 +86,9 @@ export function PartnerGoodsListPage() {
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
       if (searchParams?.goodsCode) params.append('goodsCode', searchParams.goodsCode)
       if (searchParams?.keyword) params.append('keyword', searchParams.keyword)
-      const qs = params.toString()
-      return api.get<PartnerGoodsResponse[]>(`/partner-goods${qs ? `?${qs}` : ''}`)
+      params.append('page', String(page))
+      params.append('size', String(PAGE_SIZE))
+      return api.get<Paginated<PartnerGoodsResponse>>(`/partner-goods?${params.toString()}`)
     },
     enabled: searchParams !== null,
   })
@@ -104,6 +109,7 @@ export function PartnerGoodsListPage() {
   }
 
   const handleSearch = () => {
+    setPage(0)
     setSearchParams({
       shopNo,
       partnerCode: selectedPartner?.partnerCode ?? '',
@@ -121,6 +127,7 @@ export function PartnerGoodsListPage() {
     setGoodsName('')
     setGoodsCode('')
     setKeyword('')
+    setPage(0)
     setSearchParams(null)
   }
 
@@ -211,16 +218,25 @@ export function PartnerGoodsListPage() {
         <LoadingSpinner />
       ) : partnerGoodsQuery.isError ? (
         <ErrorMessage onRetry={() => partnerGoodsQuery.refetch()} />
-      ) : (
-        <DataTable
-          data={partnerGoodsQuery.data ?? []}
-          columns={columns}
-          searchPlaceholder="テーブル内を検索..."
-          onRowClick={(item) =>
-            router.push(`/partner-goods/${item.partnerNo}/${item.destinationNo}/${item.goodsNo}`)
-          }
-        />
-      )}
+      ) : (() => {
+        const p = partnerGoodsQuery.data ?? emptyPage<PartnerGoodsResponse>(PAGE_SIZE)
+        return (
+          <DataTable
+            data={p.content}
+            columns={columns}
+            onRowClick={(item) =>
+              router.push(`/partner-goods/${item.partnerNo}/${item.destinationNo}/${item.goodsNo}`)
+            }
+            serverPagination={{
+              page: p.number,
+              pageSize: p.size,
+              totalElements: p.totalElements,
+              totalPages: p.totalPages,
+              onPageChange: setPage,
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }

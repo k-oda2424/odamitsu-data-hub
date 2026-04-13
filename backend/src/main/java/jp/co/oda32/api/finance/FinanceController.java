@@ -18,6 +18,10 @@ import jp.co.oda32.dto.finance.PartnerGroupResponse;
 import jp.co.oda32.dto.finance.PaymentDateUpdateRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -41,17 +45,13 @@ public class FinanceController {
     private final MPartnerGroupService partnerGroupService;
     private final AccountingStatusService accountingStatusService;
 
-    // TODO: shopNo/supplierNo でのフィルタリングをService層（Specification）で実装する
     @GetMapping("/accounts-payable")
-    public ResponseEntity<List<AccountsPayableResponse>> listAccountsPayable(
+    public ResponseEntity<Page<AccountsPayableResponse>> listAccountsPayable(
             @RequestParam(required = false) Integer shopNo,
-            @RequestParam(required = false) Integer supplierNo) {
-        List<TAccountsPayableSummary> list = accountsPayableSummaryService.findAll();
-        return ResponseEntity.ok(list.stream()
-                .filter(ap -> shopNo == null || shopNo.equals(ap.getShopNo()))
-                .filter(ap -> supplierNo == null || supplierNo.equals(ap.getSupplierNo()))
-                .map(AccountsPayableResponse::from)
-                .collect(Collectors.toList()));
+            @RequestParam(required = false) Integer supplierNo,
+            @PageableDefault(size = 50, sort = "transactionMonth", direction = Sort.Direction.DESC) Pageable pageable) {
+        Page<TAccountsPayableSummary> page = accountsPayableSummaryService.findPaged(shopNo, supplierNo, pageable);
+        return ResponseEntity.ok(page.map(AccountsPayableResponse::from));
     }
 
     @GetMapping("/invoices")

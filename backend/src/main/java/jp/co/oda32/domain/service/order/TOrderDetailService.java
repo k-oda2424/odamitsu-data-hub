@@ -1,5 +1,6 @@
 package jp.co.oda32.domain.service.order;
 
+import jp.co.oda32.annotation.SkipShopCheck;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.constant.OrderDetailStatus;
 import jp.co.oda32.domain.model.embeddable.TOrderDetailPK;
@@ -8,6 +9,8 @@ import jp.co.oda32.domain.repository.order.TOrderDetailRepository;
 import jp.co.oda32.domain.service.CustomService;
 import jp.co.oda32.domain.specification.order.TOrderDetailSpecification;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
@@ -87,14 +90,11 @@ public class TOrderDetailService extends CustomService {
                 .and(this.tOrderDetailSpecification.delFlgContains(delFlg)));
     }
 
-    /**
-     * 受注一覧画面用の検索（partnerNoを含む）
-     */
-    public List<TOrderDetail> searchForList(Integer shopNo, Integer companyNo, Integer partnerNo, String slipNo,
-                                            String goodsName, String goodsCode, String[] orderDetailStatus,
-                                            LocalDateTime orderDateTimeFrom, LocalDateTime orderDateTimeTo,
-                                            LocalDate slipDateFrom, LocalDate slipDateTo, Flag delFlg) {
-        return this.tOrderDetailRepository.findAll(Specification
+    private Specification<TOrderDetail> buildListSpec(Integer shopNo, Integer companyNo, Integer partnerNo, String slipNo,
+                                                      String goodsName, String goodsCode, String[] orderDetailStatus,
+                                                      LocalDateTime orderDateTimeFrom, LocalDateTime orderDateTimeTo,
+                                                      LocalDate slipDateFrom, LocalDate slipDateTo, Flag delFlg) {
+        return Specification
                 .where(this.tOrderDetailSpecification.shopNoContains(shopNo))
                 .and(this.tOrderDetailSpecification.companyNoContains(companyNo))
                 .and(this.tOrderDetailSpecification.partnerNoContains(partnerNo))
@@ -104,7 +104,33 @@ public class TOrderDetailService extends CustomService {
                 .and(this.tOrderDetailSpecification.goodsNameContains(goodsName))
                 .and(this.tOrderDetailSpecification.orderDateTimeContains(orderDateTimeFrom, orderDateTimeTo))
                 .and(this.tOrderDetailSpecification.slipDateContains(slipDateFrom, slipDateTo))
-                .and(this.tOrderDetailSpecification.delFlgContains(delFlg)));
+                .and(this.tOrderDetailSpecification.delFlgContains(delFlg));
+    }
+
+    /**
+     * 受注一覧画面用の検索（partnerNoを含む）
+     */
+    public List<TOrderDetail> searchForList(Integer shopNo, Integer companyNo, Integer partnerNo, String slipNo,
+                                            String goodsName, String goodsCode, String[] orderDetailStatus,
+                                            LocalDateTime orderDateTimeFrom, LocalDateTime orderDateTimeTo,
+                                            LocalDate slipDateFrom, LocalDate slipDateTo, Flag delFlg) {
+        return this.tOrderDetailRepository.findAll(buildListSpec(shopNo, companyNo, partnerNo, slipNo,
+                goodsName, goodsCode, orderDetailStatus, orderDateTimeFrom, orderDateTimeTo,
+                slipDateFrom, slipDateTo, delFlg));
+    }
+
+    /**
+     * 受注一覧画面用のページネーション検索
+     */
+    @SkipShopCheck
+    public Page<TOrderDetail> searchForListPaged(Integer shopNo, Integer companyNo, Integer partnerNo, String slipNo,
+                                                 String goodsName, String goodsCode, String[] orderDetailStatus,
+                                                 LocalDateTime orderDateTimeFrom, LocalDateTime orderDateTimeTo,
+                                                 LocalDate slipDateFrom, LocalDate slipDateTo, Flag delFlg,
+                                                 Pageable pageable) {
+        return this.tOrderDetailRepository.findAll(buildListSpec(shopNo, companyNo, partnerNo, slipNo,
+                goodsName, goodsCode, orderDetailStatus, orderDateTimeFrom, orderDateTimeTo,
+                slipDateFrom, slipDateTo, delFlg), pageable);
     }
 
     /**

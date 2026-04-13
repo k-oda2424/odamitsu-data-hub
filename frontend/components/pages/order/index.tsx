@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { formatDate, formatNumber } from '@/lib/utils'
+import { emptyPage, type Paginated } from '@/types/paginated'
 import type { OrderDetailResponse } from '@/types/order'
 import {
   ORDER_DETAIL_STATUS_OPTIONS,
@@ -122,7 +123,10 @@ interface OrderSearchState {
   slipDateTo: string
   selectedShopNo: string
   searchParams: Record<string, string> | null
+  page: number
 }
+
+const PAGE_SIZE = 50
 
 export function OrderListPage() {
   const { user } = useAuth()
@@ -140,6 +144,7 @@ export function OrderListPage() {
     slipDateTo: '',
     selectedShopNo: isAdmin ? '' : String(user?.shopNo ?? ''),
     searchParams: null,
+    page: 0,
   }
 
   const [state, setState] = useSearchParamsStorage('order-list-search', defaultState)
@@ -168,7 +173,7 @@ export function OrderListPage() {
   const partnersQuery = usePartners(effectiveShopNo)
 
   const listQuery = useQuery({
-    queryKey: ['order-details', effectiveShopNo, searchParams],
+    queryKey: ['order-details', effectiveShopNo, searchParams, state.page],
     queryFn: () => {
       const params = new URLSearchParams()
       params.append('shopNo', effectiveShopNo)
@@ -181,7 +186,9 @@ export function OrderListPage() {
       if (searchParams?.orderDateTimeTo) params.append('orderDateTimeTo', searchParams.orderDateTimeTo + ':00')
       if (searchParams?.slipDateFrom) params.append('slipDateFrom', searchParams.slipDateFrom)
       if (searchParams?.slipDateTo) params.append('slipDateTo', searchParams.slipDateTo)
-      return api.get<OrderDetailResponse[]>(`/orders/details?${params.toString()}`)
+      params.append('page', String(state.page))
+      params.append('size', String(PAGE_SIZE))
+      return api.get<Paginated<OrderDetailResponse>>(`/orders/details?${params.toString()}`)
     },
     enabled: searchParams !== null && !!effectiveShopNo,
   })
@@ -189,6 +196,7 @@ export function OrderListPage() {
   const handleSearch = () => {
     setState({
       ...state,
+      page: 0,
       searchParams: {
         partnerNo,
         slipNo,
@@ -327,13 +335,22 @@ export function OrderListPage() {
         <LoadingSpinner />
       ) : listQuery.isError ? (
         <ErrorMessage onRetry={() => listQuery.refetch()} />
-      ) : (
-        <DataTable
-          data={listQuery.data ?? []}
-          columns={columns}
-          searchPlaceholder="テーブル内を検索..."
-        />
-      )}
+      ) : (() => {
+        const page = listQuery.data ?? emptyPage<OrderDetailResponse>(PAGE_SIZE)
+        return (
+          <DataTable
+            data={page.content}
+            columns={columns}
+            serverPagination={{
+              page: page.number,
+              pageSize: page.size,
+              totalElements: page.totalElements,
+              totalPages: page.totalPages,
+              onPageChange: (p) => setState({ ...state, page: p }),
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }

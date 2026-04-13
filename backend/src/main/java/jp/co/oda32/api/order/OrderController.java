@@ -9,6 +9,10 @@ import jp.co.oda32.dto.order.OrderDetailResponse;
 import jp.co.oda32.dto.order.OrderResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,7 +20,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -39,7 +42,7 @@ public class OrderController {
     }
 
     @GetMapping("/details")
-    public ResponseEntity<List<OrderDetailResponse>> listDetails(
+    public ResponseEntity<Page<OrderDetailResponse>> listDetails(
             @RequestParam Integer shopNo,
             @RequestParam(required = false) Integer companyNo,
             @RequestParam(required = false) Integer partnerNo,
@@ -50,19 +53,14 @@ public class OrderController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime orderDateTimeFrom,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime orderDateTimeTo,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate slipDateFrom,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate slipDateTo) {
-        log.info("受注一覧検索: shopNo={}, partnerNo={}, companyNo={}, goodsName={}", shopNo, partnerNo, companyNo, goodsName);
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate slipDateTo,
+            @PageableDefault(size = 50, sort = "orderDateTime", direction = Sort.Direction.DESC) Pageable pageable) {
+        log.info("受注一覧検索: shopNo={}, partnerNo={}, companyNo={}, goodsName={}, page={}", shopNo, partnerNo, companyNo, goodsName, pageable.getPageNumber());
         String[] statusArray = orderDetailStatus != null ? new String[]{orderDetailStatus} : null;
-        List<TOrderDetail> details = tOrderDetailService.searchForList(
+        Page<TOrderDetail> page = tOrderDetailService.searchForListPaged(
                 shopNo, companyNo, partnerNo, slipNo, goodsName, goodsCode,
-                statusArray, orderDateTimeFrom, orderDateTimeTo, slipDateFrom, slipDateTo, Flag.NO);
-        List<OrderDetailResponse> response = details.stream()
-                .map(OrderDetailResponse::from)
-                .sorted(Comparator.comparing(
-                        OrderDetailResponse::getOrderDateTime,
-                        Comparator.nullsLast(Comparator.reverseOrder())))
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(response);
+                statusArray, orderDateTimeFrom, orderDateTimeTo, slipDateFrom, slipDateTo, Flag.NO, pageable);
+        return ResponseEntity.ok(page.map(OrderDetailResponse::from));
     }
 
     @GetMapping("/{orderNo}")

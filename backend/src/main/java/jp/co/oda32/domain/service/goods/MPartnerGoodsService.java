@@ -1,5 +1,6 @@
 package jp.co.oda32.domain.service.goods;
 
+import jp.co.oda32.annotation.SkipShopCheck;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.embeddable.MPartnerGoodsPK;
 import jp.co.oda32.domain.model.goods.MPartnerGoods;
@@ -7,6 +8,8 @@ import jp.co.oda32.domain.repository.goods.MPartnerGoodsRepository;
 import jp.co.oda32.domain.service.CustomService;
 import jp.co.oda32.domain.specification.goods.MPartnerGoodsSpecification;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +41,16 @@ public class MPartnerGoodsService extends CustomService {
     }
 
     public List<MPartnerGoods> find(Integer shopNo, Integer companyNo, String partnerCode, Integer goodsNo, String goodsName, String goodsCode, String keyword, Integer destinationNo, Flag delFlg) {
-        return this.mPartnerGoodsRepository.findAll(Specification
+        return this.mPartnerGoodsRepository.findAll(buildFindSpec(shopNo, companyNo, partnerCode, goodsNo, goodsName, goodsCode, keyword, destinationNo, delFlg));
+    }
+
+    @SkipShopCheck
+    public Page<MPartnerGoods> findPaged(Integer shopNo, Integer companyNo, String partnerCode, Integer goodsNo, String goodsName, String goodsCode, String keyword, Integer destinationNo, Flag delFlg, Pageable pageable) {
+        return this.mPartnerGoodsRepository.findAll(buildFindSpec(shopNo, companyNo, partnerCode, goodsNo, goodsName, goodsCode, keyword, destinationNo, delFlg), pageable);
+    }
+
+    private Specification<MPartnerGoods> buildFindSpec(Integer shopNo, Integer companyNo, String partnerCode, Integer goodsNo, String goodsName, String goodsCode, String keyword, Integer destinationNo, Flag delFlg) {
+        return Specification
                 .where(this.mPartnerGoodsSpecification.shopNoContains(shopNo))
                 .and(this.mPartnerGoodsSpecification.companyNoContains(companyNo))
                 .and(this.mPartnerGoodsSpecification.partnerCodeContains(partnerCode))
@@ -47,7 +59,7 @@ public class MPartnerGoodsService extends CustomService {
                 .and(this.mPartnerGoodsSpecification.goodsCodeContains(goodsCode))
                 .and(this.mPartnerGoodsSpecification.keywordsContains(keyword))
                 .and(this.mPartnerGoodsSpecification.destinationNoContains(destinationNo))
-                .and(this.mPartnerGoodsSpecification.delFlgContains(delFlg)));
+                .and(this.mPartnerGoodsSpecification.delFlgContains(delFlg));
     }
 
     public List<MPartnerGoods> find(Integer shopNo, Integer partnerNo, String goodsCode, Integer destinationNo, Flag delFlg) {

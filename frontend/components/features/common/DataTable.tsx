@@ -21,6 +21,14 @@ export interface Column<T> {
   sortable?: boolean
 }
 
+export interface ServerPagination {
+  page: number          // 0-based
+  pageSize: number
+  totalElements: number
+  totalPages: number
+  onPageChange: (page: number) => void
+}
+
 interface DataTableProps<T> {
   data: T[]
   columns: Column<T>[]
@@ -30,6 +38,11 @@ interface DataTableProps<T> {
   rowKey?: (item: T, index: number) => string | number
   defaultSortKey?: string
   defaultSortDir?: 'asc' | 'desc'
+  /**
+   * 指定時はサーバーサイドページング。data はすでに現ページ分に絞られた内容。
+   * クライアント側のフィルタ/ソート/ページングは無効になる。
+   */
+  serverPagination?: ServerPagination
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,16 +55,19 @@ export function DataTable<T extends Record<string, any>>({
   rowKey,
   defaultSortKey,
   defaultSortDir = 'asc',
+  serverPagination,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
+  const isServerMode = serverPagination != null
 
-  // データが変わったらページを先頭に戻す
-  useEffect(() => { setPage(0) }, [data])
+  // データが変わったらページを先頭に戻す（クライアントモードのみ）
+  useEffect(() => { if (!isServerMode) setPage(0) }, [data, isServerMode])
   const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir)
 
   const filtered = useMemo(() => {
+    if (isServerMode) return data
     if (search === '') return data
     const normalizedSearch = normalizeForSearch(search.toLowerCase())
     return data.filter((item) =>
@@ -59,14 +75,13 @@ export function DataTable<T extends Record<string, any>>({
         normalizeForSearch(String(v ?? '').toLowerCase()).includes(normalizedSearch)
       )
     )
-  }, [data, search])
+  }, [data, search, isServerMode])
 
   const sorted = useMemo(() => {
-    if (!sortKey) return filtered
+    if (isServerMode || !sortKey) return filtered
     return [...filtered].sort((a, b) => {
       const aRaw = a[sortKey]
       const bRaw = b[sortKey]
-      // 数値として比較可能な場合は数値ソート
       if (typeof aRaw === 'number' || typeof bRaw === 'number') {
         const aNum = Number(aRaw ?? 0)
         const bNum = Number(bRaw ?? 0)
@@ -76,10 +91,19 @@ export function DataTable<T extends Record<string, any>>({
       const bVal = String(bRaw ?? '')
       return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
     })
-  }, [filtered, sortKey, sortDir])
+  }, [filtered, sortKey, sortDir, isServerMode])
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
-  const paged = sorted.slice(page * pageSize, (page + 1) * pageSize)
+  const effectivePageSize = isServerMode ? serverPagination!.pageSize : pageSize
+  const effectiveTotal = isServerMode ? serverPagination!.totalElements : sorted.length
+  const totalPages = isServerMode
+    ? Math.max(1, serverPagination!.totalPages)
+    : Math.max(1, Math.ceil(sorted.length / pageSize))
+  const currentPage = isServerMode ? serverPagination!.page : page
+  const paged = isServerMode ? sorted : sorted.slice(page * pageSize, (page + 1) * pageSize)
+  const goToPage = (n: number) => {
+    if (isServerMode) serverPagination!.onPageChange(n)
+    else setPage(n)
+  }
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -92,16 +116,18 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div className="space-y-3">
-      {/* Search bar */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder={searchPlaceholder}
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(0) }}
-          className="h-9 pl-8 text-sm"
-        />
-      </div>
+      {/* Search bar (クライアントモードのみ) */}
+      {!isServerMode && (
+        <div className="relative max-w-sm">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={searchPlaceholder}
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(0) }}
+            className="h-9 pl-8 text-sm"
+          />
+        </div>
+      )}
 
       {/* Table */}
       <div className="rounded-lg border shadow-sm">
@@ -153,22 +179,22 @@ export function DataTable<T extends Record<string, any>>({
       {/* Pagination */}
       <div className="flex items-center justify-between text-sm">
         <span className="text-muted-foreground">
-          全 {sorted.length} 件中 {sorted.length > 0 ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, sorted.length)} 件
+          全 {effectiveTotal} 件中 {effectiveTotal > 0 ? currentPage * effectivePageSize + 1 : 0}–{Math.min((currentPage + 1) * effectivePageSize, effectiveTotal)} 件
         </span>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(0)} disabled={page === 0} aria-label="最初のページ">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => goToPage(0)} disabled={currentPage === 0} aria-label="最初のページ">
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(p => p - 1)} disabled={page === 0} aria-label="前のページ">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} aria-label="前のページ">
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="min-w-[4rem] text-center text-muted-foreground">
-            {page + 1} / {totalPages}
+            {currentPage + 1} / {totalPages}
           </span>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} aria-label="次のページ">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= totalPages - 1} aria-label="次のページ">
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} aria-label="最後のページ">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => goToPage(totalPages - 1)} disabled={currentPage >= totalPages - 1} aria-label="最後のページ">
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>

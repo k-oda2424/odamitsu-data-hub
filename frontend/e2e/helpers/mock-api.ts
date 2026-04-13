@@ -711,6 +711,28 @@ async function json(route: Route, data: unknown, status = 200) {
   })
 }
 
+/**
+ * リスト配列を Spring Data Page 形式に変換。page/size は url.searchParams から読み取る。
+ */
+function toPage<T>(list: T[], url: URL, defaultSize = 50) {
+  const page = Number(url.searchParams.get('page') ?? '0')
+  const size = Number(url.searchParams.get('size') ?? String(defaultSize))
+  const start = page * size
+  const content = list.slice(start, start + size)
+  const totalPages = Math.max(1, Math.ceil(list.length / size))
+  return {
+    content,
+    totalElements: list.length,
+    totalPages,
+    number: page,
+    size,
+    first: page === 0,
+    last: page >= totalPages - 1,
+    numberOfElements: content.length,
+    empty: content.length === 0,
+  }
+}
+
 // ==================== Mock Setup ====================
 
 /**
@@ -1004,7 +1026,7 @@ export async function mockAllApis(page: Page) {
     async (route) => {
       const method = route.request().method()
       if (method === 'GET') {
-        await json(route, MOCK_SALES_GOODS_WORK_LIST)
+        await json(route, toPage(MOCK_SALES_GOODS_WORK_LIST, new URL(route.request().url())))
       } else if (method === 'POST') {
         const body = JSON.parse(route.request().postData() || '{}')
         await json(route, { ...MOCK_SALES_GOODS_WORK_DETAIL, ...body })
@@ -1017,7 +1039,7 @@ export async function mockAllApis(page: Page) {
   await page.route(
     (url) => url.pathname === '/api/v1/sales-goods/master',
     async (route) => {
-      await json(route, MOCK_SALES_GOODS_MASTER_LIST)
+      await json(route, toPage(MOCK_SALES_GOODS_MASTER_LIST, new URL(route.request().url())))
     },
   )
 
@@ -1051,7 +1073,7 @@ export async function mockAllApis(page: Page) {
     (url) => url.pathname === '/api/v1/partner-goods',
     async (route) => {
       if (route.request().method() === 'GET') {
-        await json(route, MOCK_PARTNER_GOODS_LIST)
+        await json(route, toPage(MOCK_PARTNER_GOODS_LIST, new URL(route.request().url())))
       } else {
         await route.fallback()
       }
@@ -1062,7 +1084,7 @@ export async function mockAllApis(page: Page) {
   await page.route(
     (url) => url.pathname === '/api/v1/orders/details',
     async (route) => {
-      await json(route, MOCK_ORDER_DETAILS)
+      await json(route, toPage(MOCK_ORDER_DETAILS, new URL(route.request().url())))
     },
   )
 
@@ -1148,7 +1170,7 @@ export async function mockAllApis(page: Page) {
     async (route) => {
       const method = route.request().method()
       if (method === 'GET') {
-        await json(route, MOCK_PURCHASE_PRICE_CHANGES)
+        await json(route, toPage(MOCK_PURCHASE_PRICE_CHANGES, new URL(route.request().url())))
       } else if (method === 'POST') {
         const body = JSON.parse(route.request().postData() || '{}')
         await json(route, { purchasePriceChangePlanNo: 99, ...body }, 201)

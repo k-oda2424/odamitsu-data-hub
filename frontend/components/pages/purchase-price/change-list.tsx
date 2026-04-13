@@ -25,6 +25,9 @@ import {
 import { Plus } from 'lucide-react'
 import type { PurchasePriceChangePlanResponse, PriceScope } from '@/types/purchase-price'
 import { CHANGE_REASON_OPTIONS, getChangeReasonLabel, PRICE_SCOPE_OPTIONS, isPartnerSpecificPrice } from '@/types/purchase-price'
+import { emptyPage, type Paginated } from '@/types/paginated'
+
+const PAGE_SIZE = 50
 
 const columns: Column<PurchasePriceChangePlanResponse>[] = [
   {
@@ -94,12 +97,13 @@ export function PurchasePriceChangeListPage() {
     isAdmin ? '' : String(user?.shopNo ?? '')
   )
   const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
+  const [page, setPage] = useState(0)
 
   const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
 
   const listQuery = useQuery({
-    queryKey: ['purchase-price-changes', effectiveShopNo, searchParams],
+    queryKey: ['purchase-price-changes', effectiveShopNo, searchParams, page],
     queryFn: () => {
       const params = new URLSearchParams()
       if (effectiveShopNo) params.append('shopNo', effectiveShopNo)
@@ -110,12 +114,15 @@ export function PurchasePriceChangeListPage() {
       if (searchParams?.changePlanDateFrom) params.append('changePlanDateFrom', searchParams.changePlanDateFrom)
       if (searchParams?.changePlanDateTo) params.append('changePlanDateTo', searchParams.changePlanDateTo)
       if (searchParams?.scope && searchParams.scope !== 'all') params.append('scope', searchParams.scope)
-      return api.get<PurchasePriceChangePlanResponse[]>(`/purchase-price-changes?${params.toString()}`)
+      params.append('page', String(page))
+      params.append('size', String(PAGE_SIZE))
+      return api.get<Paginated<PurchasePriceChangePlanResponse>>(`/purchase-price-changes?${params.toString()}`)
     },
     enabled: searchParams !== null && !!effectiveShopNo,
   })
 
   const handleSearch = () => {
+    setPage(0)
     setSearchParams({ supplierCode, goodsCode, janCode, changeReason, changePlanDateFrom, changePlanDateTo, scope })
   }
 
@@ -242,13 +249,22 @@ export function PurchasePriceChangeListPage() {
         <LoadingSpinner />
       ) : listQuery.isError ? (
         <ErrorMessage onRetry={() => listQuery.refetch()} />
-      ) : (
-        <DataTable
-          data={listQuery.data ?? []}
-          columns={columns}
-          searchPlaceholder="テーブル内を検索..."
-        />
-      )}
+      ) : (() => {
+        const p = listQuery.data ?? emptyPage<PurchasePriceChangePlanResponse>(PAGE_SIZE)
+        return (
+          <DataTable
+            data={p.content}
+            columns={columns}
+            serverPagination={{
+              page: p.number,
+              pageSize: p.size,
+              totalElements: p.totalElements,
+              totalPages: p.totalPages,
+              onPageChange: setPage,
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }

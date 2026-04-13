@@ -75,6 +75,26 @@ public class MPurchasePriceChangePlanSpecification extends CommonSpecification<M
     }
 
     /**
+     * scope=standard: partnerNo/destinationNo が両方 null または 0
+     * scope=partner:  partnerNo または destinationNo が非0
+     * scope=all or null: 無条件
+     */
+    public Specification<MPurchasePriceChangePlan> scopeFilter(String scope) {
+        if ("standard".equals(scope)) {
+            return (root, query, cb) -> cb.and(
+                    cb.or(cb.isNull(root.get("partnerNo")), cb.equal(root.get("partnerNo"), 0)),
+                    cb.or(cb.isNull(root.get("destinationNo")), cb.equal(root.get("destinationNo"), 0))
+            );
+        } else if ("partner".equals(scope)) {
+            return (root, query, cb) -> cb.or(
+                    cb.and(cb.isNotNull(root.get("partnerNo")), cb.notEqual(root.get("partnerNo"), 0)),
+                    cb.and(cb.isNotNull(root.get("destinationNo")), cb.notEqual(root.get("destinationNo"), 0))
+            );
+        }
+        return null;
+    }
+
+    /**
      * 仕入価格変更理由の検索条件
      *
      * @param changeReason 仕入価格変更理由
