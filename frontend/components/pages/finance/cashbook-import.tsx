@@ -64,25 +64,21 @@ export default function CashBookImportPage() {
 
   const downloadCsv = async () => {
     if (!preview) return
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-    const res = await fetch(`/api/v1/finance/cashbook/convert/${preview.uploadId}`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    })
-    if (!res.ok) {
-      const txt = await res.text()
-      toast.error(`ダウンロード失敗: ${txt}`)
-      return
+    try {
+      const { blob, filename } = await api.downloadPost(`/finance/cashbook/convert/${preview.uploadId}`)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const suggest = filename ?? preview.fileName?.replace(/\.xlsx$/i, '.csv') ?? 'cashbook.csv'
+      a.download = suggest
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success('CSVをダウンロードしました')
+    } catch (e) {
+      toast.error(`ダウンロード失敗: ${(e as Error).message}`)
     }
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    const suggest = preview.fileName?.replace(/\.xlsx$/i, '.csv') ?? 'cashbook.csv'
-    a.download = suggest
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('CSVをダウンロードしました')
   }
 
   return (

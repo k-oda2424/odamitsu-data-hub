@@ -8,6 +8,7 @@ import jp.co.oda32.domain.service.goods.MGoodsService;
 import jp.co.oda32.domain.service.goods.MSalesGoodsService;
 import jp.co.oda32.domain.service.goods.WSalesGoodsService;
 import jp.co.oda32.domain.service.master.MSupplierService;
+import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.dto.goods.SalesGoodsCreateRequest;
 import jp.co.oda32.dto.goods.SalesGoodsDetailResponse;
 import jp.co.oda32.dto.goods.SalesGoodsUpdateRequest;
@@ -50,18 +51,19 @@ public class SalesGoodsController {
             @RequestParam(required = false) Integer supplierNo,
             @RequestParam(required = false) Integer paymentSupplierNo,
             @PageableDefault(size = 50) Pageable pageable) {
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         Page<WSalesGoods> page;
         if (paymentSupplierNo != null) {
-            List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
+            List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(effectiveShopNo, paymentSupplierNo);
             if (siblings.isEmpty()) {
                 return ResponseEntity.ok(Page.empty(pageable));
             }
             Set<Integer> siblingNos = siblings.stream()
                     .map(MSupplier::getSupplierNo)
                     .collect(Collectors.toSet());
-            page = wSalesGoodsService.findBySupplierNoListPaged(shopNo, goodsName, goodsCode, siblingNos, Flag.NO, pageable);
+            page = wSalesGoodsService.findBySupplierNoListPaged(effectiveShopNo, goodsName, goodsCode, siblingNos, Flag.NO, pageable);
         } else {
-            page = wSalesGoodsService.findPaged(shopNo, null, goodsName, null, goodsCode, keyword, supplierNo, Flag.NO, pageable);
+            page = wSalesGoodsService.findPaged(effectiveShopNo, null, goodsName, null, goodsCode, keyword, supplierNo, Flag.NO, pageable);
         }
         return ResponseEntity.ok(page.map(SalesGoodsDetailResponse::from));
     }
@@ -80,18 +82,19 @@ public class SalesGoodsController {
             @RequestParam(required = false) Integer supplierNo,
             @RequestParam(required = false) Integer paymentSupplierNo,
             @PageableDefault(size = 50) Pageable pageable) {
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         Page<MSalesGoods> page;
         if (paymentSupplierNo != null) {
-            List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
+            List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(effectiveShopNo, paymentSupplierNo);
             if (siblings.isEmpty()) {
                 return ResponseEntity.ok(Page.empty(pageable));
             }
             Set<Integer> siblingNos = siblings.stream()
                     .map(MSupplier::getSupplierNo)
                     .collect(Collectors.toSet());
-            page = mSalesGoodsService.findBySupplierNoListPaged(shopNo, goodsName, goodsCode, siblingNos, Flag.NO, pageable);
+            page = mSalesGoodsService.findBySupplierNoListPaged(effectiveShopNo, goodsName, goodsCode, siblingNos, Flag.NO, pageable);
         } else {
-            page = mSalesGoodsService.findPaged(shopNo, null, goodsName, goodsCode, keyword, supplierNo, Flag.NO, pageable);
+            page = mSalesGoodsService.findPaged(effectiveShopNo, null, goodsName, goodsCode, keyword, supplierNo, Flag.NO, pageable);
         }
         return ResponseEntity.ok(page.map(SalesGoodsDetailResponse::from));
     }

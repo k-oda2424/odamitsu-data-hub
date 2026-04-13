@@ -108,18 +108,6 @@ public class TOrderDetailService extends CustomService {
     }
 
     /**
-     * 受注一覧画面用の検索（partnerNoを含む）
-     */
-    public List<TOrderDetail> searchForList(Integer shopNo, Integer companyNo, Integer partnerNo, String slipNo,
-                                            String goodsName, String goodsCode, String[] orderDetailStatus,
-                                            LocalDateTime orderDateTimeFrom, LocalDateTime orderDateTimeTo,
-                                            LocalDate slipDateFrom, LocalDate slipDateTo, Flag delFlg) {
-        return this.tOrderDetailRepository.findAll(buildListSpec(shopNo, companyNo, partnerNo, slipNo,
-                goodsName, goodsCode, orderDetailStatus, orderDateTimeFrom, orderDateTimeTo,
-                slipDateFrom, slipDateTo, delFlg));
-    }
-
-    /**
      * 受注一覧画面用のページネーション検索
      */
     @SkipShopCheck

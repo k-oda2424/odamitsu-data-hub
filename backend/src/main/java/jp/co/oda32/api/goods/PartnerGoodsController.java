@@ -8,6 +8,7 @@ import jp.co.oda32.domain.model.order.TReturnDetail;
 import jp.co.oda32.domain.service.goods.MPartnerGoodsService;
 import jp.co.oda32.domain.service.order.TOrderDetailService;
 import jp.co.oda32.domain.service.order.TReturnDetailService;
+import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.dto.goods.OrderHistoryResponse;
 import jp.co.oda32.dto.goods.PartnerGoodsDetailResponse;
 import jp.co.oda32.dto.goods.PartnerGoodsResponse;
@@ -46,8 +47,9 @@ public class PartnerGoodsController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer destinationNo,
             @PageableDefault(size = 50, sort = "lastSalesDate", direction = Sort.Direction.DESC) Pageable pageable) {
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         Page<MPartnerGoods> page = mPartnerGoodsService.findPaged(
-                shopNo, companyNo, partnerCode, null, goodsName, goodsCode, keyword, destinationNo, Flag.NO, pageable);
+                effectiveShopNo, companyNo, partnerCode, null, goodsName, goodsCode, keyword, destinationNo, Flag.NO, pageable);
         return ResponseEntity.ok(page.map(PartnerGoodsResponse::from));
     }
 

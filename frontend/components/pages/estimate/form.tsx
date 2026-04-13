@@ -74,11 +74,13 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
   const isEditMode = estimateNo != null
 
   const [shopNo, setShopNo] = useState<string>(isAdmin ? '' : String(user?.shopNo ?? ''))
+  // 非admin で useAuth が遅延取得された場合に shopNo を埋める（初回のみ）。
+  // 依存配列に shopNo を含めないことで、edit/prefill 初期化後の再上書きを防ぐ。
   useEffect(() => {
-    if (!isAdmin && user?.shopNo && shopNo === '') {
-      setShopNo(String(user.shopNo))
+    if (!isAdmin && user?.shopNo) {
+      setShopNo((prev) => (prev === '' ? String(user.shopNo) : prev))
     }
-  }, [isAdmin, user?.shopNo, shopNo])
+  }, [isAdmin, user?.shopNo])
   const [partnerNo, setPartnerNo] = useState<string>('')
   const [destinationNo, setDestinationNo] = useState<string>('')
   const [estimateDate, setEstimateDate] = useState<string>(
@@ -307,7 +309,9 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
       const filtered = prev.filter((r) => r.id !== rowId)
       return filtered.length === 0 ? [createEmptyRow(1)] : filtered
     })
-    delete lastSearchedCodesRef.current[rowId]
+    // 削除行の検索キャッシュを破棄（immutable に新オブジェクト生成）
+    const { [rowId]: _removed, ...rest } = lastSearchedCodesRef.current
+    lastSearchedCodesRef.current = rest
   }, [])
 
   useEffect(() => {

@@ -105,14 +105,14 @@ async function uploadForm<T>(endpoint: string, formData: FormData): Promise<T> {
  * バイナリレスポンスを取得する（PDF, Excel 等）。
  * Content-Disposition からファイル名を抽出して { blob, filename } を返す。
  */
-async function downloadBlob(endpoint: string): Promise<{ blob: Blob; filename: string | null }> {
+async function downloadBlob(endpoint: string, method: 'GET' | 'POST' = 'GET'): Promise<{ blob: Blob; filename: string | null }> {
   const token = getToken()
   const headers: Record<string, string> = {}
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, { headers })
+  const response = await fetch(`${API_BASE}${endpoint}`, { method, headers })
 
   if (response.status === 401) {
     if (typeof window !== 'undefined') {
@@ -154,6 +154,7 @@ export const api = {
   delete: (endpoint: string) => request<void>(endpoint, { method: 'DELETE' }),
   postForm: <T>(endpoint: string, formData: FormData) => uploadForm<T>(endpoint, formData),
   download: (endpoint: string) => downloadBlob(endpoint),
+  downloadPost: (endpoint: string) => downloadBlob(endpoint, 'POST'),
 }
 
 export { ApiError }

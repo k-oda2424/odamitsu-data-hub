@@ -19,4 +19,21 @@ public final class LoginUserUtil {
         }
         throw new Exception("ログインしていません");
     }
+
+    /**
+     * リクエストで指定された shopNo を、ログインユーザの権限で正規化する。
+     * - admin（shopNo=0）: 指定値をそのまま返す（null可 = 全店舗）
+     * - 非admin: 指定値が null またはログインユーザのshopNo以外なら強制上書き
+     */
+    public static Integer resolveEffectiveShopNo(Integer requested) {
+        try {
+            Integer loginShopNo = getLoginUserInfo().getUser().getShopNo();
+            if (loginShopNo == null || loginShopNo == 0) {
+                return requested;
+            }
+            return loginShopNo;
+        } catch (Exception e) {
+            return requested;
+        }
+    }
 }

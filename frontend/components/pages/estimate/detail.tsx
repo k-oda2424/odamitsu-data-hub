@@ -100,6 +100,9 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
     }
   }, [estimateNo, queryClient])
 
+  // 印刷＋ステータス自動更新: 設計意図は hooks/use-print-with-status-update.ts 参照。
+  // 当画面は印刷/PDFで同一 pendingOutput state を共有するため、
+  // 共通hookではなく専用実装を維持する（hookはcomparison画面で利用）。
   const executePrint = useCallback(async () => {
     const currentStatus = estimateQuery.data?.estimateStatus ?? null
     const notified = getNotifiedStatus(currentStatus)

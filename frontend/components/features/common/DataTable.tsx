@@ -93,15 +93,15 @@ export function DataTable<T extends Record<string, any>>({
     })
   }, [filtered, sortKey, sortDir, isServerMode])
 
-  const effectivePageSize = isServerMode ? serverPagination!.pageSize : pageSize
-  const effectiveTotal = isServerMode ? serverPagination!.totalElements : sorted.length
-  const totalPages = isServerMode
-    ? Math.max(1, serverPagination!.totalPages)
+  const effectivePageSize = serverPagination ? serverPagination.pageSize : pageSize
+  const effectiveTotal = serverPagination ? serverPagination.totalElements : sorted.length
+  const totalPages = serverPagination
+    ? Math.max(1, serverPagination.totalPages)
     : Math.max(1, Math.ceil(sorted.length / pageSize))
-  const currentPage = isServerMode ? serverPagination!.page : page
-  const paged = isServerMode ? sorted : sorted.slice(page * pageSize, (page + 1) * pageSize)
+  const currentPage = serverPagination ? serverPagination.page : page
+  const paged = serverPagination ? sorted : sorted.slice(page * pageSize, (page + 1) * pageSize)
   const goToPage = (n: number) => {
-    if (isServerMode) serverPagination!.onPageChange(n)
+    if (serverPagination) serverPagination.onPageChange(n)
     else setPage(n)
   }
 

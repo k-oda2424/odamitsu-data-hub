@@ -41,11 +41,6 @@ public class MPurchasePriceChangePlanService extends CustomService {
     }
 
     @SkipShopCheck
-    public Page<MPurchasePriceChangePlan> findPaged(Integer shopNo, String supplierCode, String goodsCode, String janCode, String purchasePriceChangeReason, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, Flag delFlg, Pageable pageable) {
-        return this.mPurchasePriceChangePlanRepository.findAll(buildFindSpec(shopNo, supplierCode, goodsCode, janCode, purchasePriceChangeReason, priceChangeDateFrom, priceChangeDateTo, delFlg), pageable);
-    }
-
-    @SkipShopCheck
     public Page<MPurchasePriceChangePlan> findPaged(Integer shopNo, String supplierCode, String goodsCode, String janCode, String purchasePriceChangeReason, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, Flag delFlg, String scope, Pageable pageable) {
         Specification<MPurchasePriceChangePlan> spec = buildFindSpec(shopNo, supplierCode, goodsCode, janCode, purchasePriceChangeReason, priceChangeDateFrom, priceChangeDateTo, delFlg)
                 .and(this.mPurchasePriceChangePlanSpecification.scopeFilter(scope));
