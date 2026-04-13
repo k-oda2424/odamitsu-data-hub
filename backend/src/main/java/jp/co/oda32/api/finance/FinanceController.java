@@ -9,6 +9,7 @@ import jp.co.oda32.domain.service.finance.InvoiceImportService;
 import jp.co.oda32.domain.service.finance.MPartnerGroupService;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
 import jp.co.oda32.domain.service.finance.TInvoiceService;
+import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.dto.finance.AccountsPayableResponse;
 import jp.co.oda32.dto.finance.BulkPaymentDateRequest;
 import jp.co.oda32.dto.finance.InvoiceImportResult;
@@ -50,7 +51,8 @@ public class FinanceController {
             @RequestParam(required = false) Integer shopNo,
             @RequestParam(required = false) Integer supplierNo,
             @PageableDefault(size = 50, sort = "transactionMonth", direction = Sort.Direction.DESC) Pageable pageable) {
-        Page<TAccountsPayableSummary> page = accountsPayableSummaryService.findPaged(shopNo, supplierNo, pageable);
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
+        Page<TAccountsPayableSummary> page = accountsPayableSummaryService.findPaged(effectiveShopNo, supplierNo, pageable);
         return ResponseEntity.ok(page.map(AccountsPayableResponse::from));
     }
 

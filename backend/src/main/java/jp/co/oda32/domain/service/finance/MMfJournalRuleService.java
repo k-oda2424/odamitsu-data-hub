@@ -2,6 +2,7 @@ package jp.co.oda32.domain.service.finance;
 
 import jp.co.oda32.domain.model.finance.MMfJournalRule;
 import jp.co.oda32.domain.repository.finance.MMfJournalRuleRepository;
+import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.dto.finance.cashbook.MfJournalRuleRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,14 @@ public class MMfJournalRuleService {
 
     private final MMfJournalRuleRepository repository;
 
+    private Integer currentUserNo() {
+        try {
+            return LoginUserUtil.getLoginUserInfo().getUser().getLoginUserNo();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<MMfJournalRule> findAll() {
         return repository.findByDelFlgOrderByDescriptionCAscPriorityAsc("0");
@@ -23,6 +32,8 @@ public class MMfJournalRuleService {
 
     @Transactional
     public MMfJournalRule create(MfJournalRuleRequest req) {
+        Integer userNo = currentUserNo();
+        LocalDateTime now = LocalDateTime.now();
         MMfJournalRule e = MMfJournalRule.builder()
                 .descriptionC(req.getDescriptionC())
                 .descriptionDKeyword(emptyToNull(req.getDescriptionDKeyword()))
@@ -40,7 +51,10 @@ public class MMfJournalRuleService {
                 .summaryTemplate(req.getSummaryTemplate())
                 .requiresClientMapping(req.getRequiresClientMapping())
                 .delFlg("0")
-                .addDateTime(LocalDateTime.now())
+                .addDateTime(now)
+                .addUserNo(userNo)
+                .modifyDateTime(now)
+                .modifyUserNo(userNo)
                 .build();
         return repository.save(e);
     }
@@ -65,6 +79,7 @@ public class MMfJournalRuleService {
         e.setSummaryTemplate(req.getSummaryTemplate());
         e.setRequiresClientMapping(req.getRequiresClientMapping());
         e.setModifyDateTime(LocalDateTime.now());
+        e.setModifyUserNo(currentUserNo());
         return repository.save(e);
     }
 
@@ -74,6 +89,7 @@ public class MMfJournalRuleService {
                 .orElseThrow(() -> new IllegalArgumentException("ルールが見つかりません: id=" + id));
         e.setDelFlg("1");
         e.setModifyDateTime(LocalDateTime.now());
+        e.setModifyUserNo(currentUserNo());
         repository.save(e);
     }
 

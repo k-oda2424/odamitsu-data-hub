@@ -43,25 +43,27 @@ public final class ShopCheckAop {
             + "&& !@annotation(jp.co.oda32.annotation.SkipShopCheck) "
             + "&& !@within(jp.co.oda32.annotation.SkipShopCheck)")
     @SuppressWarnings("unchecked")
-    public List<?> validateFind(ProceedingJoinPoint pj) throws Exception {
-        List<?> list;
-        try {
-            list = (List<?>) pj.proceed();
-        } catch (Throwable throwable) {
-            log.warn("cast失敗 find:{}", pj.getSignature());
-            return null;
+    public Object validateFind(ProceedingJoinPoint pj) throws Throwable {
+        Object result = pj.proceed();
+        // List 以外（Page<T>, Optional<T>, etc.）は対象外として素通し。
+        // ページングメソッドは @SkipShopCheck を付与する前提。
+        if (!(result instanceof List<?> list)) {
+            return result;
         }
-        if (list == null) {
-            return null;
-        }
-        if (!list.stream().allMatch(obj -> obj instanceof IEntity)) {
+        if (list.isEmpty() || !list.stream().allMatch(obj -> obj instanceof IEntity)) {
             return list;
         }
         List<? extends IEntity> entityList = (List<? extends IEntity>) list;
         if (entityList.stream().anyMatch(entity -> entity.getShopNo() == null)) {
             return entityList;
         }
-        Integer loginUserShopNo = LoginUserUtil.getLoginUserInfo().getUser().getShopNo();
+        Integer loginUserShopNo;
+        try {
+            loginUserShopNo = LoginUserUtil.getLoginUserInfo().getUser().getShopNo();
+        } catch (Exception e) {
+            log.warn("ログインユーザ情報が取得できません: {}", pj.getSignature());
+            return null;
+        }
         if (loginUserShopNo == null || loginUserShopNo == -1) {
             return null;
         }

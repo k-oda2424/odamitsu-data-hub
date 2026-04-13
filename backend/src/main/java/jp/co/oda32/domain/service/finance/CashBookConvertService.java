@@ -197,15 +197,20 @@ public class CashBookConvertService {
         }
     }
 
-    private void enforceCacheLimit() {
+    private synchronized void enforceCacheLimit() {
         if (cache.size() < MAX_CACHE_ENTRIES) return;
-        // 期限切れ優先削除、それでも超過するなら最古エントリを削除
+        // 期限切れ優先削除、それでも超過するなら最古エントリを削除。
+        // synchronized により add/evict の TOCTOU を回避。
         long now = System.currentTimeMillis();
         cache.entrySet().removeIf(e -> e.getValue().getExpiresAt() < now);
-        while (cache.size() >= MAX_CACHE_ENTRIES) {
-            cache.entrySet().stream()
+        int safetyGuard = MAX_CACHE_ENTRIES + 10;
+        while (cache.size() >= MAX_CACHE_ENTRIES && safetyGuard-- > 0) {
+            String oldestKey = cache.entrySet().stream()
                     .min(Comparator.comparingLong(e -> e.getValue().getExpiresAt()))
-                    .ifPresent(e -> cache.remove(e.getKey()));
+                    .map(Map.Entry::getKey)
+                    .orElse(null);
+            if (oldestKey == null) break;
+            cache.remove(oldestKey);
         }
     }
 
@@ -325,6 +330,7 @@ public class CashBookConvertService {
                 if (monthVal != null && monthVal >= 2000) {
                     year = monthVal;
                     prevMonth = null;
+                    prevDay = null; // 年更新時は前月/前日両方リセット（前年日付混入防止）
                     continue;
                 }
                 if (monthVal == null) {
@@ -511,6 +517,8 @@ public class CashBookConvertService {
                     if (kw == null || kw.isEmpty()) return true;
                     return p.getDescD() != null && p.getDescD().contains(kw);
                 })
+                // 優先度計算: priority が小さいほど先。同priorityならキーワード一致ルールを優先
+                // (priority*2 の空間に kwBonus 0/1 を差し込む → priority=5+kw(0)=10 < priority=5+nokw(1)=11 < priority=10)
                 .min(Comparator.comparingInt(r -> {
                     String kw = r.getDescriptionDKeyword();
                     int kwBonus = (kw == null || kw.isEmpty()) ? 1 : 0;

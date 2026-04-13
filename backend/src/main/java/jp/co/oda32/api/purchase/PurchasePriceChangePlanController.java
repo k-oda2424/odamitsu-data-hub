@@ -3,6 +3,7 @@ package jp.co.oda32.api.purchase;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.purchase.MPurchasePriceChangePlan;
 import jp.co.oda32.domain.service.purchase.MPurchasePriceChangePlanService;
+import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.dto.purchase.PurchasePriceChangePlanBulkRequest;
 import jp.co.oda32.dto.purchase.PurchasePriceChangePlanCreateRequest;
 import jp.co.oda32.dto.purchase.PurchasePriceChangePlanResponse;
@@ -44,8 +45,9 @@ public class PurchasePriceChangePlanController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate changePlanDateTo,
             @RequestParam(required = false) @Pattern(regexp = "standard|partner|all", message = "scopeはstandard/partner/allのいずれかです") String scope,
             @PageableDefault(size = 50, sort = "changePlanDate", direction = Sort.Direction.DESC) Pageable pageable) {
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         Page<MPurchasePriceChangePlan> page = changePlanService.findPaged(
-                shopNo, supplierCode, goodsCode, janCode, changeReason,
+                effectiveShopNo, supplierCode, goodsCode, janCode, changeReason,
                 changePlanDateFrom, changePlanDateTo, Flag.NO, scope, pageable);
         return ResponseEntity.ok(page.map(PurchasePriceChangePlanResponse::from));
     }

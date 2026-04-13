@@ -5,6 +5,7 @@ import jp.co.oda32.domain.model.order.TOrder;
 import jp.co.oda32.domain.model.order.TOrderDetail;
 import jp.co.oda32.domain.service.order.TOrderDetailService;
 import jp.co.oda32.domain.service.order.TOrderService;
+import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.dto.order.OrderDetailResponse;
 import jp.co.oda32.dto.order.OrderResponse;
 import lombok.RequiredArgsConstructor;
@@ -55,10 +56,11 @@ public class OrderController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate slipDateFrom,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate slipDateTo,
             @PageableDefault(size = 50, sort = "orderDateTime", direction = Sort.Direction.DESC) Pageable pageable) {
-        log.info("受注一覧検索: shopNo={}, partnerNo={}, companyNo={}, goodsName={}, page={}", shopNo, partnerNo, companyNo, goodsName, pageable.getPageNumber());
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
+        log.info("受注一覧検索: shopNo={}, partnerNo={}, companyNo={}, goodsName={}, page={}", effectiveShopNo, partnerNo, companyNo, goodsName, pageable.getPageNumber());
         String[] statusArray = orderDetailStatus != null ? new String[]{orderDetailStatus} : null;
         Page<TOrderDetail> page = tOrderDetailService.searchForListPaged(
-                shopNo, companyNo, partnerNo, slipNo, goodsName, goodsCode,
+                effectiveShopNo, companyNo, partnerNo, slipNo, goodsName, goodsCode,
                 statusArray, orderDateTimeFrom, orderDateTimeTo, slipDateFrom, slipDateTo, Flag.NO, pageable);
         return ResponseEntity.ok(page.map(OrderDetailResponse::from));
     }

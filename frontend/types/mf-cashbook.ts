@@ -65,19 +65,24 @@ export interface MfJournalRule {
   requiresClientMapping: boolean
 }
 
+/**
+ * サーバー送信用の仕訳ルール Request。
+ * 任意項目も常に string として送信し、サーバー側で空文字→NULL 正規化が期待される。
+ * undefined を送らないことで UI との整合を取る（Input value は常に string）。
+ */
 export interface MfJournalRuleRequest {
   descriptionC: string
-  descriptionDKeyword?: string | null
+  descriptionDKeyword: string
   priority: number
   amountSource: 'INCOME' | 'PAYMENT'
   debitAccount: string
-  debitSubAccount?: string
-  debitDepartment?: string
+  debitSubAccount: string
+  debitDepartment: string
   debitTaxResolver: string
   creditAccount: string
-  creditSubAccount?: string
-  creditSubAccountTemplate?: string
-  creditDepartment?: string
+  creditSubAccount: string
+  creditSubAccountTemplate: string
+  creditDepartment: string
   creditTaxResolver: string
   summaryTemplate: string
   requiresClientMapping: boolean

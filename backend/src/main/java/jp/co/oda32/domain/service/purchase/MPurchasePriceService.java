@@ -14,6 +14,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -116,15 +117,19 @@ public class MPurchasePriceService extends CustomService {
     }
 
     /**
-     * リクエストから新規作成Entityを構築する（税込/税抜の自動計算、軽減税率判定を含む）
+     * リクエストから新規作成Entityを構築する（税込/税抜の自動計算、軽減税率判定を含む）。
+     * MGoodsService.getByGoodsNo を呼ぶため @Transactional(readOnly=true) を付与。
      */
+    @Transactional(readOnly = true)
     public MPurchasePrice createFromRequest(PurchasePriceCreateRequest request) {
         return buildEntity(null, request);
     }
 
     /**
-     * リクエストから更新Entityを構築する（PKを保持）
+     * リクエストから更新Entityを構築する（PKを保持）。
+     * MGoodsService.getByGoodsNo を呼ぶため @Transactional(readOnly=true) を付与。
      */
+    @Transactional(readOnly = true)
     public MPurchasePrice updateFromRequest(Integer purchasePriceNo, PurchasePriceCreateRequest request) {
         return buildEntity(purchasePriceNo, request);
     }
