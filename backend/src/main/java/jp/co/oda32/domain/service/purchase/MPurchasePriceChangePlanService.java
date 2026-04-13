@@ -1,5 +1,6 @@
 package jp.co.oda32.domain.service.purchase;
 
+import jp.co.oda32.annotation.SkipShopCheck;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.purchase.MPurchasePriceChangePlan;
 import jp.co.oda32.domain.repository.purchase.MPurchasePriceChangePlanRepository;
@@ -8,6 +9,8 @@ import jp.co.oda32.domain.specification.purchase.MPurchasePriceChangePlanSpecifi
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
@@ -34,14 +37,30 @@ public class MPurchasePriceChangePlanService extends CustomService {
     private MPurchasePriceChangePlanSpecification mPurchasePriceChangePlanSpecification = new MPurchasePriceChangePlanSpecification();
 
     public List<MPurchasePriceChangePlan> find(Integer shopNo, String supplierCode, String goodsCode, String janCode, String purchasePriceChangeReason, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, Flag delFlg) {
-        return this.mPurchasePriceChangePlanRepository.findAll(Specification
+        return this.mPurchasePriceChangePlanRepository.findAll(buildFindSpec(shopNo, supplierCode, goodsCode, janCode, purchasePriceChangeReason, priceChangeDateFrom, priceChangeDateTo, delFlg));
+    }
+
+    @SkipShopCheck
+    public Page<MPurchasePriceChangePlan> findPaged(Integer shopNo, String supplierCode, String goodsCode, String janCode, String purchasePriceChangeReason, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, Flag delFlg, Pageable pageable) {
+        return this.mPurchasePriceChangePlanRepository.findAll(buildFindSpec(shopNo, supplierCode, goodsCode, janCode, purchasePriceChangeReason, priceChangeDateFrom, priceChangeDateTo, delFlg), pageable);
+    }
+
+    @SkipShopCheck
+    public Page<MPurchasePriceChangePlan> findPaged(Integer shopNo, String supplierCode, String goodsCode, String janCode, String purchasePriceChangeReason, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, Flag delFlg, String scope, Pageable pageable) {
+        Specification<MPurchasePriceChangePlan> spec = buildFindSpec(shopNo, supplierCode, goodsCode, janCode, purchasePriceChangeReason, priceChangeDateFrom, priceChangeDateTo, delFlg)
+                .and(this.mPurchasePriceChangePlanSpecification.scopeFilter(scope));
+        return this.mPurchasePriceChangePlanRepository.findAll(spec, pageable);
+    }
+
+    private Specification<MPurchasePriceChangePlan> buildFindSpec(Integer shopNo, String supplierCode, String goodsCode, String janCode, String purchasePriceChangeReason, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, Flag delFlg) {
+        return Specification
                 .where(this.mPurchasePriceChangePlanSpecification.shopNoContains(shopNo))
                 .and(this.mPurchasePriceChangePlanSpecification.supplierCodeContains(supplierCode))
                 .and(this.mPurchasePriceChangePlanSpecification.goodsCodeContains(goodsCode))
                 .and(this.mPurchasePriceChangePlanSpecification.janCodeContains(janCode))
                 .and(this.mPurchasePriceChangePlanSpecification.changeReasonContains(purchasePriceChangeReason))
                 .and(this.mPurchasePriceChangePlanSpecification.changePlanDateRangeContains(priceChangeDateFrom, priceChangeDateTo))
-                .and(this.mPurchasePriceChangePlanSpecification.delFlgContains(delFlg)));
+                .and(this.mPurchasePriceChangePlanSpecification.delFlgContains(delFlg));
     }
 
     public List<MPurchasePriceChangePlan> find(Integer shopNo, String supplierCode, String goodsCode, Integer partnerNo, Integer destinationNo, LocalDate priceChangeDate, Flag delFlg) {

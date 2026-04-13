@@ -9,6 +9,10 @@ import jp.co.oda32.dto.purchase.PurchasePriceChangePlanResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +34,7 @@ public class PurchasePriceChangePlanController {
     private final MPurchasePriceChangePlanService changePlanService;
 
     @GetMapping
-    public ResponseEntity<List<PurchasePriceChangePlanResponse>> list(
+    public ResponseEntity<Page<PurchasePriceChangePlanResponse>> list(
             @RequestParam(required = false) Integer shopNo,
             @RequestParam(required = false) String supplierCode,
             @RequestParam(required = false) String goodsCode,
@@ -38,25 +42,12 @@ public class PurchasePriceChangePlanController {
             @RequestParam(required = false) String changeReason,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate changePlanDateFrom,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate changePlanDateTo,
-            @RequestParam(required = false) @Pattern(regexp = "standard|partner|all", message = "scopeはstandard/partner/allのいずれかです") String scope) {
-        List<MPurchasePriceChangePlan> plans = changePlanService.find(
+            @RequestParam(required = false) @Pattern(regexp = "standard|partner|all", message = "scopeはstandard/partner/allのいずれかです") String scope,
+            @PageableDefault(size = 50, sort = "changePlanDate", direction = Sort.Direction.DESC) Pageable pageable) {
+        Page<MPurchasePriceChangePlan> page = changePlanService.findPaged(
                 shopNo, supplierCode, goodsCode, janCode, changeReason,
-                changePlanDateFrom, changePlanDateTo, Flag.NO);
-        // scope filter: standard / partner / all (default: all)
-        if ("standard".equals(scope)) {
-            plans = plans.stream()
-                    .filter(p -> (p.getPartnerNo() == null || p.getPartnerNo() == 0)
-                            && (p.getDestinationNo() == null || p.getDestinationNo() == 0))
-                    .collect(Collectors.toList());
-        } else if ("partner".equals(scope)) {
-            plans = plans.stream()
-                    .filter(p -> (p.getPartnerNo() != null && p.getPartnerNo() != 0)
-                            || (p.getDestinationNo() != null && p.getDestinationNo() != 0))
-                    .collect(Collectors.toList());
-        }
-        return ResponseEntity.ok(plans.stream()
-                .map(PurchasePriceChangePlanResponse::from)
-                .collect(Collectors.toList()));
+                changePlanDateFrom, changePlanDateTo, Flag.NO, scope, pageable);
+        return ResponseEntity.ok(page.map(PurchasePriceChangePlanResponse::from));
     }
 
     @PreAuthorize("isAuthenticated()")

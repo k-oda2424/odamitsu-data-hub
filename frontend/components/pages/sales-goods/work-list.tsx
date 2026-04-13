@@ -22,7 +22,10 @@ import {
 } from '@/components/ui/select'
 import { Plus } from 'lucide-react'
 import type { SalesGoodsDetailResponse } from '@/types/goods'
+import { emptyPage, type Paginated } from '@/types/paginated'
 import { salesGoodsColumns, SalesGoodsSearchFields } from './shared'
+
+const PAGE_SIZE = 50
 
 export function SalesGoodsWorkListPage() {
   const router = useRouter()
@@ -42,13 +45,14 @@ export function SalesGoodsWorkListPage() {
   const [searchParams, setSearchParams] = useState<Record<string, string> | null>(
     initialSearched ? { goodsName: urlParams.get('goodsName') ?? '', goodsCode: urlParams.get('goodsCode') ?? '', keyword: urlParams.get('keyword') ?? '', supplierNo: urlParams.get('supplierNo') ?? '' } : null
   )
+  const [page, setPage] = useState(0)
 
   const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
   const suppliersQuery = useSuppliers(effectiveShopNo)
 
   const listQuery = useQuery({
-    queryKey: ['sales-goods-work', effectiveShopNo, searchParams],
+    queryKey: ['sales-goods-work', effectiveShopNo, searchParams, page],
     queryFn: () => {
       const params = new URLSearchParams()
       params.append('shopNo', effectiveShopNo)
@@ -56,7 +60,9 @@ export function SalesGoodsWorkListPage() {
       if (searchParams?.goodsCode) params.append('goodsCode', searchParams.goodsCode)
       if (searchParams?.keyword) params.append('keyword', searchParams.keyword)
       if (searchParams?.supplierNo) params.append('supplierNo', searchParams.supplierNo)
-      return api.get<SalesGoodsDetailResponse[]>(`/sales-goods/work?${params.toString()}`)
+      params.append('page', String(page))
+      params.append('size', String(PAGE_SIZE))
+      return api.get<Paginated<SalesGoodsDetailResponse>>(`/sales-goods/work?${params.toString()}`)
     },
     enabled: searchParams !== null && !!effectiveShopNo,
   })
@@ -77,6 +83,7 @@ export function SalesGoodsWorkListPage() {
 
   const handleSearch = () => {
     const params = { goodsName, goodsCode, keyword, supplierNo }
+    setPage(0)
     setSearchParams(params)
     syncUrl(params, effectiveShopNo)
   }
@@ -86,6 +93,7 @@ export function SalesGoodsWorkListPage() {
     setGoodsCode('')
     setKeyword('')
     setSupplierNo('')
+    setPage(0)
     setSearchParams(null)
     router.replace('/sales-goods/work', { scroll: false })
   }
@@ -143,14 +151,23 @@ export function SalesGoodsWorkListPage() {
         <LoadingSpinner />
       ) : listQuery.isError ? (
         <ErrorMessage onRetry={() => listQuery.refetch()} />
-      ) : (
-        <DataTable
-          data={listQuery.data ?? []}
-          columns={salesGoodsColumns}
-          searchPlaceholder="テーブル内を検索..."
-          onRowClick={(item) => router.push(`/sales-goods/work/${item.shopNo}/${item.goodsNo}`)}
-        />
-      )}
+      ) : (() => {
+        const p = listQuery.data ?? emptyPage<SalesGoodsDetailResponse>(PAGE_SIZE)
+        return (
+          <DataTable
+            data={p.content}
+            columns={salesGoodsColumns}
+            onRowClick={(item) => router.push(`/sales-goods/work/${item.shopNo}/${item.goodsNo}`)}
+            serverPagination={{
+              page: p.number,
+              pageSize: p.size,
+              totalElements: p.totalElements,
+              totalPages: p.totalPages,
+              onPageChange: setPage,
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }

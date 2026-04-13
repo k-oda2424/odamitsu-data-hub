@@ -14,6 +14,10 @@ import jp.co.oda32.dto.goods.PartnerGoodsResponse;
 import jp.co.oda32.dto.goods.PartnerGoodsUpdateRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -21,7 +25,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/partner-goods")
@@ -34,22 +37,18 @@ public class PartnerGoodsController {
     private final TReturnDetailService tReturnDetailService;
 
     @GetMapping
-    public ResponseEntity<List<PartnerGoodsResponse>> list(
+    public ResponseEntity<Page<PartnerGoodsResponse>> list(
             @RequestParam(required = false) Integer shopNo,
             @RequestParam(required = false) Integer companyNo,
             @RequestParam(required = false) String partnerCode,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer destinationNo) {
-        List<MPartnerGoods> partnerGoodsList = mPartnerGoodsService.find(
-                shopNo, companyNo, partnerCode, null, goodsName, goodsCode, keyword, destinationNo, Flag.NO);
-        partnerGoodsList.sort(Comparator.comparing(
-                MPartnerGoods::getLastSalesDate,
-                Comparator.nullsLast(Comparator.naturalOrder())).reversed());
-        return ResponseEntity.ok(partnerGoodsList.stream()
-                .map(PartnerGoodsResponse::from)
-                .collect(Collectors.toList()));
+            @RequestParam(required = false) Integer destinationNo,
+            @PageableDefault(size = 50, sort = "lastSalesDate", direction = Sort.Direction.DESC) Pageable pageable) {
+        Page<MPartnerGoods> page = mPartnerGoodsService.findPaged(
+                shopNo, companyNo, partnerCode, null, goodsName, goodsCode, keyword, destinationNo, Flag.NO, pageable);
+        return ResponseEntity.ok(page.map(PartnerGoodsResponse::from));
     }
 
     @GetMapping("/{partnerNo}/{destinationNo}/{goodsNo}")

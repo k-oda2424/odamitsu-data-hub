@@ -1,5 +1,6 @@
 package jp.co.oda32.domain.service.goods;
 
+import jp.co.oda32.annotation.SkipShopCheck;
 import jp.co.oda32.dto.goods.GoodsModifyForm;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.goods.ISalesGoods;
@@ -11,6 +12,8 @@ import jp.co.oda32.domain.service.CustomService;
 import jp.co.oda32.domain.specification.goods.MSalesGoodsSpecification;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,26 +47,44 @@ public class MSalesGoodsService extends CustomService {
     public List<MSalesGoods> findByGoodsName(String goodsName) { return salesGoodsRepository.findByGoodsName(goodsName); }
 
     public List<MSalesGoods> find(Integer shopNo, Integer goodsNo, String goodsName, String goodsCode, String keyword, Integer supplierNo, Flag delFlg) {
-        return this.salesGoodsRepository.findAll(Specification
+        return this.salesGoodsRepository.findAll(buildFindSpec(shopNo, goodsNo, goodsName, goodsCode, keyword, supplierNo, delFlg));
+    }
+
+    @SkipShopCheck
+    public Page<MSalesGoods> findPaged(Integer shopNo, Integer goodsNo, String goodsName, String goodsCode, String keyword, Integer supplierNo, Flag delFlg, Pageable pageable) {
+        return this.salesGoodsRepository.findAll(buildFindSpec(shopNo, goodsNo, goodsName, goodsCode, keyword, supplierNo, delFlg), pageable);
+    }
+
+    private Specification<MSalesGoods> buildFindSpec(Integer shopNo, Integer goodsNo, String goodsName, String goodsCode, String keyword, Integer supplierNo, Flag delFlg) {
+        return Specification
                 .where(this.goodsSpecification.shopNoContains(shopNo))
                 .and(this.goodsSpecification.goodsNoContains(goodsNo))
                 .and(this.goodsSpecification.goodsNamesContains(goodsName))
                 .and(this.goodsSpecification.goodsCodeContains(goodsCode))
                 .and(this.goodsSpecification.keywordsContains(keyword))
                 .and(this.goodsSpecification.supplierNoContains(supplierNo))
-                .and(this.goodsSpecification.delFlgContains(delFlg)));
+                .and(this.goodsSpecification.delFlgContains(delFlg));
     }
 
     /**
      * 複数 supplier_no（IN条件）で検索。比較見積等の仕入先グループ展開検索用。
      */
     public List<MSalesGoods> findBySupplierNoList(Integer shopNo, String goodsName, String goodsCode, java.util.Collection<Integer> supplierNoList, Flag delFlg) {
-        return this.salesGoodsRepository.findAll(Specification
+        return this.salesGoodsRepository.findAll(buildSupplierListSpec(shopNo, goodsName, goodsCode, supplierNoList, delFlg));
+    }
+
+    @SkipShopCheck
+    public Page<MSalesGoods> findBySupplierNoListPaged(Integer shopNo, String goodsName, String goodsCode, java.util.Collection<Integer> supplierNoList, Flag delFlg, Pageable pageable) {
+        return this.salesGoodsRepository.findAll(buildSupplierListSpec(shopNo, goodsName, goodsCode, supplierNoList, delFlg), pageable);
+    }
+
+    private Specification<MSalesGoods> buildSupplierListSpec(Integer shopNo, String goodsName, String goodsCode, java.util.Collection<Integer> supplierNoList, Flag delFlg) {
+        return Specification
                 .where(this.goodsSpecification.shopNoContains(shopNo))
                 .and(this.goodsSpecification.goodsNamesContains(goodsName))
                 .and(this.goodsSpecification.goodsCodeContains(goodsCode))
                 .and(this.goodsSpecification.supplierNoListContains(supplierNoList))
-                .and(this.goodsSpecification.delFlgContains(delFlg)));
+                .and(this.goodsSpecification.delFlgContains(delFlg));
     }
 
     public MSalesGoods update(ISalesGoods iSalesGoods) throws Exception {

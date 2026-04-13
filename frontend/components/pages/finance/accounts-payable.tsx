@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
@@ -7,6 +8,9 @@ import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
 import { ErrorMessage } from '@/components/features/common/ErrorMessage'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { emptyPage, type Paginated } from '@/types/paginated'
+
+const PAGE_SIZE = 50
 
 interface AccountsPayable {
   shopNo: number
@@ -31,18 +35,30 @@ const columns: Column<AccountsPayable>[] = [
 ]
 
 export function AccountsPayablePage() {
+  const [page, setPage] = useState(0)
   const apQuery = useQuery({
-    queryKey: ['accounts-payable'],
-    queryFn: () => api.get<AccountsPayable[]>('/finance/accounts-payable'),
+    queryKey: ['accounts-payable', page],
+    queryFn: () => api.get<Paginated<AccountsPayable>>(`/finance/accounts-payable?page=${page}&size=${PAGE_SIZE}`),
   })
 
   if (apQuery.isLoading) return <LoadingSpinner />
   if (apQuery.isError) return <ErrorMessage onRetry={() => apQuery.refetch()} />
 
+  const p = apQuery.data ?? emptyPage<AccountsPayable>(PAGE_SIZE)
   return (
     <div className="space-y-6">
       <PageHeader title="買掛金一覧" />
-      <DataTable data={apQuery.data ?? []} columns={columns} searchPlaceholder="仕入先で検索..." />
+      <DataTable
+        data={p.content}
+        columns={columns}
+        serverPagination={{
+          page: p.number,
+          pageSize: p.size,
+          totalElements: p.totalElements,
+          totalPages: p.totalPages,
+          onPageChange: setPage,
+        }}
+      />
     </div>
   )
 }

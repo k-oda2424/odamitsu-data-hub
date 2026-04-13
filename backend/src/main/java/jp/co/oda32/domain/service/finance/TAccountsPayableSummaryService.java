@@ -1,8 +1,12 @@
 package jp.co.oda32.domain.service.finance;
 
+import jp.co.oda32.annotation.SkipShopCheck;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.repository.finance.TAccountsPayableSummaryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -27,6 +31,18 @@ public class TAccountsPayableSummaryService {
 
     public List<TAccountsPayableSummary> findAll() {
         return repository.findAll();
+    }
+
+    @SkipShopCheck
+    public Page<TAccountsPayableSummary> findPaged(Integer shopNo, Integer supplierNo, Pageable pageable) {
+        Specification<TAccountsPayableSummary> spec = Specification.where(null);
+        if (shopNo != null) {
+            spec = spec.and((root, q, cb) -> cb.equal(root.get("shopNo"), shopNo));
+        }
+        if (supplierNo != null) {
+            spec = spec.and((root, q, cb) -> cb.equal(root.get("supplierNo"), supplierNo));
+        }
+        return repository.findAll(spec, pageable);
     }
 
     public TAccountsPayableSummary getByPK(int shopNo, int supplierNo, LocalDate transactionMonth, BigDecimal taxRate) {

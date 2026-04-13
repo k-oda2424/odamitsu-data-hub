@@ -3,6 +3,7 @@ package jp.co.oda32.domain.repository.finance;
 import jp.co.oda32.domain.model.embeddable.TAccountsPayableSummaryPK;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
@@ -16,7 +17,7 @@ import java.util.List;
  * @since 2024/09/10
  */
 @Repository
-public interface TAccountsPayableSummaryRepository extends JpaRepository<TAccountsPayableSummary, TAccountsPayableSummaryPK> {
+public interface TAccountsPayableSummaryRepository extends JpaRepository<TAccountsPayableSummary, TAccountsPayableSummaryPK>, JpaSpecificationExecutor<TAccountsPayableSummary> {
     /**
      * 指定された取引月に対応するTAccountsPayableSummaryのリストを取得します。
      *

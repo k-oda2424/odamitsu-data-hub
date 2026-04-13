@@ -13,6 +13,9 @@ import jp.co.oda32.dto.goods.SalesGoodsDetailResponse;
 import jp.co.oda32.dto.goods.SalesGoodsUpdateRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,28 +42,28 @@ public class SalesGoodsController {
      * supplier_no IN (...) でフィルタする。**この場合 supplierNo パラメータは無視される。**
      */
     @GetMapping("/work")
-    public ResponseEntity<List<SalesGoodsDetailResponse>> listWork(
+    public ResponseEntity<Page<SalesGoodsDetailResponse>> listWork(
             @RequestParam Integer shopNo,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer supplierNo,
-            @RequestParam(required = false) Integer paymentSupplierNo) {
-        List<WSalesGoods> list;
+            @RequestParam(required = false) Integer paymentSupplierNo,
+            @PageableDefault(size = 50) Pageable pageable) {
+        Page<WSalesGoods> page;
         if (paymentSupplierNo != null) {
-            // paymentSupplierNo 指定時: グループ展開して SQL レベルで supplier_no IN フィルタ
             List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
             if (siblings.isEmpty()) {
-                return ResponseEntity.ok(List.of());
+                return ResponseEntity.ok(Page.empty(pageable));
             }
             Set<Integer> siblingNos = siblings.stream()
                     .map(MSupplier::getSupplierNo)
                     .collect(Collectors.toSet());
-            list = wSalesGoodsService.findBySupplierNoList(shopNo, goodsName, goodsCode, siblingNos, Flag.NO);
+            page = wSalesGoodsService.findBySupplierNoListPaged(shopNo, goodsName, goodsCode, siblingNos, Flag.NO, pageable);
         } else {
-            list = wSalesGoodsService.find(shopNo, null, goodsName, null, goodsCode, keyword, supplierNo, Flag.NO);
+            page = wSalesGoodsService.findPaged(shopNo, null, goodsName, null, goodsCode, keyword, supplierNo, Flag.NO, pageable);
         }
-        return ResponseEntity.ok(list.stream().map(SalesGoodsDetailResponse::from).collect(Collectors.toList()));
+        return ResponseEntity.ok(page.map(SalesGoodsDetailResponse::from));
     }
 
     /**
@@ -69,28 +72,28 @@ public class SalesGoodsController {
      * supplier_no IN (...) でフィルタする。**この場合 supplierNo パラメータは無視される。**
      */
     @GetMapping("/master")
-    public ResponseEntity<List<SalesGoodsDetailResponse>> listMaster(
+    public ResponseEntity<Page<SalesGoodsDetailResponse>> listMaster(
             @RequestParam Integer shopNo,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer supplierNo,
-            @RequestParam(required = false) Integer paymentSupplierNo) {
-        List<MSalesGoods> list;
+            @RequestParam(required = false) Integer paymentSupplierNo,
+            @PageableDefault(size = 50) Pageable pageable) {
+        Page<MSalesGoods> page;
         if (paymentSupplierNo != null) {
-            // paymentSupplierNo 指定時: グループ展開して SQL レベルで supplier_no IN フィルタ
             List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
             if (siblings.isEmpty()) {
-                return ResponseEntity.ok(List.of());
+                return ResponseEntity.ok(Page.empty(pageable));
             }
             Set<Integer> siblingNos = siblings.stream()
                     .map(MSupplier::getSupplierNo)
                     .collect(Collectors.toSet());
-            list = mSalesGoodsService.findBySupplierNoList(shopNo, goodsName, goodsCode, siblingNos, Flag.NO);
+            page = mSalesGoodsService.findBySupplierNoListPaged(shopNo, goodsName, goodsCode, siblingNos, Flag.NO, pageable);
         } else {
-            list = mSalesGoodsService.find(shopNo, null, goodsName, goodsCode, keyword, supplierNo, Flag.NO);
+            page = mSalesGoodsService.findPaged(shopNo, null, goodsName, goodsCode, keyword, supplierNo, Flag.NO, pageable);
         }
-        return ResponseEntity.ok(list.stream().map(SalesGoodsDetailResponse::from).collect(Collectors.toList()));
+        return ResponseEntity.ok(page.map(SalesGoodsDetailResponse::from));
     }
 
     @GetMapping("/work/{shopNo}/{goodsNo}")
