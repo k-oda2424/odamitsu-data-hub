@@ -5,7 +5,13 @@ import jp.co.oda32.domain.model.master.MPaymentSupplier;
 import jp.co.oda32.domain.repository.purchase.MPaymentSupplierRepository;
 import jp.co.oda32.domain.service.CustomService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+
+import jakarta.persistence.criteria.Predicate;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 支払先マスタEntity操作用サービスクラス
@@ -24,6 +30,22 @@ public class MPaymentSupplierService extends CustomService {
 
     public MPaymentSupplier getByPaymentSupplierNo(Integer paymentSupplierNo) {
         return mPaymentSupplierRepository.findById(paymentSupplierNo).orElse(null);
+    }
+
+    /**
+     * 指定店舗の支払先一覧を返します（削除フラグ無視せず active のみ）。
+     * DB側でフィルタ・ソートを実施。
+     */
+    public List<MPaymentSupplier> findByShopNo(Integer shopNo) {
+        Specification<MPaymentSupplier> spec = (root, query, cb) -> {
+            List<Predicate> preds = new ArrayList<>();
+            if (shopNo != null) {
+                preds.add(cb.equal(root.get("shopNo"), shopNo));
+            }
+            preds.add(cb.equal(root.get("delFlg"), Flag.NO.getValue()));
+            return cb.and(preds.toArray(new Predicate[0]));
+        };
+        return this.mPaymentSupplierRepository.findAll(spec, Sort.by(Sort.Direction.ASC, "paymentSupplierCode"));
     }
 
     /**

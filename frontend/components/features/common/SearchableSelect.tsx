@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { CheckIcon, ChevronsUpDown, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, normalizeForSearch } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -86,7 +86,11 @@ export function SearchableSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command>
+        <Command filter={(value, search) => {
+          const nv = normalizeForSearch(value.toLowerCase())
+          const ns = normalizeForSearch(search.toLowerCase())
+          return nv.includes(ns) ? 1 : 0
+        }}>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>

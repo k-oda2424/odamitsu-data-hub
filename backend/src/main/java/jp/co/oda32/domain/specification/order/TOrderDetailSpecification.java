@@ -105,7 +105,7 @@ public class TOrderDetailSpecification extends CommonSpecification<TOrderDetail>
      * @return 商品コードの検索条件
      */
     public Specification<TOrderDetail> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("goodsCode", goodsCode);
     }
 
     /**
@@ -115,7 +115,7 @@ public class TOrderDetailSpecification extends CommonSpecification<TOrderDetail>
      * @return 商品名の検索条件
      */
     public Specification<TOrderDetail> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> cb.like(root.get("goodsName"), "%" + goodsName + "%");
+        return likeNormalized("goodsName", goodsName);
     }
 
     /**
@@ -185,5 +185,15 @@ public class TOrderDetailSpecification extends CommonSpecification<TOrderDetail>
      */
     public Specification<TOrderDetail> partnerNoListContains(List<Integer> partnerNos) {
         return CollectionUtil.isEmpty(partnerNos) ? null : (root, query, cb) -> root.get("tOrder").get("partnerNo").in(partnerNos);
+    }
+
+    /**
+     * 得意先番号の検索条件
+     *
+     * @param partnerNo 得意先番号
+     * @return 得意先番号の検索条件
+     */
+    public Specification<TOrderDetail> partnerNoContains(Integer partnerNo) {
+        return partnerNo == null ? null : (root, query, cb) -> cb.equal(root.get("tOrder").get("partnerNo"), partnerNo);
     }
 }

@@ -1,5 +1,5 @@
-import { MasterPage } from '@/components/pages/master/index'
+import { redirect } from 'next/navigation'
 
 export default function Masters() {
-  return <MasterPage />
+  redirect('/masters/makers')
 }

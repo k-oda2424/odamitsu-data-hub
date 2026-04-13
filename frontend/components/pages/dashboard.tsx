@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { ShoppingCart, LifeBuoy, MessageSquare, ListChecks, BarChart3, Bell } from 'lucide-react'
+import { ShoppingCart, LifeBuoy, MessageSquare, ListChecks, BarChart3, ArrowRight } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SalesChart } from '@/components/features/dashboard/SalesChart'
@@ -60,49 +60,62 @@ export function DashboardPage() {
   const { chartData, thisYearLabel, lastYearLabel } = buildChartData(salesQuery.data ?? [])
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+    <div className="space-y-8">
+      {/* Batch panels */}
+      <section>
+        <div className="mb-4 flex items-center gap-2">
+          <h2 className="text-lg font-semibold tracking-tight">バッチ処理</h2>
+          <span className="text-xs text-muted-foreground">ワンクリックでデータ連携を実行</span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <BatchPanel
+            title="新規受注取込"
+            description="小田光オンラインから新規受注データを取り込み、Smileへの売上明細連携ファイルを作成します"
+            detail="\\Smile-srv\共有\業務内容\ネットショップ関連\連携ファイル\smileへ連携"
+            icon={ShoppingCart}
+            color="amber"
+            step={1}
+            jobName="bCartOrderImport"
+          />
+          <BatchPanel
+            title="売上明細取込"
+            description="Smileから売上明細データファイル取込を行います"
+            detail="事前にSmileの随時業務＞テキスト出力（明細）＞売上明細でファイルを出力してください"
+            icon={LifeBuoy}
+            color="rose"
+            step={2}
+            jobName="smileOrderFileImport"
+            shopNo={1}
+          />
+          <BatchPanel
+            title="出荷実績CSV"
+            description="小田光オンラインに取り込む出荷実績CSVを作成します"
+            detail="\\Smile-srv\共有\業務内容\ネットショップ関連\連携ファイル\小田光オンラインへ連携"
+            icon={MessageSquare}
+            color="sky"
+            step={3}
+            jobName="bCartLogisticsCsvExport"
+          />
+          <BatchPanel
+            title="新規会員取込"
+            description="小田光オンラインから新規会員情報を取り込み、SMILEへ連携するファイルを生成します"
+            detail="\\Smile-srv\共有\業務内容\ネットショップ関連\連携ファイル\smileへ連携"
+            icon={ListChecks}
+            color="emerald"
+            step={4}
+            jobName="bCartMemberUpdate"
+          />
+        </div>
+      </section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <BatchPanel
-          title="新規受注取込"
-          description="小田光オンラインから新規受注データを取り込み、Smileへの売上明細連携ファイルを作成します
-場所：\\Smile-srv\共有\業務内容\ネットショップ関連\連携ファイル\smileへ連携"
-          icon={ShoppingCart}
-          color="yellow"
-          jobName="bCartOrderImport"
-        />
-        <BatchPanel
-          title="売上明細取込"
-          description="Smileから売上明細データファイル取込を行います
-事前にSmileの随時業務＞テキスト出力（明細）＞売上明細でファイルを出力してください"
-          icon={LifeBuoy}
-          color="red"
-          jobName="oneDayClose"
-        />
-        <BatchPanel
-          title="出荷実績CSV"
-          description="小田光オンラインに取り込む出荷実績CSVを作成します
-場所：\\Smile-srv\共有\業務内容\ネットショップ関連\連携ファイル\小田光オンラインへ連携"
-          icon={MessageSquare}
-          color="blue"
-          jobName="bCartLogisticsCsvExport"
-        />
-        <BatchPanel
-          title="新規会員取込"
-          description="小田光オンラインから新規会員情報を取り込み、SMILEへ連携するファイルを生成します
-場所：\\Smile-srv\共有\業務内容\ネットショップ関連\連携ファイル\smileへ連携"
-          icon={ListChecks}
-          color="green"
-          jobName="bCartMemberUpdate"
-        />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      {/* Charts & Workflow */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2 border shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-500/10">
+                <BarChart3 className="h-4 w-4 text-blue-600" />
+              </div>
               売上推移
             </CardTitle>
           </CardHeader>
@@ -121,10 +134,12 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium flex items-center gap-2">
-              <Bell className="h-4 w-4" />
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-orange-500/10">
+                <ArrowRight className="h-4 w-4 text-orange-600" />
+              </div>
               受注から出荷の流れ
             </CardTitle>
           </CardHeader>

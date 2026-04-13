@@ -28,6 +28,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -113,14 +114,14 @@ public class PriceChangeToEstimateCreateTasklet implements Tasklet {
     }
 
     protected TEstimate createEstimate(int shopNo, int companyNo, int partnerNo, int destinationNo, LocalDate changePlanDate) throws Exception {
-        // 同じ価格変更日の行がある場合はまとめる。ただし、提出済の場合は別で作成する
-        List<String> estimateStatusList = Arrays.asList(EstimateStatus.CREATE.getCode(), EstimateStatus.MODIFIED.getCode(), EstimateStatus.BID.getCode(), EstimateStatus.NOT_DEAL.getCode());
-        List<TEstimate> estimateList = this.tEstimateService.find(shopNo, partnerNo, estimateStatusList, changePlanDate, Flag.NO);
+        // 同じ価格変更日の「作成」「修正」ステータスの見積のみ対象（それ以外のステータスは更新しない）
+        List<String> editableStatusList = EstimateStatus.getBeforeNotifiedStatusCodeList(); // ["00", "20"]
+        List<TEstimate> estimateList = this.tEstimateService.find(shopNo, partnerNo, editableStatusList, changePlanDate, Flag.NO);
         TEstimate tEstimate;
         if (estimateList.isEmpty()) {
-            // 見積ヘッダテーブル
+            // 新規見積ヘッダ作成
             tEstimate = TEstimate.builder()
-                    .estimateDate(LocalDate.now())// 見積ステータスを「提出（印刷）」するときに修正する
+                    .estimateDate(LocalDate.now())
                     .priceChangeDate(changePlanDate)
                     .estimateStatus(EstimateStatus.CREATE.getCode())
                     .shopNo(shopNo)
@@ -129,11 +130,13 @@ public class PriceChangeToEstimateCreateTasklet implements Tasklet {
                     .partnerNo(partnerNo)
                     .destinationNo(destinationNo)
                     .build();
+            tEstimate = this.tEstimateService.insert(tEstimate);
         } else {
+            // 既存の「作成」「修正」見積に明細を追加
             tEstimate = estimateList.stream().findFirst().get();
             tEstimate.setEstimateStatus(EstimateStatus.MODIFIED.getCode());
+            tEstimate = this.tEstimateService.update(tEstimate);
         }
-        tEstimate = this.tEstimateService.insert(tEstimate);
         return tEstimate;
     }
 
@@ -146,6 +149,10 @@ public class PriceChangeToEstimateCreateTasklet implements Tasklet {
     }
 
     private List<TEstimateDetail> convertPartnerGoodsPricePlan(int estimateNo, List<MPartnerGoodsPriceChangePlan> mPartnerGoodsPriceChangePlanList) {
+        // 商品コード順にソート
+        mPartnerGoodsPriceChangePlanList.sort(Comparator.comparing(
+                MPartnerGoodsPriceChangePlan::getGoodsCode, Comparator.nullsLast(Comparator.naturalOrder())));
+
         List<TEstimateDetail> existTEstimateDetailList = this.tEstimateDetailService.findByEstimateNo(estimateNo);
         List<TEstimateDetail> tEstimateDetailList = new ArrayList<>();
         int estimateDetailNo = 1;
@@ -153,8 +160,30 @@ public class PriceChangeToEstimateCreateTasklet implements Tasklet {
             // 金額再調整の場合があるので、同じ商品見積を避けるため、既存の見積に今回見積追加するものがあれば削除しておく
             List<Integer> estimateGoodsNoList = mPartnerGoodsPriceChangePlanList.stream().map(MPartnerGoodsPriceChangePlan::getGoodsNo).collect(Collectors.toList());
             existTEstimateDetailList.removeIf(tEstimateDetail -> estimateGoodsNoList.contains(tEstimateDetail.getGoodsNo()));
-            tEstimateDetailList.addAll(existTEstimateDetailList);
-            estimateDetailNo = 1 + existTEstimateDetailList.size();
+            // 既存エンティティをデタッチしたコピーとして追加（delete-insertでのStaleObjectStateException防止）
+            for (TEstimateDetail exist : existTEstimateDetailList) {
+                tEstimateDetailList.add(TEstimateDetail.builder()
+                        .estimateNo(exist.getEstimateNo())
+                        .estimateDetailNo(estimateDetailNo)
+                        .shopNo(exist.getShopNo())
+                        .companyNo(exist.getCompanyNo())
+                        .goodsNo(exist.getGoodsNo())
+                        .goodsCode(exist.getGoodsCode())
+                        .goodsName(exist.getGoodsName())
+                        .specification(exist.getSpecification())
+                        .goodsPrice(exist.getGoodsPrice())
+                        .purchasePrice(exist.getPurchasePrice())
+                        .containNum(exist.getContainNum())
+                        .changeContainNum(exist.getChangeContainNum())
+                        .estimateCaseNum(exist.getEstimateCaseNum())
+                        .estimateNum(exist.getEstimateNum())
+                        .profitRate(exist.getProfitRate())
+                        .detailNote(exist.getDetailNote())
+                        .displayOrder(exist.getDisplayOrder())
+                        .partnerGoodsReflect(exist.isPartnerGoodsReflect())
+                        .build());
+                estimateDetailNo++;
+            }
         }
         for (MPartnerGoodsPriceChangePlan mPartnerGoodsPriceChangePlan : mPartnerGoodsPriceChangePlanList) {
             BigDecimal containNum = BigDecimal.ONE;
@@ -163,17 +192,29 @@ public class PriceChangeToEstimateCreateTasklet implements Tasklet {
             } else {
                 containNum = this.mGoodsService.getByGoodsNo(mPartnerGoodsPriceChangePlan.getGoodsNo()).getCaseContainNum();
             }
+            // 粗利率を計算: (1 - 仕入価格 / 売価) * 100
+            BigDecimal afterPrice = mPartnerGoodsPriceChangePlan.getAfterPrice();
+            BigDecimal afterPurchasePrice = mPartnerGoodsPriceChangePlan.getAfterPurchasePrice();
+            BigDecimal profitRate = null;
+            if (afterPrice != null && afterPurchasePrice != null && afterPrice.compareTo(BigDecimal.ZERO) != 0) {
+                profitRate = BigDecimal.ONE
+                        .subtract(afterPurchasePrice.divide(afterPrice, 3, java.math.RoundingMode.HALF_UP))
+                        .multiply(new BigDecimal(100));
+            }
             TEstimateDetail tEstimateDetail = TEstimateDetail.builder()
                     .estimateNo(estimateNo)
                     .estimateDetailNo(estimateDetailNo)
                     .companyNo(mPartnerGoodsPriceChangePlan.getCompanyNo())
-                    .goodsPrice(mPartnerGoodsPriceChangePlan.getAfterPrice())
+                    .goodsPrice(afterPrice)
+                    .purchasePrice(afterPurchasePrice)
+                    .profitRate(profitRate)
                     .goodsNo(mPartnerGoodsPriceChangePlan.getGoodsNo())
                     .goodsCode(mPartnerGoodsPriceChangePlan.getGoodsCode())
                     .goodsName(mPartnerGoodsPriceChangePlan.getGoodsName())
                     .changeContainNum(mPartnerGoodsPriceChangePlan.getChangeContainNum())
                     .shopNo(mPartnerGoodsPriceChangePlan.getShopNo())
                     .containNum(containNum)
+                    .displayOrder(estimateDetailNo)
                     .detailNote(String.format("現単価%s円", mPartnerGoodsPriceChangePlan.getBeforePrice().stripTrailingZeros().toPlainString()))
                     .build();
             if (mPartnerGoodsPriceChangePlan.isDeficitFlg()) {

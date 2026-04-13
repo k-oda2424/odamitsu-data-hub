@@ -1,0 +1,87 @@
+{
+  "_meta": {
+    "supplierCode": "011100",
+    "supplierName": "花王プロフェッショナルサービス",
+    "paymentSupplierNo": 38,
+    "lastUpdated": "2026-04-01"
+  },
+  "mappings": {
+    "クリーン&クリーンX7": {
+      "goodsCode": "00112716",
+      "goodsNo": 10291,
+      "systemGoodsName": "ﾋﾞｵﾚU 泡ﾊﾝﾄﾞｿｰﾌﾟ 1.5L",
+      "janCode": "4901301416827",
+      "confirmedAt": "2026-04-01"
+    },
+    "ビオレu泡ハンドソープ 業務用 ポンプ": {
+      "goodsCode": "00112732",
+      "goodsNo": 8929,
+      "systemGoodsName": "花王 ﾊﾝﾄﾞｽｷｯｼｭEX ｽﾌﾟﾚｰ150mL",
+      "janCode": "4901301389138",
+      "confirmedAt": "2026-04-01"
+    },
+    "ビオレu泡ハンドソープ 業務用 1.5L": {
+      "goodsCode": "00112728",
+      "goodsNo": 7333,
+      "systemGoodsName": "花王 ﾊﾝﾄﾞｽｷｯｼｭEX 本体800mL",
+      "janCode": "4901301507198",
+      "confirmedAt": "2026-04-01"
+    },
+    "ビオレu泡ハンドソープ 業務用 4L": {
+      "goodsCode": "00112729",
+      "goodsNo": 7298,
+      "systemGoodsName": "花王 ﾊﾝﾄﾞｽｷｯｼｭEX 付替800mL",
+      "janCode": "4901301507204",
+      "confirmedAt": "2026-04-01"
+    },
+    "ハンドスキッシュEX デザインボトル": {
+      "goodsCode": "00112533",
+      "goodsNo": 1543,
+      "systemGoodsName": "ｷｭｷｭｯﾄ 4.5L",
+      "janCode": "4901301510778",
+      "confirmedAt": "2026-04-01"
+    },
+    "アクシャル 中性濃縮": {
+      "goodsCode": "00112591",
+      "goodsNo": 1579,
+      "systemGoodsName": "ｱｸｼｬﾙﾆｭｰｽﾀｰ 中性濃縮10L",
+      "janCode": "4901301413093",
+      "confirmedAt": "2026-04-01"
+    },
+    "トイレハイター 業務用 5L": {
+      "goodsCode": "00112535",
+      "goodsNo": 7505,
+      "systemGoodsName": "花王 ｽﾏｯｼｭ 5L",
+      "janCode": "4901301384201",
+      "confirmedAt": "2026-04-01"
+    },
+    "スキッシュV": {
+      "goodsCode": "00112758",
+      "goodsNo": 9104,
+      "systemGoodsName": "花王ｽｷｯｼｭＶ 4.5L",
+      "janCode": "4901301397430",
+      "confirmedAt": "2026-04-01"
+    },
+    "バイブハイター 高粘度ジェル 業務用 つけかえ用": {
+      "goodsCode": "00112650",
+      "goodsNo": 1577,
+      "systemGoodsName": "ﾘｾｯｼｭ 除菌EX 消臭ｽﾄﾛﾝｸﾞ 2L",
+      "janCode": "4901301510877",
+      "confirmedAt": "2026-04-01"
+    },
+    "フィエスタ モイストリンス": {
+      "goodsCode": "00112620",
+      "goodsNo": 6320,
+      "systemGoodsName": "業)ﾊﾟｲﾌﾟﾊｲﾀｰ高粘度ｼﾞｪﾙ 本体2kg",
+      "janCode": "4901301507280",
+      "confirmedAt": "2026-04-01"
+    },
+    "フィエスタ コンディショナー": {
+      "goodsCode": "00112621",
+      "goodsNo": 9041,
+      "systemGoodsName": "業)ﾊﾟｲﾌﾟﾊｲﾀｰ高粘度ｼﾞｪﾙ 付替2kg",
+      "janCode": "4901301507297",
+      "confirmedAt": "2026-04-01"
+    }
+  }
+}

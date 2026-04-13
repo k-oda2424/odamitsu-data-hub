@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 public abstract class AppropriateStockCalculateTasklet implements Tasklet, IAppropriateStockCalculate {
     // ショップ番号,商品番号とリードタイムのマップ
     protected Map<MSalesGoodsPK, Integer> leadTimeMap = new HashMap<>();
-    @Value("#{jobParameters['spanMonths']}")
+    @Value("#{jobParameters['spanMonths'] ?: 1}")
     protected Integer spanMonths;
 
     @Override

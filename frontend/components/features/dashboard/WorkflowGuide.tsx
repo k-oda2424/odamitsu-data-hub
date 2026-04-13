@@ -1,3 +1,5 @@
+import { ExternalLink } from 'lucide-react'
+
 const BCART_ADMIN_ORDER = 'https://odamitsu.i13.bcart.jp/admin/order/list'
 const BCART_ADMIN_IMPORT = 'https://odamitsu.i13.bcart.jp/admin/logistics/csv/import'
 
@@ -15,80 +17,83 @@ const steps: WorkflowStep[] = [
   },
   {
     number: 2,
-    text: '小田光オンラインの管理画面から「新規注文」の中で「未発送」のものを探し、受注明細を確認します。\n在庫に問題がなければ、発送状況を「発送指示」に変更し、納品日を入力します。',
+    text: '管理画面の「新規注文」>「未発送」を確認し、発送状況を「発送指示」に変更、納品日を入力',
     href: BCART_ADMIN_ORDER,
   },
   {
     number: 3,
-    text: '左上にある新規受注取込バッチを起動してください。',
+    text: '上のバッチ「新規受注取込」を起動',
   },
   {
     number: 4,
-    text: 'Smileで【随時業務＞テキスト取込（明細）＞売上明細】で③のファイルを取込',
+    text: 'Smileで【随時業務＞テキスト取込（明細）＞売上明細】でファイルを取込',
   },
   {
     number: 5,
-    text: '必要な場合はSmileで取り込んだ受注伝票を出力してください',
+    text: '必要に応じてSmileで受注伝票を出力',
   },
   {
     number: 6,
-    text: 'Smile連携ができたことを確認するため、事前にSmileの【随時業務＞テキスト出力（明細）＞売上明細】でファイルを出力してください。\n左から2番目の売上明細取込バッチを起動してこのシステムに取り込んでください。',
+    text: 'Smileで売上明細を出力 → バッチ「売上明細取込」を起動',
   },
   {
     number: 7,
-    text: '左メニューのB-Cart出荷処理で連携済みの受注の出荷ステータスを「出荷済」に変更して下部の更新ボタンを押して更新してください。',
+    text: '左メニュー「B-Cart出荷」で出荷ステータスを「出荷済」に変更',
   },
   {
     number: 8,
-    text: '小田光オンラインへ出荷完了連携します。左から3番目の「出荷実績CSV」バッチを起動してください。',
+    text: 'バッチ「出荷実績CSV」を起動',
   },
   {
     number: 9,
-    text: '小田光オンラインの管理画面から「受注管理 > 出荷実績インポート」へアクセスします。先ほど作成した出荷実績CSVファイルをインポートします。',
+    text: '小田光オンライン「受注管理 > 出荷実績インポート」でCSVを取込',
     href: BCART_ADMIN_IMPORT,
   },
 ]
 
 const NOTE_TEXT =
-  '新規得意先が登録された場合は、Smile用得意先コードを作成して、小田光オンラインの会員＞貴社コードに得意先コードを設定します。\n設定後、一番右の新規会員取込バッチを起動し、生成した会員登録用ファイルをSmileへ取り込んでください。'
+  '新規得意先が登録された場合は、Smile用得意先コードを作成し、小田光オンラインの会員＞貴社コードに設定。その後「新規会員取込」バッチを起動してください。'
 
 export function WorkflowGuide() {
   return (
-    <div className="space-y-0">
-      {steps.map((step) => {
-        const content = (
-          <div className="border-b px-4 py-3 text-sm leading-relaxed hover:bg-muted/50 transition-colors">
-            <span className="font-medium">{'①②③④⑤⑥⑦⑧⑨'[step.number - 1]}</span>
-            {step.text.split('\n').map((line, i) => (
-              <span key={i}>
-                {i > 0 && <br />}
-                {line}
-              </span>
-            ))}
-          </div>
-        )
-        if (step.href) {
+    <div className="px-5 pb-5">
+      <ol className="relative ml-3 border-l-2 border-border/60">
+        {steps.map((step) => {
+          const isLink = !!step.href
+          const Wrapper = isLink ? 'a' : 'div'
+          const wrapperProps = isLink
+            ? { href: step.href, target: '_blank', rel: 'noopener noreferrer' }
+            : {}
+
           return (
-            <a
-              key={step.number}
-              href={step.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-foreground no-underline"
-            >
-              {content}
-            </a>
+            <li key={step.number} className="relative ml-6 pb-1">
+              {/* Step number circle */}
+              <span className="absolute -left-[calc(1.5rem+1px)] flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground ring-4 ring-background">
+                {step.number}
+              </span>
+
+              <Wrapper
+                {...wrapperProps}
+                className={`block rounded-md px-3 py-2.5 text-[13px] leading-relaxed transition-colors ${
+                  isLink
+                    ? 'text-foreground hover:bg-accent/60 cursor-pointer group'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                {step.text}
+                {isLink && (
+                  <ExternalLink className="ml-1 inline-block h-3 w-3 text-muted-foreground/50 group-hover:text-foreground transition-colors" />
+                )}
+              </Wrapper>
+            </li>
           )
-        }
-        return <div key={step.number}>{content}</div>
-      })}
-      <div className="px-4 py-3 text-sm leading-relaxed bg-muted/30 rounded-b-lg">
-        {NOTE_TEXT.split('\n').map((line, i) => (
-          <span key={i}>
-            {i > 0 && <br />}
-            {line}
-          </span>
-        ))}
+        })}
+      </ol>
+
+      {/* Note */}
+      <div className="mt-4 rounded-lg bg-muted/50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+        <span className="font-medium text-foreground/70">補足: </span>
+        {NOTE_TEXT}
       </div>
     </div>
   )

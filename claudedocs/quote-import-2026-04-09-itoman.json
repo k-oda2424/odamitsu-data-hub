@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "file": "小田光㈱　マツダスタジアム向けTP御見積.pdf",
+    "supplier": "イトマン",
+    "supplierFull": "イトマン株式会社",
+    "quoteNo": "2026040901",
+    "quoteDate": "2026-04-09",
+    "effectiveDate": null,
+    "validUntil": "2026-07-09",
+    "changeReason": "PU",
+    "priceType": "税抜",
+    "extractedAt": "2026-04-09",
+    "totalItems": 1,
+    "subject": "マツダスタジアム向けトイレットペーパー御見積",
+    "conditions": {
+      "delivery": "広島県",
+      "minLot": "50ケース納品",
+      "terms": "従来通り"
+    }
+  },
+  "items": [
+    {
+      "row": 1,
+      "productId": "10180014",
+      "jan": null,
+      "name": "イッコト芯なしSLIM6ロール180mシングル",
+      "size": "紙幅107mm幅 芯なし",
+      "qty": 8,
+      "qtyUnit": "パック",
+      "oldBox": null,
+      "oldUnit": null,
+      "newBox": 3520,
+      "newUnit": 440
+    }
+  ]
+}

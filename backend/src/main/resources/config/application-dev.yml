@@ -14,6 +14,6 @@ jwt:
 
 logging:
   level:
-    org.hibernate.SQL: OFF
+    org.hibernate.SQL: INFO
     org.hibernate.type.descriptor.sql.BasicBinder: OFF
-    jp.co.oda32: DEBUG
+    jp.co.oda32: INFO

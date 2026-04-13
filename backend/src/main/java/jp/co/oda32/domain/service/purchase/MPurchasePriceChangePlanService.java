@@ -57,11 +57,15 @@ public class MPurchasePriceChangePlanService extends CustomService {
 
     public MPurchasePriceChangePlan getLatest(Integer shopNo, String supplierCode, String goodsCode, String janCode) throws Exception {
         List<MPurchasePriceChangePlan> list = this.find(shopNo, supplierCode, goodsCode, janCode, null, null, null, Flag.NO);
-        if (list.stream().map(MPurchasePriceChangePlan::getGoodsCode).count() > 1) {
-            // 複数商品が該当する検索
+        if (list.isEmpty()) {
+            return null;
+        }
+        if (list.stream().map(MPurchasePriceChangePlan::getGoodsCode).distinct().count() > 1) {
             throw new Exception("複数商品が該当します。検索条件を確認してください。");
         }
-        return list.stream().sorted(Comparator.comparing(MPurchasePriceChangePlan::getChangePlanDate).reversed()).collect(Collectors.toList()).get(0);
+        return list.stream()
+                .sorted(Comparator.comparing(MPurchasePriceChangePlan::getChangePlanDate).reversed())
+                .findFirst().orElse(null);
     }
 
     /**
@@ -91,6 +95,18 @@ public class MPurchasePriceChangePlanService extends CustomService {
     }
 
     /**
+     * 仕入価格を一括登録します。途中で例外が発生した場合は全件ロールバック。
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public List<MPurchasePriceChangePlan> bulkInsert(List<MPurchasePriceChangePlan> plans) throws Exception {
+        List<MPurchasePriceChangePlan> result = new java.util.ArrayList<>();
+        for (MPurchasePriceChangePlan plan : plans) {
+            result.add(this.insert(plan));
+        }
+        return result;
+    }
+
+    /**
      * 仕入価格を更新します。
      *
      * @param purchasePriceChangePlan 仕入価格Entity
@@ -106,5 +122,23 @@ public class MPurchasePriceChangePlanService extends CustomService {
      */
     public void updateReflectComplete() {
         log.info(String.format("仕入価格反映フラグ更新：%d件", this.mPurchasePriceChangePlanRepository.updateReflectComplete()));
+    }
+
+    /**
+     * 商品名で仕入価格変更予定を検索します（ポップアップ商品検索用）。
+     */
+    public List<MPurchasePriceChangePlan> findByGoodsName(Integer shopNo, String goodsName) {
+        return this.mPurchasePriceChangePlanRepository.findAll(Specification
+                .where(this.mPurchasePriceChangePlanSpecification.shopNoContains(shopNo))
+                .and(this.mPurchasePriceChangePlanSpecification.goodsNameContains(goodsName))
+                .and(this.mPurchasePriceChangePlanSpecification.delFlgContains(Flag.NO)));
+    }
+
+    public MPurchasePriceChangePlan getById(Integer id) {
+        return this.mPurchasePriceChangePlanRepository.findById(id).orElse(null);
+    }
+
+    public void deleteByGoodsCodeAndChangePlanDate(Integer shopNo, String goodsCode, LocalDate changePlanDate) {
+        this.mPurchasePriceChangePlanRepository.deleteByShopNoAndGoodsCodeAndChangePlanDate(shopNo, goodsCode, changePlanDate);
     }
 }

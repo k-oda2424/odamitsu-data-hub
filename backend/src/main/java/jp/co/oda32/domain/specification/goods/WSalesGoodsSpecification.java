@@ -42,7 +42,7 @@ public class WSalesGoodsSpecification extends CommonSpecification<WSalesGoods> {
      * @return 商品名の検索条件
      */
     private Specification<WSalesGoods> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> cb.like(root.get("goodsName"), "%" + goodsName + "%");
+        return likeNormalized("goodsName", goodsName);
     }
 
     /**
@@ -90,7 +90,7 @@ public class WSalesGoodsSpecification extends CommonSpecification<WSalesGoods> {
      * @return 商品コードの検索条件
      */
     public Specification<WSalesGoods> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("goodsCode", goodsCode);
     }
 
     /**
@@ -104,13 +104,21 @@ public class WSalesGoodsSpecification extends CommonSpecification<WSalesGoods> {
     }
 
     /**
+     * 仕入先番号のIN条件（複数仕入先での検索）
+     */
+    public Specification<WSalesGoods> supplierNoListContains(java.util.Collection<Integer> supplierNoList) {
+        return (supplierNoList == null || supplierNoList.isEmpty()) ? null
+                : (root, query, cb) -> root.get("supplierNo").in(supplierNoList);
+    }
+
+    /**
      * キーワードの検索条件
      *
      * @param keyword 商品名
      * @return キーワードの検索条件
      */
     private Specification<WSalesGoods> keywordContains(String keyword) {
-        return StringUtil.isEmpty(keyword) ? null : (root, query, cb) -> cb.like(root.get("keyword"), "%" + keyword + "%");
+        return likeNormalized("keyword", keyword);
     }
 
     /**

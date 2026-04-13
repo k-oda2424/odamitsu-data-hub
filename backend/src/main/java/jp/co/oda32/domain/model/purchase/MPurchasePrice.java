@@ -6,6 +6,7 @@ import jp.co.oda32.domain.model.goods.WSalesGoods;
 import jp.co.oda32.domain.model.master.MPartner;
 import jp.co.oda32.domain.model.master.MShop;
 import jp.co.oda32.domain.model.master.MSupplier;
+import jp.co.oda32.domain.model.order.MDeliveryDestination;
 import jp.co.oda32.domain.validation.ShopEntity;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -97,6 +98,11 @@ public class MPurchasePrice implements IEntity {
     @OneToOne
     @JoinColumn(name = "partner_no", insertable = false, updatable = false)
     private MPartner mPartner;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @NotFound(action = NotFoundAction.IGNORE)
+    @JoinColumn(name = "destination_no", insertable = false, updatable = false)
+    private MDeliveryDestination mDeliveryDestination;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @NotFound(action = NotFoundAction.IGNORE)

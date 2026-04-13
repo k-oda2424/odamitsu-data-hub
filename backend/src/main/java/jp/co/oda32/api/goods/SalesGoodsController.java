@@ -3,9 +3,11 @@ package jp.co.oda32.api.goods;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.goods.MSalesGoods;
 import jp.co.oda32.domain.model.goods.WSalesGoods;
+import jp.co.oda32.domain.model.master.MSupplier;
 import jp.co.oda32.domain.service.goods.MGoodsService;
 import jp.co.oda32.domain.service.goods.MSalesGoodsService;
 import jp.co.oda32.domain.service.goods.WSalesGoodsService;
+import jp.co.oda32.domain.service.master.MSupplierService;
 import jp.co.oda32.dto.goods.SalesGoodsCreateRequest;
 import jp.co.oda32.dto.goods.SalesGoodsDetailResponse;
 import jp.co.oda32.dto.goods.SalesGoodsUpdateRequest;
@@ -13,39 +15,81 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/sales-goods")
+@PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
 public class SalesGoodsController {
 
     private final WSalesGoodsService wSalesGoodsService;
     private final MSalesGoodsService mSalesGoodsService;
     private final MGoodsService mGoodsService;
+    private final MSupplierService mSupplierService;
 
+    /**
+     * 販売商品ワーク一覧。
+     * paymentSupplierNo が指定された場合は、紐づく全 m_supplier をグループ展開して
+     * supplier_no IN (...) でフィルタする。**この場合 supplierNo パラメータは無視される。**
+     */
     @GetMapping("/work")
     public ResponseEntity<List<SalesGoodsDetailResponse>> listWork(
             @RequestParam Integer shopNo,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer supplierNo) {
-        List<WSalesGoods> list = wSalesGoodsService.find(shopNo, null, goodsName, null, goodsCode, keyword, supplierNo, Flag.NO);
+            @RequestParam(required = false) Integer supplierNo,
+            @RequestParam(required = false) Integer paymentSupplierNo) {
+        List<WSalesGoods> list;
+        if (paymentSupplierNo != null) {
+            // paymentSupplierNo 指定時: グループ展開して SQL レベルで supplier_no IN フィルタ
+            List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
+            if (siblings.isEmpty()) {
+                return ResponseEntity.ok(List.of());
+            }
+            Set<Integer> siblingNos = siblings.stream()
+                    .map(MSupplier::getSupplierNo)
+                    .collect(Collectors.toSet());
+            list = wSalesGoodsService.findBySupplierNoList(shopNo, goodsName, goodsCode, siblingNos, Flag.NO);
+        } else {
+            list = wSalesGoodsService.find(shopNo, null, goodsName, null, goodsCode, keyword, supplierNo, Flag.NO);
+        }
         return ResponseEntity.ok(list.stream().map(SalesGoodsDetailResponse::from).collect(Collectors.toList()));
     }
 
+    /**
+     * 販売商品マスタ一覧。
+     * paymentSupplierNo が指定された場合は、紐づく全 m_supplier をグループ展開して
+     * supplier_no IN (...) でフィルタする。**この場合 supplierNo パラメータは無視される。**
+     */
     @GetMapping("/master")
     public ResponseEntity<List<SalesGoodsDetailResponse>> listMaster(
             @RequestParam Integer shopNo,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer supplierNo) {
-        List<MSalesGoods> list = mSalesGoodsService.find(shopNo, null, goodsName, goodsCode, keyword, supplierNo, Flag.NO);
+            @RequestParam(required = false) Integer supplierNo,
+            @RequestParam(required = false) Integer paymentSupplierNo) {
+        List<MSalesGoods> list;
+        if (paymentSupplierNo != null) {
+            // paymentSupplierNo 指定時: グループ展開して SQL レベルで supplier_no IN フィルタ
+            List<MSupplier> siblings = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
+            if (siblings.isEmpty()) {
+                return ResponseEntity.ok(List.of());
+            }
+            Set<Integer> siblingNos = siblings.stream()
+                    .map(MSupplier::getSupplierNo)
+                    .collect(Collectors.toSet());
+            list = mSalesGoodsService.findBySupplierNoList(shopNo, goodsName, goodsCode, siblingNos, Flag.NO);
+        } else {
+            list = mSalesGoodsService.find(shopNo, null, goodsName, goodsCode, keyword, supplierNo, Flag.NO);
+        }
         return ResponseEntity.ok(list.stream().map(SalesGoodsDetailResponse::from).collect(Collectors.toList()));
     }
 
@@ -57,7 +101,9 @@ public class SalesGoodsController {
         if (work == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(SalesGoodsDetailResponse.from(work));
+        MSalesGoods master = mSalesGoodsService.getByPK(shopNo, goodsNo);
+        boolean hasMaster = master != null && Flag.NO.getValue().equals(master.getDelFlg());
+        return ResponseEntity.ok(SalesGoodsDetailResponse.from(work, hasMaster));
     }
 
     @GetMapping("/master/{shopNo}/{goodsNo}")
@@ -71,6 +117,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(master));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/work")
     public ResponseEntity<SalesGoodsDetailResponse> createWork(
             @Valid @RequestBody SalesGoodsCreateRequest request) throws Exception {
@@ -93,6 +140,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/work/{shopNo}/{goodsNo}")
     public ResponseEntity<SalesGoodsDetailResponse> updateWork(
             @PathVariable Integer shopNo,
@@ -120,6 +168,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/master/{shopNo}/{goodsNo}")
     public ResponseEntity<SalesGoodsDetailResponse> updateMaster(
             @PathVariable Integer shopNo,
@@ -147,6 +196,7 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/work/{shopNo}/{goodsNo}/reflect")
     public ResponseEntity<SalesGoodsDetailResponse> reflectToMaster(
             @PathVariable Integer shopNo,
@@ -158,16 +208,26 @@ public class SalesGoodsController {
         return ResponseEntity.ok(SalesGoodsDetailResponse.from(saved));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/work/{shopNo}/{goodsNo}")
     public ResponseEntity<Void> deleteWork(
             @PathVariable Integer shopNo,
-            @PathVariable Integer goodsNo) throws Exception {
+            @PathVariable Integer goodsNo,
+            @RequestParam(defaultValue = "false") boolean deleteMaster) throws Exception {
         WSalesGoods work = wSalesGoodsService.getByPK(shopNo, goodsNo);
-        if (work == null) {
+        if (work == null || Flag.YES.getValue().equals(work.getDelFlg())) {
             return ResponseEntity.notFound().build();
         }
         work.setDelFlg(Flag.YES.getValue());
         wSalesGoodsService.update(work);
+
+        if (deleteMaster) {
+            MSalesGoods master = mSalesGoodsService.getByPK(shopNo, goodsNo);
+            if (master != null && Flag.NO.getValue().equals(master.getDelFlg())) {
+                master.setDelFlg(Flag.YES.getValue());
+                mSalesGoodsService.update(master);
+            }
+        }
         return ResponseEntity.noContent().build();
     }
 }

@@ -2,8 +2,8 @@ package jp.co.oda32.batch.smile.config;
 
 import jp.co.oda32.batch.ExitStatusChangeListener;
 import jp.co.oda32.batch.JobStartEndListener;
-import jp.co.oda32.batch.order.OrderNumCountTasklet;
 import jp.co.oda32.batch.order.OrderStatusUpdateTasklet;
+import jp.co.oda32.batch.order.PartnerGoodsSyncTasklet;
 import jp.co.oda32.batch.order.StockAllocateTasklet;
 import jp.co.oda32.batch.order.VSalesMonthlySummaryRefreshTasklet;
 import jp.co.oda32.batch.smile.SmileOrderFile;
@@ -49,7 +49,7 @@ public class SmileOrderFileImportConfig {
     @NonNull
     private final SmileOrderFileWriter smileOrderFileWriter;
     @NonNull
-    private final OrderNumCountTasklet orderNumCountTasklet;
+    private final PartnerGoodsSyncTasklet partnerGoodsSyncTasklet;
     @NonNull
     private final StockAllocateTasklet stockAllocateTasklet;
     @NonNull
@@ -70,9 +70,7 @@ public class SmileOrderFileImportConfig {
 
     /**
      * Smile注文取込バッチのジョブ定義
-     * 注意：Bean名は「ジョブ名 + Job」の形式で定義すること
-     * 例：smileOrderFileImportJob
-     * これにより、実行時に指定するジョブ名「smileOrderFileImport」と連携する
+     * フロー: SMILE取込 → ステータス更新 → 得意先商品同期 → 適正在庫計算 → 月次サマリ更新 → ファイル移動
      */
     @Bean
     public Job smileOrderFileImportJob() {
@@ -82,8 +80,8 @@ public class SmileOrderFileImportConfig {
                 .flow(smileOrderFileImportStep())
                 // stockAllocateStep: t_stockベースの在庫引当は使用しない方針のため除外
                 .next(orderStatusUpdateStep())
-                .next(orderNumCountStep())
-                .next(shopAppropriateStockCalculateStep())
+                .next(partnerGoodsSyncStep())
+                // shopAppropriateStockCalculateStep: 適正在庫計算は一旦除外
                 .next(vSalesMonthlySummaryRefreshStep())
                 .next(fileMoveStep())
                 .end()
@@ -112,6 +110,12 @@ public class SmileOrderFileImportConfig {
                 .build();
     }
 
+    public Step partnerGoodsSyncStep() {
+        return new StepBuilder("partnerGoodsSyncStep", jobRepository)
+                .tasklet(partnerGoodsSyncTasklet, transactionManager)
+                .build();
+    }
+
     public Step shopAppropriateStockCalculateStep() {
         return new StepBuilder("shopAppropriateStockCalculateStep", jobRepository)
                 .tasklet(shopAppropriateStockCalculateTasklet, transactionManager)
@@ -128,12 +132,6 @@ public class SmileOrderFileImportConfig {
         this.fileManagerTasklet.setResources(inputResources);
         return new StepBuilder("fileMoveStep", jobRepository)
                 .tasklet(fileManagerTasklet, transactionManager)
-                .build();
-    }
-
-    public Step orderNumCountStep() {
-        return new StepBuilder("orderNumCountStep", jobRepository)
-                .tasklet(orderNumCountTasklet, transactionManager)
                 .build();
     }
 }

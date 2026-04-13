@@ -54,6 +54,9 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.11.0'
     implementation 'org.json:json:20240303'
 
+    // PDF generation
+    implementation 'com.github.librepdf:openpdf:2.0.3'
+
     // Jackson
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
 

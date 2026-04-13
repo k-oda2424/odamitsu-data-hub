@@ -29,14 +29,62 @@ export function SalesChart({ data, thisYearLabel, lastYearLabel }: SalesChartPro
 
   return (
     <ResponsiveContainer width="100%" height={350}>
-      <BarChart data={data} margin={{ left: 10, right: 10 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="month" />
-        <YAxis width={80} tickFormatter={formatAxisValue} />
-        <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-        <Legend />
-        <Bar dataKey="thisYear" fill="rgb(255, 0, 0)" name={thisYearLabel} />
-        <Bar dataKey="lastYear" fill="rgba(100, 100, 255, 1)" name={lastYearLabel} />
+      <BarChart data={data} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+        <defs>
+          <linearGradient id="bar-this-year" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="hsl(350, 80%, 55%)" stopOpacity={0.9} />
+            <stop offset="100%" stopColor="hsl(350, 80%, 55%)" stopOpacity={0.6} />
+          </linearGradient>
+          <linearGradient id="bar-last-year" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="hsl(220, 80%, 58%)" stopOpacity={0.9} />
+            <stop offset="100%" stopColor="hsl(220, 80%, 58%)" stopOpacity={0.6} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.4} vertical={false} />
+        <XAxis
+          dataKey="month"
+          tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          width={60}
+          tickFormatter={formatAxisValue}
+          tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <Tooltip
+          formatter={(value) => formatCurrency(Number(value))}
+          contentStyle={{
+            backgroundColor: 'hsl(var(--popover))',
+            border: '1px solid hsl(var(--border))',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgb(0 0 0 / 0.1)',
+            fontSize: '13px',
+          }}
+          labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600, marginBottom: 4 }}
+          cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }}
+        />
+        <Legend
+          iconType="circle"
+          iconSize={8}
+          wrapperStyle={{ fontSize: '13px', paddingTop: 16 }}
+        />
+        <Bar
+          dataKey="thisYear"
+          fill="url(#bar-this-year)"
+          name={thisYearLabel}
+          radius={[6, 6, 0, 0]}
+          maxBarSize={28}
+        />
+        <Bar
+          dataKey="lastYear"
+          fill="url(#bar-last-year)"
+          name={lastYearLabel}
+          radius={[6, 6, 0, 0]}
+          maxBarSize={28}
+        />
       </BarChart>
     </ResponsiveContainer>
   )

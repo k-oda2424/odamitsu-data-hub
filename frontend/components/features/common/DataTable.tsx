@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Table,
   TableBody,
@@ -11,7 +11,8 @@ import {
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown, Search } from 'lucide-react'
+import { normalizeForSearch } from '@/lib/utils'
 
 export interface Column<T> {
   key: string
@@ -26,6 +27,9 @@ interface DataTableProps<T> {
   pageSize?: number
   searchPlaceholder?: string
   onRowClick?: (item: T) => void
+  rowKey?: (item: T, index: number) => string | number
+  defaultSortKey?: string
+  defaultSortDir?: 'asc' | 'desc'
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,28 +37,46 @@ export function DataTable<T extends Record<string, any>>({
   data,
   columns,
   pageSize = 20,
-  searchPlaceholder = '検索...',
+  searchPlaceholder = 'テーブル内を検索...',
   onRowClick,
+  rowKey,
+  defaultSortKey,
+  defaultSortDir = 'asc',
 }: DataTableProps<T>) {
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
-  const filtered = data.filter((item) =>
-    search === '' ||
-    Object.values(item).some((v) =>
-      String(v ?? '').toLowerCase().includes(search.toLowerCase())
+  // データが変わったらページを先頭に戻す
+  useEffect(() => { setPage(0) }, [data])
+  const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir)
+
+  const filtered = useMemo(() => {
+    if (search === '') return data
+    const normalizedSearch = normalizeForSearch(search.toLowerCase())
+    return data.filter((item) =>
+      Object.values(item).some((v) =>
+        normalizeForSearch(String(v ?? '').toLowerCase()).includes(normalizedSearch)
+      )
     )
-  )
+  }, [data, search])
 
-  const sorted = sortKey
-    ? [...filtered].sort((a, b) => {
-        const aVal = String(a[sortKey] ?? '')
-        const bVal = String(b[sortKey] ?? '')
-        return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-      })
-    : filtered
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered
+    return [...filtered].sort((a, b) => {
+      const aRaw = a[sortKey]
+      const bRaw = b[sortKey]
+      // 数値として比較可能な場合は数値ソート
+      if (typeof aRaw === 'number' || typeof bRaw === 'number') {
+        const aNum = Number(aRaw ?? 0)
+        const bNum = Number(bRaw ?? 0)
+        return sortDir === 'asc' ? aNum - bNum : bNum - aNum
+      }
+      const aVal = String(aRaw ?? '')
+      const bVal = String(bRaw ?? '')
+      return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+    })
+  }, [filtered, sortKey, sortDir])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const paged = sorted.slice(page * pageSize, (page + 1) * pageSize)
@@ -69,26 +91,34 @@ export function DataTable<T extends Record<string, any>>({
   }
 
   return (
-    <div className="space-y-4">
-      <Input
-        placeholder={searchPlaceholder}
-        value={search}
-        onChange={(e) => { setSearch(e.target.value); setPage(0) }}
-        className="max-w-sm"
-      />
-      <div className="rounded-md border">
+    <div className="space-y-3">
+      {/* Search bar */}
+      <div className="relative max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder={searchPlaceholder}
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(0) }}
+          className="h-9 pl-8 text-sm"
+        />
+      </div>
+
+      {/* Table */}
+      <div className="rounded-lg border shadow-sm">
         <Table>
           <TableHeader>
-            <TableRow>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
               {columns.map((col) => (
                 <TableHead
                   key={col.key}
-                  className={col.sortable ? 'cursor-pointer select-none' : ''}
+                  className={`text-xs font-semibold uppercase tracking-wider text-muted-foreground ${col.sortable ? 'cursor-pointer select-none hover:text-foreground transition-colors' : ''}`}
                   onClick={() => col.sortable && handleSort(col.key)}
                 >
                   <div className="flex items-center gap-1">
                     {col.header}
-                    {col.sortable && <ArrowUpDown className="h-3 w-3" />}
+                    {col.sortable && (
+                      <ArrowUpDown className={`h-3 w-3 ${sortKey === col.key ? 'text-foreground' : 'opacity-40'}`} />
+                    )}
                   </div>
                 </TableHead>
               ))}
@@ -97,19 +127,19 @@ export function DataTable<T extends Record<string, any>>({
           <TableBody>
             {paged.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={columns.length} className="text-center text-muted-foreground py-12">
                   データがありません
                 </TableCell>
               </TableRow>
             ) : (
               paged.map((item, i) => (
                 <TableRow
-                  key={i}
-                  className={onRowClick ? 'cursor-pointer hover:bg-muted/50' : ''}
+                  key={rowKey ? rowKey(item, i) : i}
+                  className={`text-sm ${onRowClick ? 'cursor-pointer' : ''} ${i % 2 === 1 ? 'bg-muted/20' : ''}`}
                   onClick={() => onRowClick?.(item)}
                 >
                   {columns.map((col) => (
-                    <TableCell key={col.key}>
+                    <TableCell key={col.key} className="py-2.5">
                       {col.render ? col.render(item) : String(item[col.key] ?? '')}
                     </TableCell>
                   ))}
@@ -119,22 +149,26 @@ export function DataTable<T extends Record<string, any>>({
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          {sorted.length} 件中 {page * pageSize + 1}-{Math.min((page + 1) * pageSize, sorted.length)} 件
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setPage(0)} disabled={page === 0}>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">
+          全 {sorted.length} 件中 {sorted.length > 0 ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, sorted.length)} 件
+        </span>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(0)} disabled={page === 0} aria-label="最初のページ">
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" onClick={() => setPage(p => p - 1)} disabled={page === 0}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(p => p - 1)} disabled={page === 0} aria-label="前のページ">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="text-sm">{page + 1} / {totalPages}</span>
-          <Button variant="outline" size="icon" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1}>
+          <span className="min-w-[4rem] text-center text-muted-foreground">
+            {page + 1} / {totalPages}
+          </span>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} aria-label="次のページ">
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} aria-label="最後のページ">
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>

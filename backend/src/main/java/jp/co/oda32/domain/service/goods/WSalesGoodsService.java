@@ -50,6 +50,18 @@ public class WSalesGoodsService extends CustomService {
                 .and(this.goodsSpecification.delFlgContains(delFlg)));
     }
 
+    /**
+     * 複数 supplier_no（IN条件）で検索。比較見積等の仕入先グループ展開検索用。
+     */
+    public List<WSalesGoods> findBySupplierNoList(Integer shopNo, String goodsName, String goodsCode, java.util.Collection<Integer> supplierNoList, Flag delFlg) {
+        return this.salesGoodsRepository.findAll(Specification
+                .where(this.goodsSpecification.shopNoContains(shopNo))
+                .and(this.goodsSpecification.goodsNamesContains(goodsName))
+                .and(this.goodsSpecification.goodsCodeContains(goodsCode))
+                .and(this.goodsSpecification.supplierNoListContains(supplierNoList))
+                .and(this.goodsSpecification.delFlgContains(delFlg)));
+    }
+
     public WSalesGoods update(ISalesGoods iSalesGoods) throws Exception {
         WSalesGoods wSalesGoods = this.getByPK(iSalesGoods.getShopNo(), iSalesGoods.getGoodsNo());
         BeanUtils.copyProperties(iSalesGoods, wSalesGoods);

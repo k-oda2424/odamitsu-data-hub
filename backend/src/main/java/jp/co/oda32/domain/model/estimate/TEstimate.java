@@ -57,6 +57,12 @@ public class TEstimate extends AbstractCompanyEntity implements ICompanyEntity {
     private Integer companyNo;
     @Column(name = "note")
     private String note;
+    @Column(name = "requirement")
+    private String requirement;
+    @Column(name = "recipient_name")
+    private String recipientName;
+    @Column(name = "proposal_message")
+    private String proposalMessage;
     @Column(name = "is_include_tax_display")
     private boolean isIncludeTaxDisplay;
     @Column(name = "del_flg")
@@ -98,8 +104,8 @@ public class TEstimate extends AbstractCompanyEntity implements ICompanyEntity {
 
     // htmlから呼び出し時に使用
     public List<TEstimateDetail> getTEstimateDetailList() {
-        if (this.tEstimateDetailList.isEmpty()) {
-            return this.tEstimateDetailList;
+        if (this.tEstimateDetailList == null || this.tEstimateDetailList.isEmpty()) {
+            return this.tEstimateDetailList != null ? this.tEstimateDetailList : List.of();
         }
         return this.tEstimateDetailList.stream().filter(tEstimateDetail -> Flag.NO.getValue().equals(tEstimateDetail.getDelFlg())).collect(Collectors.toList());
     }

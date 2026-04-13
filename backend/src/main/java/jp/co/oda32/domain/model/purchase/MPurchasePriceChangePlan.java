@@ -1,8 +1,12 @@
 package jp.co.oda32.domain.model.purchase;
 
 import jp.co.oda32.domain.model.IEntity;
+import jp.co.oda32.domain.model.master.MPartner;
 import jp.co.oda32.domain.model.master.MSupplier;
+import jp.co.oda32.domain.model.order.MDeliveryDestination;
 import jp.co.oda32.domain.validation.ShopEntity;
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -78,4 +82,14 @@ public class MPurchasePriceChangePlan implements IEntity {
             @JoinColumn(name = "shop_no", referencedColumnName = "shop_no", insertable = false, updatable = false),
             @JoinColumn(name = "supplier_code", referencedColumnName = "supplier_code", insertable = false, updatable = false)})
     private MSupplier mSupplier;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @NotFound(action = NotFoundAction.IGNORE)
+    @JoinColumn(name = "partner_no", insertable = false, updatable = false)
+    private MPartner mPartner;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @NotFound(action = NotFoundAction.IGNORE)
+    @JoinColumn(name = "destination_no", insertable = false, updatable = false)
+    private MDeliveryDestination mDeliveryDestination;
 }

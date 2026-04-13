@@ -7,7 +7,17 @@
       "Bash(pdftotext C:/Users/kazuki/AppData/Local/Temp/quote-import.pdf -)",
       "Bash(pdftotext -layout \"C:/Users/kazuki/AppData/Local/Temp/quote-import.pdf\" \"C:/Users/kazuki/AppData/Local/Temp/quote-import-full.txt\")",
       "Bash(pdftotext \"C:/Users/kazuki/AppData/Local/Temp/quote-import.pdf\" \"C:/Users/kazuki/AppData/Local/Temp/quote-import-raw.txt\")",
-      "Bash(grep -E '^[0-9]+ 49[0-9]{11}.*[0-9],[0-9]' \"C:/Users/kazuki/AppData/Local/Temp/quote-import-full.txt\")"
+      "Bash(grep -E '^[0-9]+ 49[0-9]{11}.*[0-9],[0-9]' \"C:/Users/kazuki/AppData/Local/Temp/quote-import-full.txt\")",
+      "Bash(where choco:*)",
+      "Bash(where winget:*)",
+      "Bash(winget list:*)",
+      "Bash(mkdir -p /tmp/kao-pages)",
+      "Bash(/tmp/poppler/poppler-24.08.0/Library/bin/pdftoppm.exe -png -r 200 \"C:/Users/kazuki/AppData/Local/Temp/quote-import.pdf\" /tmp/kao-pages/page)",
+      "Bash(ls /tmp/kao-pages/*.png)",
+      "Bash(./gradlew compileJava)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(npx playwright:*)"
     ]
   }
 }

@@ -41,7 +41,7 @@ public class MPurchasePriceChangePlanSpecification extends CommonSpecification<M
      * @return 商品コードの検索条件
      */
     public Specification<MPurchasePriceChangePlan> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("goodsCode", goodsCode);
     }
 
     /**
@@ -51,7 +51,7 @@ public class MPurchasePriceChangePlanSpecification extends CommonSpecification<M
      * @return JANコードの検索条件
      */
     public Specification<MPurchasePriceChangePlan> janCodeContains(String janCode) {
-        return StringUtil.isEmpty(janCode) ? null : (root, query, cb) -> cb.like(root.get("janCode"), "%" + janCode);
+        return likeSuffixNormalized("janCode", janCode);
     }
 
     /**
@@ -128,5 +128,12 @@ public class MPurchasePriceChangePlanSpecification extends CommonSpecification<M
      */
     public Specification<MPurchasePriceChangePlan> partnerPriceChangePlanCreatedContains(boolean partnerPriceChangePlanCreated) {
         return (root, query, cb) -> cb.or(cb.equal(root.get("partnerPriceChangePlanCreated"), partnerPriceChangePlanCreated), cb.isNull(root.get("partnerPriceChangePlanCreated")));
+    }
+
+    /**
+     * 商品名の検索条件（部分一致）
+     */
+    public Specification<MPurchasePriceChangePlan> goodsNameContains(String goodsName) {
+        return likeNormalized("goodsName", goodsName);
     }
 }

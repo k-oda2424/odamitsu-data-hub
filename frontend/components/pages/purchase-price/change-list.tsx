@@ -23,13 +23,33 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Plus } from 'lucide-react'
-import type { PurchasePriceChangePlanResponse } from '@/types/purchase-price'
-import { CHANGE_REASON_OPTIONS, getChangeReasonLabel } from '@/types/purchase-price'
+import type { PurchasePriceChangePlanResponse, PriceScope } from '@/types/purchase-price'
+import { CHANGE_REASON_OPTIONS, getChangeReasonLabel, PRICE_SCOPE_OPTIONS, isPartnerSpecificPrice } from '@/types/purchase-price'
 
 const columns: Column<PurchasePriceChangePlanResponse>[] = [
+  {
+    key: 'partnerNo',
+    header: '種別',
+    render: (item) =>
+      isPartnerSpecificPrice(item.partnerNo, item.destinationNo) ? (
+        <Badge variant="secondary">得意先別</Badge>
+      ) : (
+        <Badge variant="outline">標準</Badge>
+      ),
+  },
   { key: 'goodsCode', header: '商品コード', sortable: true },
   { key: 'goodsName', header: '商品名', sortable: true },
   { key: 'supplierName', header: '仕入先' },
+  {
+    key: 'partnerName',
+    header: '得意先',
+    render: (item) => item.partnerName ?? '-',
+  },
+  {
+    key: 'destinationName',
+    header: '配送先',
+    render: (item) => item.destinationName ?? '-',
+  },
   {
     key: 'beforePrice',
     header: '変更前価格',
@@ -69,12 +89,13 @@ export function PurchasePriceChangeListPage() {
   const [changeReason, setChangeReason] = useState('')
   const [changePlanDateFrom, setChangePlanDateFrom] = useState('')
   const [changePlanDateTo, setChangePlanDateTo] = useState('')
+  const [scope, setScope] = useState<PriceScope>('all')
   const [selectedShopNo, setSelectedShopNo] = useState<string>(
     isAdmin ? '' : String(user?.shopNo ?? '')
   )
   const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
 
-  const shopsQuery = useShops()
+  const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
 
   const listQuery = useQuery({
@@ -88,13 +109,14 @@ export function PurchasePriceChangeListPage() {
       if (searchParams?.changeReason) params.append('changeReason', searchParams.changeReason)
       if (searchParams?.changePlanDateFrom) params.append('changePlanDateFrom', searchParams.changePlanDateFrom)
       if (searchParams?.changePlanDateTo) params.append('changePlanDateTo', searchParams.changePlanDateTo)
+      if (searchParams?.scope && searchParams.scope !== 'all') params.append('scope', searchParams.scope)
       return api.get<PurchasePriceChangePlanResponse[]>(`/purchase-price-changes?${params.toString()}`)
     },
     enabled: searchParams !== null && !!effectiveShopNo,
   })
 
   const handleSearch = () => {
-    setSearchParams({ supplierCode, goodsCode, janCode, changeReason, changePlanDateFrom, changePlanDateTo })
+    setSearchParams({ supplierCode, goodsCode, janCode, changeReason, changePlanDateFrom, changePlanDateTo, scope })
   }
 
   const handleReset = () => {
@@ -104,6 +126,7 @@ export function PurchasePriceChangeListPage() {
     setChangeReason('')
     setChangePlanDateFrom('')
     setChangePlanDateTo('')
+    setScope('all')
     setSearchParams(null)
   }
 
@@ -193,6 +216,21 @@ export function PurchasePriceChangeListPage() {
             value={changePlanDateTo}
             onChange={(e) => setChangePlanDateTo(e.target.value)}
           />
+        </div>
+        <div className="space-y-2">
+          <Label>価格種別</Label>
+          <Select value={scope} onValueChange={(v) => setScope(v as PriceScope)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRICE_SCOPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </SearchForm>
 

@@ -51,6 +51,17 @@ public class MGoodsService extends CustomService {
     }
 
     /**
+     * goodsNo リストに含まれる商品Entityを一括取得します。
+     */
+    public List<MGoods> findByGoodsNoList(List<Integer> goodsNoList) {
+        if (goodsNoList == null || goodsNoList.isEmpty()) {
+            return List.of();
+        }
+        return this.goodsRepository.findAll(Specification
+                .where(this.goodsSpecification.goodsNoListContains(goodsNoList)));
+    }
+
+    /**
      * 商品名で検索し、リストで返します。
      * 削除フラグが立っていない商品を検索します。
      *

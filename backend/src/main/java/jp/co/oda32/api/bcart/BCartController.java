@@ -5,6 +5,7 @@ import jp.co.oda32.domain.service.bcart.BCartOrderService;
 import jp.co.oda32.dto.bcart.BCartShippingResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/bcart")
+@PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
 public class BCartController {
 

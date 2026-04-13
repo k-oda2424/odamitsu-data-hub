@@ -1,15 +1,16 @@
 'use client'
 
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
-import { useShops } from '@/hooks/use-master-data'
+import { useSearchParamsStorage } from '@/hooks/use-search-params-storage'
+import { useShops, usePartners } from '@/hooks/use-master-data'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
 import { ErrorMessage } from '@/components/features/common/ErrorMessage'
 import { SearchForm } from '@/components/features/common/SearchForm'
+import { SearchableSelect } from '@/components/features/common/SearchableSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,7 +35,7 @@ import {
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return null
   const label = getEstimateStatusLabel(status)
-  const variant =
+  const variant: 'default' | 'secondary' | 'outline' | 'destructive' =
     status === '00' || status === '20'
       ? 'default'
       : status === '10' || status === '30'
@@ -42,7 +43,7 @@ function StatusBadge({ status }: { status: string | null }) {
         : status === '70'
           ? 'outline'
           : 'destructive'
-  return <Badge variant={variant as 'default' | 'secondary' | 'outline' | 'destructive'}>{label}</Badge>
+  return <Badge variant={variant}>{label}</Badge>
 }
 
 const columns: Column<EstimateResponse>[] = [
@@ -76,29 +77,74 @@ const columns: Column<EstimateResponse>[] = [
   },
 ]
 
-const DEFAULT_STATUSES = ['00', '20']
+const DEFAULT_STATUSES = ['00', '10', '20', '30', '70']
+
+interface EstimateSearchParams {
+  estimateNo: string
+  partnerNo: string
+  goodsName: string
+  goodsCode: string
+  estimateStatus: string
+  estimateDateFrom: string
+  estimateDateTo: string
+  priceChangeDateFrom: string
+  priceChangeDateTo: string
+}
+
+interface EstimateSearchState {
+  estimateNo: string
+  partnerNo: string
+  goodsName: string
+  goodsCode: string
+  selectedStatuses: string[]
+  estimateDateFrom: string
+  estimateDateTo: string
+  priceChangeDateFrom: string
+  priceChangeDateTo: string
+  selectedShopNo: string
+  searchParams: EstimateSearchParams | null
+}
 
 export function EstimateListPage() {
   const router = useRouter()
   const { user } = useAuth()
   const isAdmin = user?.shopNo === 0
 
-  const [estimateNo, setEstimateNo] = useState('')
-  const [goodsName, setGoodsName] = useState('')
-  const [goodsCode, setGoodsCode] = useState('')
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(DEFAULT_STATUSES)
-  const [estimateDateFrom, setEstimateDateFrom] = useState('')
-  const [estimateDateTo, setEstimateDateTo] = useState('')
-  const [priceChangeDateFrom, setPriceChangeDateFrom] = useState('')
-  const [priceChangeDateTo, setPriceChangeDateTo] = useState('')
-  const [selectedShopNo, setSelectedShopNo] = useState<string>(
-    isAdmin ? '' : String(user?.shopNo ?? ''),
-  )
-  const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
+  const defaultState: EstimateSearchState = {
+    estimateNo: '',
+    partnerNo: '',
+    goodsName: '',
+    goodsCode: '',
+    selectedStatuses: [...DEFAULT_STATUSES],
+    estimateDateFrom: '',
+    estimateDateTo: '',
+    priceChangeDateFrom: '',
+    priceChangeDateTo: '',
+    selectedShopNo: isAdmin ? '' : String(user?.shopNo ?? ''),
+    searchParams: null,
+  }
+
+  const [state, setState, resetState] = useSearchParamsStorage('estimate-list-search', defaultState)
+
+  const estimateNo = state.estimateNo
+  const partnerNo = state.partnerNo
+  const goodsName = state.goodsName
+  const goodsCode = state.goodsCode
+  const selectedStatuses = state.selectedStatuses
+  const estimateDateFrom = state.estimateDateFrom
+  const estimateDateTo = state.estimateDateTo
+  const priceChangeDateFrom = state.priceChangeDateFrom
+  const priceChangeDateTo = state.priceChangeDateTo
+  const selectedShopNo = state.selectedShopNo
+  const searchParams = state.searchParams
+
+  const updateField = <K extends keyof EstimateSearchState>(key: K, value: EstimateSearchState[K]) => {
+    setState({ ...state, [key]: value })
+  }
 
   const shopsQuery = useShops(isAdmin)
-
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
+  const partnersQuery = usePartners(effectiveShopNo)
 
   const listQuery = useQuery({
     queryKey: ['estimates', effectiveShopNo, searchParams],
@@ -106,6 +152,7 @@ export function EstimateListPage() {
       const params = new URLSearchParams()
       if (effectiveShopNo) params.append('shopNo', effectiveShopNo)
       if (searchParams?.estimateNo) params.append('estimateNo', searchParams.estimateNo)
+      if (searchParams?.partnerNo) params.append('partnerNo', searchParams.partnerNo)
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
       if (searchParams?.goodsCode) params.append('goodsCode', searchParams.goodsCode)
       if (searchParams?.estimateDateFrom) params.append('estimateDateFrom', searchParams.estimateDateFrom)
@@ -122,8 +169,9 @@ export function EstimateListPage() {
   })
 
   const handleSearch = () => {
-    setSearchParams({
+    updateField('searchParams', {
       estimateNo,
+      partnerNo,
       goodsName,
       goodsCode,
       estimateStatus: selectedStatuses.join(','),
@@ -135,21 +183,14 @@ export function EstimateListPage() {
   }
 
   const handleReset = () => {
-    setEstimateNo('')
-    setGoodsName('')
-    setGoodsCode('')
-    setSelectedStatuses(DEFAULT_STATUSES)
-    setEstimateDateFrom('')
-    setEstimateDateTo('')
-    setPriceChangeDateFrom('')
-    setPriceChangeDateTo('')
-    setSearchParams(null)
+    resetState()
   }
 
   const toggleStatus = (value: string) => {
-    setSelectedStatuses((prev) =>
-      prev.includes(value) ? prev.filter((s) => s !== value) : [...prev, value],
-    )
+    const next = selectedStatuses.includes(value)
+      ? selectedStatuses.filter((s) => s !== value)
+      : [...selectedStatuses, value]
+    updateField('selectedStatuses', next)
   }
 
   const hasSearched = searchParams !== null
@@ -170,7 +211,7 @@ export function EstimateListPage() {
         {isAdmin && (
           <div className="space-y-2">
             <Label>店舗</Label>
-            <Select value={selectedShopNo} onValueChange={setSelectedShopNo}>
+            <Select value={selectedShopNo} onValueChange={(v: string) => updateField('selectedShopNo', v)}>
               <SelectTrigger>
                 <SelectValue placeholder="店舗を選択してください" />
               </SelectTrigger>
@@ -185,20 +226,16 @@ export function EstimateListPage() {
           </div>
         )}
         <div className="space-y-2">
-          <Label>見積番号</Label>
-          <Input
-            type="number"
-            placeholder="見積番号を入力"
-            value={estimateNo}
-            onChange={(e) => setEstimateNo(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>商品名</Label>
-          <Input
-            placeholder="商品名を入力"
-            value={goodsName}
-            onChange={(e) => setGoodsName(e.target.value)}
+          <Label>得意先</Label>
+          <SearchableSelect
+            value={partnerNo}
+            onValueChange={(v) => updateField('partnerNo', v)}
+            options={(partnersQuery.data ?? []).map((p) => ({
+              value: String(p.partnerNo),
+              label: `${p.partnerCode} ${p.partnerName}`,
+            }))}
+            placeholder="得意先を選択"
+            searchPlaceholder="得意先を検索..."
           />
         </div>
         <div className="space-y-2">
@@ -206,7 +243,24 @@ export function EstimateListPage() {
           <Input
             placeholder="商品コードを入力"
             value={goodsCode}
-            onChange={(e) => setGoodsCode(e.target.value)}
+            onChange={(e) => updateField('goodsCode', e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>商品名</Label>
+          <Input
+            placeholder="商品名を入力"
+            value={goodsName}
+            onChange={(e) => updateField('goodsName', e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>見積番号</Label>
+          <Input
+            type="number"
+            placeholder="見積番号を入力"
+            value={estimateNo}
+            onChange={(e) => updateField('estimateNo', e.target.value)}
           />
         </div>
         <div className="space-y-2">
@@ -215,13 +269,13 @@ export function EstimateListPage() {
             <Input
               type="date"
               value={estimateDateFrom}
-              onChange={(e) => setEstimateDateFrom(e.target.value)}
+              onChange={(e) => updateField('estimateDateFrom', e.target.value)}
             />
             <span className="text-sm text-muted-foreground">〜</span>
             <Input
               type="date"
               value={estimateDateTo}
-              onChange={(e) => setEstimateDateTo(e.target.value)}
+              onChange={(e) => updateField('estimateDateTo', e.target.value)}
             />
           </div>
         </div>
@@ -231,13 +285,13 @@ export function EstimateListPage() {
             <Input
               type="date"
               value={priceChangeDateFrom}
-              onChange={(e) => setPriceChangeDateFrom(e.target.value)}
+              onChange={(e) => updateField('priceChangeDateFrom', e.target.value)}
             />
             <span className="text-sm text-muted-foreground">〜</span>
             <Input
               type="date"
               value={priceChangeDateTo}
-              onChange={(e) => setPriceChangeDateTo(e.target.value)}
+              onChange={(e) => updateField('priceChangeDateTo', e.target.value)}
             />
           </div>
         </div>
@@ -270,6 +324,8 @@ export function EstimateListPage() {
           data={listQuery.data ?? []}
           columns={columns}
           searchPlaceholder="テーブル内を検索..."
+          defaultSortKey="estimateDate"
+          defaultSortDir="desc"
           onRowClick={(item) => router.push(`/estimates/${item.estimateNo}`)}
         />
       )}

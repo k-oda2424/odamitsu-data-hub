@@ -18,7 +18,9 @@ import java.util.stream.Collectors;
 @ApplicationType("web")
 public final class ShopCheckAop {
 
-    @Around(value = "execution(* *..*Service.*get*(..))")
+    @Around(value = "execution(* jp.co.oda32.domain.service..*Service.*get*(..)) "
+            + "&& !@annotation(jp.co.oda32.annotation.SkipShopCheck) "
+            + "&& !@within(jp.co.oda32.annotation.SkipShopCheck)")
     public Object validateGet(ProceedingJoinPoint pj) throws Throwable {
         Object obj = pj.proceed();
         if (!(obj instanceof IEntity entity)) {
@@ -37,7 +39,9 @@ public final class ShopCheckAop {
         return null;
     }
 
-    @Around(value = "execution(* *..*Service.*find*(..))")
+    @Around(value = "execution(* jp.co.oda32.domain.service..*Service.*find*(..)) "
+            + "&& !@annotation(jp.co.oda32.annotation.SkipShopCheck) "
+            + "&& !@within(jp.co.oda32.annotation.SkipShopCheck)")
     @SuppressWarnings("unchecked")
     public List<?> validateFind(ProceedingJoinPoint pj) throws Exception {
         List<?> list;

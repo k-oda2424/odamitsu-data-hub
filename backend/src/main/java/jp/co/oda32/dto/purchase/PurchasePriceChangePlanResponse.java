@@ -23,7 +23,9 @@ public class PurchasePriceChangePlanResponse {
     private String changeReason;
     private BigDecimal changeContainNum;
     private Integer partnerNo;
+    private String partnerName;
     private Integer destinationNo;
+    private String destinationName;
     private boolean partnerPriceChangePlanCreated;
     private boolean purchasePriceReflect;
 
@@ -47,6 +49,12 @@ public class PurchasePriceChangePlanResponse {
 
         if (plan.getMSupplier() != null) {
             builder.supplierName(plan.getMSupplier().getSupplierName());
+        }
+        if (plan.getMPartner() != null) {
+            builder.partnerName(plan.getMPartner().getPartnerName());
+        }
+        if (plan.getMDeliveryDestination() != null) {
+            builder.destinationName(plan.getMDeliveryDestination().getDestinationName());
         }
         return builder.build();
     }

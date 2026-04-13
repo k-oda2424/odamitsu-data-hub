@@ -157,9 +157,9 @@ export function PartnerGoodsDetailPage({ partnerNo, destinationNo, goodsNo }: Pa
                 編集
               </Button>
             )}
-            <Button variant="outline" onClick={() => router.push('/partner-goods')}>
+            <Button variant="outline" onClick={() => router.back()}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              一覧に戻る
+              戻る
             </Button>
           </div>
         }

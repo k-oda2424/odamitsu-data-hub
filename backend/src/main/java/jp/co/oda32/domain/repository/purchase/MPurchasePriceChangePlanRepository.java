@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -30,4 +31,6 @@ public interface MPurchasePriceChangePlanRepository extends JpaRepository<MPurch
     int updateReflectComplete();
 
     List<MPurchasePriceChangePlan> findByPurchasePriceReflectFalse();
+
+    void deleteByShopNoAndGoodsCodeAndChangePlanDate(Integer shopNo, String goodsCode, LocalDate changePlanDate);
 }

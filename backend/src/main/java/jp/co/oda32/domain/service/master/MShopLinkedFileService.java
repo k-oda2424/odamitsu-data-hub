@@ -36,4 +36,8 @@ public class MShopLinkedFileService extends CustomService {
     public MShopLinkedFile getByShopNo(Integer shopNo) {
         return this.mShopLinkedFileRepository.getByShopNo(shopNo);
     }
+
+    public MShopLinkedFile update(MShopLinkedFile entity) throws Exception {
+        return this.update(this.mShopLinkedFileRepository, entity);
+    }
 }

@@ -3,7 +3,7 @@ package jp.co.oda32.domain.specification.goods;
 import jp.co.oda32.domain.model.goods.MSalesGoods;
 import jp.co.oda32.domain.specification.CommonSpecification;
 import jp.co.oda32.util.CollectionUtil;
-import jp.co.oda32.util.StringUtil;
+
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.List;
@@ -42,7 +42,7 @@ public class MSalesGoodsSpecification extends CommonSpecification<MSalesGoods> {
      * @return 商品名の検索条件
      */
     private Specification<MSalesGoods> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> cb.like(root.get("goodsName"), "%" + goodsName + "%");
+        return likeNormalized("goodsName", goodsName);
     }
 
     /**
@@ -52,7 +52,7 @@ public class MSalesGoodsSpecification extends CommonSpecification<MSalesGoods> {
      * @return 商品コードの検索条件
      */
     public Specification<MSalesGoods> goodsCodeContains(String goodsCode) {
-        return StringUtil.isEmpty(goodsCode) ? null : (root, query, cb) -> cb.like(root.get("goodsCode"), "%" + goodsCode);
+        return likeSuffixNormalized("goodsCode", goodsCode);
     }
 
     /**
@@ -76,7 +76,7 @@ public class MSalesGoodsSpecification extends CommonSpecification<MSalesGoods> {
      * @return キーワードの検索条件
      */
     private Specification<MSalesGoods> keywordContains(String keyword) {
-        return StringUtil.isEmpty(keyword) ? null : (root, query, cb) -> cb.like(root.get("keyword"), "%" + keyword + "%");
+        return likeNormalized("keyword", keyword);
     }
 
     /**
@@ -101,6 +101,14 @@ public class MSalesGoodsSpecification extends CommonSpecification<MSalesGoods> {
      */
     public Specification<MSalesGoods> supplierNoContains(Integer supplierNo) {
         return supplierNo == null ? null : (root, query, cb) -> cb.equal(root.get("supplierNo"), supplierNo);
+    }
+
+    /**
+     * 仕入先番号のIN条件（複数仕入先での検索）
+     */
+    public Specification<MSalesGoods> supplierNoListContains(java.util.Collection<Integer> supplierNoList) {
+        return (supplierNoList == null || supplierNoList.isEmpty()) ? null
+                : (root, query, cb) -> root.get("supplierNo").in(supplierNoList);
     }
 
     /**

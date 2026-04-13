@@ -58,7 +58,7 @@ public class TSendOrder implements IEntity {
     private Integer modifyUserNo;
 
     @OneToMany
-    @JoinColumn(name = "purchase_no", insertable = false, updatable = false)
+    @JoinColumn(name = "send_order_no", insertable = false, updatable = false)
     private List<TSendOrderDetail> tSendOrderDetailList;
 
     @OneToOne

@@ -16,7 +16,7 @@ public class BCartProductSetsService {
     private BCartProductSetsRepository bCartProductSetsRepository;
 
     public BCartProductSets getByPK(Long id) {
-        return this.bCartProductSetsRepository.getById(id);
+        return this.bCartProductSetsRepository.findById(id).orElse(null);
     }
 
     /**

@@ -7,6 +7,7 @@ import jp.co.oda32.util.StringUtil;
 import org.springframework.data.jpa.domain.Specification;
 
 import jakarta.persistence.criteria.JoinType;
+import java.util.List;
 
 /**
  * 商品検索条件
@@ -26,13 +27,24 @@ public class GoodsSpecification extends CommonSpecification<MGoods> {
     }
 
     /**
+     * 商品番号リストの検索条件（IN句）
+     *
+     * @param goodsNoList 商品番号リスト
+     * @return 商品番号リストの検索条件
+     */
+    public Specification<MGoods> goodsNoListContains(List<Integer> goodsNoList) {
+        return (goodsNoList == null || goodsNoList.isEmpty()) ? null
+                : (root, query, cb) -> root.get("goodsNo").in(goodsNoList);
+    }
+
+    /**
      * 商品名の検索条件
      *
      * @param goodsName 商品名
      * @return 商品名の検索条件
      */
     public Specification<MGoods> goodsNameContains(String goodsName) {
-        return StringUtil.isEmpty(goodsName) ? null : (root, query, cb) -> cb.like(root.get("goodsName"), "%" + goodsName + "%");
+        return likeNormalized("goodsName", goodsName);
     }
 
     /**
@@ -52,7 +64,7 @@ public class GoodsSpecification extends CommonSpecification<MGoods> {
      * @return キーワードの検索条件
      */
     public Specification<MGoods> keywordContains(String keyword) {
-        return StringUtil.isEmpty(keyword) ? null : (root, query, cb) -> cb.like(root.get("keyword"), "%" + keyword + "%");
+        return likeNormalized("keyword", keyword);
     }
 
     /**

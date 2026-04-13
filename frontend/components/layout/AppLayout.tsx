@@ -9,10 +9,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <SidebarProvider>
       <div className="flex h-screen w-full">
-        <AppSidebar />
+        <div className="print:hidden">
+          <AppSidebar />
+        </div>
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header />
-          <main className="flex-1 overflow-auto p-6">{children}</main>
+          <main className="flex-1 overflow-auto p-6 print:p-0 print:overflow-visible">{children}</main>
         </div>
       </div>
     </SidebarProvider>

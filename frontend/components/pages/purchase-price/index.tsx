@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
 import { useShops, useSuppliers } from '@/hooks/use-master-data'
+import { useSearchParamsStorage } from '@/hooks/use-search-params-storage'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
@@ -20,42 +21,82 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { useRouter } from 'next/navigation'
+import { Plus } from 'lucide-react'
 import { PriceChangeDialog } from './PriceChangeDialog'
-import type { PurchasePriceResponse } from '@/types/purchase-price'
+import type { PurchasePriceResponse, PriceScope } from '@/types/purchase-price'
+import { Badge } from '@/components/ui/badge'
+import { PRICE_SCOPE_OPTIONS, isPartnerSpecificPrice } from '@/types/purchase-price'
 
 const columns: Column<PurchasePriceResponse>[] = [
+  {
+    key: 'partnerNo',
+    header: '種別',
+    render: (item) =>
+      isPartnerSpecificPrice(item.partnerNo, item.destinationNo) ? (
+        <Badge variant="secondary">得意先別</Badge>
+      ) : (
+        <Badge variant="outline">標準</Badge>
+      ),
+  },
   { key: 'goodsCode', header: '商品コード', sortable: true },
   { key: 'goodsName', header: '商品名', sortable: true },
   { key: 'supplierName', header: '仕入先' },
+  {
+    key: 'partnerName',
+    header: '得意先',
+    render: (item) => item.partnerName ?? '-',
+  },
+  {
+    key: 'destinationName',
+    header: '配送先',
+    render: (item) => item.destinationName ?? '-',
+  },
   {
     key: 'goodsPrice',
     header: '仕入価格',
     render: (item) => item.goodsPrice?.toLocaleString() ?? '',
   },
-  {
-    key: 'includeTaxGoodsPrice',
-    header: '税込価格',
-    render: (item) => item.includeTaxGoodsPrice?.toLocaleString() ?? '',
-  },
   { key: 'lastPurchaseDate', header: '直近仕入日' },
 ]
 
 export function PurchasePriceListPage() {
+  const router = useRouter()
   const { user } = useAuth()
   const isAdmin = user?.shopNo === 0
 
-  const [goodsName, setGoodsName] = useState('')
-  const [goodsCode, setGoodsCode] = useState('')
-  const [supplierNo, setSupplierNo] = useState<string>('')
-  const [selectedShopNo, setSelectedShopNo] = useState<string>(
-    isAdmin ? '' : String(user?.shopNo ?? '')
-  )
-  const [searchParams, setSearchParams] = useState<Record<string, string> | null>(null)
+  interface PurchasePriceSearchState {
+    goodsName: string
+    goodsCode: string
+    supplierNo: string
+    scope: PriceScope
+    selectedShopNo: string
+    searchParams: Record<string, string> | null
+  }
+  const defaultState: PurchasePriceSearchState = {
+    goodsName: '',
+    goodsCode: '',
+    supplierNo: '',
+    scope: 'all',
+    selectedShopNo: isAdmin ? '' : String(user?.shopNo ?? ''),
+    searchParams: null,
+  }
+  const [state, setState] = useSearchParamsStorage('purchase-price-list-search', defaultState)
+  const { goodsName, goodsCode, supplierNo, scope, selectedShopNo, searchParams } = state
+  const updateField = <K extends keyof PurchasePriceSearchState>(key: K, value: PurchasePriceSearchState[K]) => {
+    setState({ ...state, [key]: value })
+  }
+  const setGoodsName = (v: string) => updateField('goodsName', v)
+  const setGoodsCode = (v: string) => updateField('goodsCode', v)
+  const setSupplierNo = (v: string) => updateField('supplierNo', v)
+  const setScope = (v: PriceScope) => updateField('scope', v)
+  const setSelectedShopNo = (v: string) => updateField('selectedShopNo', v)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedPrice, setSelectedPrice] = useState<PurchasePriceResponse | null>(null)
 
-  const shopsQuery = useShops()
+  const shopsQuery = useShops(isAdmin)
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
   const suppliersQuery = useSuppliers(effectiveShopNo)
 
@@ -67,20 +108,18 @@ export function PurchasePriceListPage() {
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
       if (searchParams?.goodsCode) params.append('goodsCode', searchParams.goodsCode)
       if (searchParams?.supplierNo) params.append('supplierNo', searchParams.supplierNo)
+      if (searchParams?.scope && searchParams.scope !== 'all') params.append('scope', searchParams.scope)
       return api.get<PurchasePriceResponse[]>(`/purchase-prices?${params.toString()}`)
     },
     enabled: searchParams !== null && !!effectiveShopNo,
   })
 
   const handleSearch = () => {
-    setSearchParams({ goodsName, goodsCode, supplierNo })
+    setState({ ...state, searchParams: { goodsName, goodsCode, supplierNo, scope } })
   }
 
   const handleReset = () => {
-    setGoodsName('')
-    setGoodsCode('')
-    setSupplierNo('')
-    setSearchParams(null)
+    setState({ ...defaultState, selectedShopNo: state.selectedShopNo })
   }
 
   const handleRowClick = (item: PurchasePriceResponse) => {
@@ -92,7 +131,15 @@ export function PurchasePriceListPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="仕入価格一覧" />
+      <PageHeader
+        title="仕入一覧"
+        actions={
+          <Button onClick={() => router.push('/purchase-prices/create')}>
+            <Plus className="mr-2 h-4 w-4" />
+            新規登録
+          </Button>
+        }
+      />
 
       <SearchForm onSearch={handleSearch} onReset={handleReset}>
         {isAdmin && (
@@ -139,6 +186,21 @@ export function PurchasePriceListPage() {
             }))}
             searchPlaceholder="仕入先を検索..."
           />
+        </div>
+        <div className="space-y-2">
+          <Label>価格種別</Label>
+          <Select value={scope} onValueChange={(v) => setScope(v as PriceScope)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRICE_SCOPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </SearchForm>
 

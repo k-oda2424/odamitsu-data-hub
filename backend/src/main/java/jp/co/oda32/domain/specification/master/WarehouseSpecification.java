@@ -2,7 +2,7 @@ package jp.co.oda32.domain.specification.master;
 
 import jp.co.oda32.domain.model.master.MWarehouse;
 import jp.co.oda32.domain.specification.CommonSpecification;
-import jp.co.oda32.util.StringUtil;
+
 import org.springframework.data.jpa.domain.Specification;
 
 /**
@@ -38,7 +38,7 @@ public class WarehouseSpecification extends CommonSpecification<MWarehouse> {
      * @return 倉庫名の検索条件
      */
     public Specification<MWarehouse> warehouseNameContains(String warehouseName) {
-        return StringUtil.isEmpty(warehouseName) ? null : (root, query, cb) -> cb.like(root.get("warehouseName"), "%" + warehouseName + "%");
+        return likeNormalized("warehouseName", warehouseName);
     }
 
 }

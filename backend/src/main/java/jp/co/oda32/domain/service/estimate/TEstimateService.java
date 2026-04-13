@@ -36,11 +36,28 @@ public class TEstimateService extends CustomService {
         return this.tEstimateRepository.findById(estimateNo).orElseThrow();
     }
 
+    /**
+     * 見積を明細リスト込みで取得します（LazyInitializationException防止）。
+     */
+    @Transactional(readOnly = true)
+    public TEstimate getByEstimateNoWithDetails(int estimateNo) {
+        TEstimate estimate = this.tEstimateRepository.findById(estimateNo).orElse(null);
+        if (estimate == null) return null;
+        // 明細リストを初期化（トランザクション内でアクセス）
+        estimate.getTEstimateDetailList().size();
+        return estimate;
+    }
+
     public List<TEstimate> find(Integer shopNo, Integer estimateNo, Integer partnerNo, String goodsName, String goodsCode, List<String> estimateStatusList, LocalDate estimateDateFrom, LocalDate estimateDateTo, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, BigDecimal profitRate, Flag delFlg) {
+        return find(shopNo, estimateNo, partnerNo, null, goodsName, goodsCode, estimateStatusList, estimateDateFrom, estimateDateTo, priceChangeDateFrom, priceChangeDateTo, profitRate, delFlg);
+    }
+
+    public List<TEstimate> find(Integer shopNo, Integer estimateNo, Integer partnerNo, String partnerName, String goodsName, String goodsCode, List<String> estimateStatusList, LocalDate estimateDateFrom, LocalDate estimateDateTo, LocalDate priceChangeDateFrom, LocalDate priceChangeDateTo, BigDecimal profitRate, Flag delFlg) {
         return this.tEstimateRepository.findAll(Specification
                 .where(this.tEstimateSpecification.shopNoContains(shopNo))
                 .and(this.tEstimateSpecification.estimateNoContains(estimateNo))
                 .and(this.tEstimateSpecification.partnerNoContains(partnerNo))
+                .and(this.tEstimateSpecification.partnerNameContains(partnerName))
                 .and(this.tEstimateSpecification.goodsNamesContains(goodsName))
                 .and(this.tEstimateSpecification.goodsCodeContains(goodsCode))
                 .and(this.tEstimateSpecification.estimateStatusListContains(estimateStatusList))

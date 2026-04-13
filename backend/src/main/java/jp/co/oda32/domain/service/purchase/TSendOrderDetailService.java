@@ -7,10 +7,12 @@ import jp.co.oda32.domain.model.purchase.TSendOrderDetail;
 import jp.co.oda32.domain.repository.purchase.TSendOrderDetailRepository;
 import jp.co.oda32.domain.service.CustomService;
 import jp.co.oda32.domain.specification.purchase.TSendOrderDetailSpecification;
+import jp.co.oda32.dto.purchase.SendOrderDetailStatusUpdateRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -68,6 +70,54 @@ public class TSendOrderDetailService extends CustomService {
      * @return 更新した発注明細Entity
      * @throws Exception システム例外
      */
+    /**
+     * 発注明細ステータス遷移（バリデーション・後退禁止含む）
+     *
+     * @return 更新後のEntity（対象が存在しない場合は null）
+     * @throws IllegalArgumentException バリデーションエラー時
+     */
+    public TSendOrderDetail transitionStatus(Integer sendOrderNo, Integer sendOrderDetailNo,
+                                             SendOrderDetailStatusUpdateRequest request) throws Exception {
+        TSendOrderDetail detail = this.getByPK(TSendOrderDetailPK.builder()
+                .sendOrderNo(sendOrderNo)
+                .sendOrderDetailNo(sendOrderDetailNo)
+                .build());
+        if (detail == null) {
+            return null;
+        }
+
+        String currentStatus = detail.getSendOrderDetailStatus();
+        String newStatus = request.getSendOrderDetailStatus();
+        if (currentStatus.compareTo(newStatus) >= 0) {
+            throw new IllegalArgumentException("ステータスを後退させることはできません");
+        }
+
+        SendOrderDetailStatus status = SendOrderDetailStatus.purse(newStatus);
+        if (status == null) {
+            throw new IllegalArgumentException("無効なステータスです");
+        }
+        if (status == SendOrderDetailStatus.ARRIVAL_TO_PROMISE && request.getArrivePlanDate() == null) {
+            throw new IllegalArgumentException("入荷予定日は必須です");
+        }
+        if (status == SendOrderDetailStatus.ARRIVED
+                && (request.getArrivedNum() == null || request.getArrivedNum().compareTo(BigDecimal.ZERO) <= 0)) {
+            throw new IllegalArgumentException("入荷数量は必須です");
+        }
+
+        detail.setSendOrderDetailStatus(newStatus);
+        if (request.getArrivePlanDate() != null) {
+            detail.setArrivePlanDate(request.getArrivePlanDate());
+        }
+        if (request.getArrivedDate() != null) {
+            detail.setArrivedDate(request.getArrivedDate());
+        }
+        if (request.getArrivedNum() != null) {
+            detail.setArrivedNum(request.getArrivedNum());
+            detail.setDifferenceNum(request.getArrivedNum().subtract(new BigDecimal(detail.getSendOrderNum())));
+        }
+        return this.update(detail);
+    }
+
     public TSendOrderDetail update(TSendOrderDetail updateSendOrderDetail) throws Exception {
         TSendOrderDetail tSendOrderDetail = this.getByPK(TSendOrderDetailPK.builder()
                 .sendOrderNo(updateSendOrderDetail.getSendOrderNo())
