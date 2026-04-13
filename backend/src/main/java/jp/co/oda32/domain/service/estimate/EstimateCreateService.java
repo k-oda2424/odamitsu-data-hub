@@ -10,6 +10,7 @@ import jp.co.oda32.domain.model.purchase.TQuoteImportHeader;
 import jp.co.oda32.domain.repository.purchase.TQuoteImportDetailRepository;
 import jp.co.oda32.domain.repository.purchase.TQuoteImportHeaderRepository;
 import jp.co.oda32.domain.model.master.MSupplier;
+import jp.co.oda32.domain.service.login.LoginUserService;
 import jp.co.oda32.domain.service.master.MPartnerService;
 import jp.co.oda32.domain.service.master.MSupplierService;
 import jp.co.oda32.dto.estimate.EstimateCreateRequest;
@@ -40,6 +41,7 @@ public class EstimateCreateService {
     private final TEstimateDetailService tEstimateDetailService;
     private final MPartnerService mPartnerService;
     private final MSupplierService mSupplierService;
+    private final LoginUserService loginUserService;
     private final TQuoteImportHeaderRepository quoteImportHeaderRepository;
     private final TQuoteImportDetailRepository quoteImportDetailRepository;
 
@@ -171,6 +173,13 @@ public class EstimateCreateService {
                 .collect(Collectors.groupingBy(EstimateDetailCreateRequest::getSupplierNo));
 
         Timestamp now = Timestamp.from(Instant.now());
+        Integer loginUserNo = null;
+        try {
+            var loginUser = loginUserService.getLoginUser();
+            loginUserNo = loginUser.getLoginUserNo();
+        } catch (Exception e) {
+            log.warn("ログインユーザー取得失敗（監査フィールド未設定）", e);
+        }
 
         for (Map.Entry<Integer, List<EstimateDetailCreateRequest>> entry : bySupplier.entrySet()) {
             Integer supplierNo = entry.getKey();
@@ -190,6 +199,7 @@ public class EstimateCreateService {
                     .totalCount(details.size())
                     .delFlg(Flag.NO.getValue())
                     .addDateTime(now)
+                    .addUserNo(loginUserNo)
                     .build();
             TQuoteImportHeader savedHeader = quoteImportHeaderRepository.save(header);
 

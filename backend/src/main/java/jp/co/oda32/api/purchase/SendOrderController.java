@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/send-orders")
+@PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
 @Log4j2
 public class SendOrderController {

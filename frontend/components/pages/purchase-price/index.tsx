@@ -20,6 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { useRouter } from 'next/navigation'
+import { Plus } from 'lucide-react'
 import { PriceChangeDialog } from './PriceChangeDialog'
 import type { PurchasePriceResponse, PriceScope } from '@/types/purchase-price'
 import { Badge } from '@/components/ui/badge'
@@ -54,15 +57,11 @@ const columns: Column<PurchasePriceResponse>[] = [
     header: '仕入価格',
     render: (item) => item.goodsPrice?.toLocaleString() ?? '',
   },
-  {
-    key: 'includeTaxGoodsPrice',
-    header: '税込価格',
-    render: (item) => item.includeTaxGoodsPrice?.toLocaleString() ?? '',
-  },
   { key: 'lastPurchaseDate', header: '直近仕入日' },
 ]
 
 export function PurchasePriceListPage() {
+  const router = useRouter()
   const { user } = useAuth()
   const isAdmin = user?.shopNo === 0
 
@@ -117,7 +116,15 @@ export function PurchasePriceListPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="仕入価格一覧" />
+      <PageHeader
+        title="仕入一覧"
+        actions={
+          <Button onClick={() => router.push('/purchase-prices/create')}>
+            <Plus className="mr-2 h-4 w-4" />
+            新規登録
+          </Button>
+        }
+      />
 
       <SearchForm onSearch={handleSearch} onReset={handleReset}>
         {isAdmin && (

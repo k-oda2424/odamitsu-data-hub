@@ -137,6 +137,10 @@ public class BatchController {
             if (shopNo != null) {
                 params.addLong("shopNo", shopNo.longValue());
             }
+            // SMILE支払取込はinputFileパラメータが必要
+            if ("smilePaymentImport".equals(jobName)) {
+                params.addString("inputFile", "input/smile_payment_import.csv");
+            }
             // 非同期で実行（APIは即座にレスポンスを返す）
             var asyncJobParams = params.toJobParameters();
             batchExecutor.execute(() -> {

@@ -23,6 +23,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/purchase-price-changes")
+@PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
 @Validated
 public class PurchasePriceChangePlanController {

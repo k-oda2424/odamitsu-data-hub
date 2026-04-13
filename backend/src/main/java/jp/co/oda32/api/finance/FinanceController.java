@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jp.co.oda32.domain.model.finance.MPartnerGroup;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.model.finance.TInvoice;
+import jp.co.oda32.domain.service.finance.AccountingStatusService;
 import jp.co.oda32.domain.service.finance.InvoiceImportService;
 import jp.co.oda32.domain.service.finance.MPartnerGroupService;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
@@ -30,6 +31,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/finance")
+@PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
 public class FinanceController {
 
@@ -37,6 +39,7 @@ public class FinanceController {
     private final TInvoiceService tInvoiceService;
     private final InvoiceImportService invoiceImportService;
     private final MPartnerGroupService partnerGroupService;
+    private final AccountingStatusService accountingStatusService;
 
     // TODO: shopNo/supplierNo でのフィルタリングをService層（Specification）で実装する
     @GetMapping("/accounts-payable")
@@ -62,7 +65,6 @@ public class FinanceController {
         return ResponseEntity.ok(invoices.stream().map(InvoiceResponse::from).collect(Collectors.toList()));
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PutMapping("/invoices/{invoiceId}/payment-date")
     public ResponseEntity<?> updatePaymentDate(
             @PathVariable Integer invoiceId,
@@ -76,7 +78,6 @@ public class FinanceController {
         return ResponseEntity.ok(InvoiceResponse.from(invoice));
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PostMapping("/invoices/import")
     public ResponseEntity<?> importInvoices(
             @RequestParam("file") MultipartFile file,
@@ -94,7 +95,6 @@ public class FinanceController {
         }
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PutMapping("/invoices/bulk-payment-date")
     public ResponseEntity<?> bulkUpdatePaymentDate(@Valid @RequestBody BulkPaymentDateRequest request) {
         List<TInvoice> invoices = tInvoiceService.findByIds(request.getInvoiceIds());
@@ -117,7 +117,6 @@ public class FinanceController {
         return ResponseEntity.ok(groups.stream().map(PartnerGroupResponse::from).collect(Collectors.toList()));
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PostMapping("/partner-groups")
     public ResponseEntity<PartnerGroupResponse> createPartnerGroup(
             @Valid @RequestBody PartnerGroupRequest request) {
@@ -125,7 +124,6 @@ public class FinanceController {
         return ResponseEntity.ok(PartnerGroupResponse.from(group));
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PutMapping("/partner-groups/{id}")
     public ResponseEntity<PartnerGroupResponse> updatePartnerGroup(
             @PathVariable Integer id, @Valid @RequestBody PartnerGroupRequest request) {
@@ -133,11 +131,14 @@ public class FinanceController {
         return ResponseEntity.ok(PartnerGroupResponse.from(group));
     }
 
-    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/partner-groups/{id}")
     public ResponseEntity<?> deletePartnerGroup(@PathVariable Integer id) {
         partnerGroupService.delete(id);
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/accounting-status")
+    public ResponseEntity<Map<String, Object>> getAccountingStatus() {
+        return ResponseEntity.ok(accountingStatusService.getStatus());
+    }
 }

@@ -572,6 +572,135 @@ export const MOCK_COMPARE_GOODS = [
   },
 ]
 
+// ==================== Estimate Comparisons ====================
+
+export const MOCK_ESTIMATE_COMPARISONS = [
+  {
+    comparisonNo: 1,
+    shopNo: 1,
+    partnerNo: 108,
+    partnerName: 'いしい記念病院',
+    destinationNo: null,
+    destinationName: null,
+    comparisonDate: '2026-04-01',
+    comparisonStatus: '00',
+    sourceEstimateNo: 570,
+    title: '除菌洗浄剤 比較提案',
+    note: null,
+    groupCount: 2,
+    groups: [],
+  },
+  {
+    comparisonNo: 2,
+    shopNo: 1,
+    partnerNo: 200,
+    partnerName: 'クローバーハウス',
+    destinationNo: 1,
+    destinationName: '本社',
+    comparisonDate: '2026-04-05',
+    comparisonStatus: '10',
+    sourceEstimateNo: null,
+    title: '衛生用品 切替提案',
+    note: 'テスト備考',
+    groupCount: 3,
+    groups: [],
+  },
+  {
+    comparisonNo: 3,
+    shopNo: 1,
+    partnerNo: 108,
+    partnerName: 'いしい記念病院',
+    destinationNo: null,
+    destinationName: null,
+    comparisonDate: '2026-03-20',
+    comparisonStatus: '20',
+    sourceEstimateNo: 570,
+    title: '修正版 除菌洗浄剤',
+    note: null,
+    groupCount: 1,
+    groups: [],
+  },
+]
+
+export const MOCK_ESTIMATE_COMPARISON_DETAIL = {
+  comparisonNo: 1,
+  shopNo: 1,
+  partnerNo: 108,
+  partnerName: 'いしい記念病院',
+  destinationNo: null,
+  destinationName: null,
+  comparisonDate: '2026-04-01',
+  comparisonStatus: '00',
+  sourceEstimateNo: 570,
+  title: '除菌洗浄剤 比較提案',
+  note: 'テストメモ',
+  groupCount: 2,
+  groups: [
+    {
+      groupNo: 1,
+      baseGoodsNo: 1,
+      baseGoodsCode: 'KAO-001',
+      baseGoodsName: '花王 除菌洗浄剤',
+      baseSpecification: '5L',
+      basePurchasePrice: 1200,
+      baseGoodsPrice: 1800,
+      baseContainNum: 3,
+      displayOrder: 1,
+      groupNote: null,
+      details: [
+        {
+          detailNo: 1,
+          goodsNo: 2,
+          goodsCode: 'LION-001',
+          goodsName: 'ライオン 除菌洗浄剤',
+          specification: '4.5L',
+          purchasePrice: 1050,
+          proposedPrice: 1700,
+          containNum: 3,
+          profitRate: 38.2,
+          detailNote: null,
+          displayOrder: 1,
+          supplierNo: 2,
+        },
+        {
+          detailNo: 2,
+          goodsNo: null,
+          goodsCode: null,
+          goodsName: 'サラヤ 除菌洗浄剤',
+          specification: '5L',
+          purchasePrice: 980,
+          proposedPrice: 1600,
+          containNum: 3,
+          profitRate: 38.8,
+          detailNote: '未登録商品',
+          displayOrder: 2,
+          supplierNo: null,
+        },
+      ],
+    },
+    {
+      groupNo: 2,
+      baseGoodsNo: 3,
+      baseGoodsCode: 'KAO-002',
+      baseGoodsName: '花王 ハンドソープ',
+      baseSpecification: '2L',
+      basePurchasePrice: 800,
+      baseGoodsPrice: 1200,
+      baseContainNum: 6,
+      displayOrder: 2,
+      groupNote: 'ハンドソープ切替検討',
+      details: [],
+    },
+  ],
+}
+
+export const MOCK_ESTIMATE_COMPARISON_SUBMITTED = {
+  ...MOCK_ESTIMATE_COMPARISON_DETAIL,
+  comparisonNo: 2,
+  comparisonStatus: '10',
+  sourceEstimateNo: null,
+}
+
 // ==================== Helpers ====================
 
 async function json(route: Route, data: unknown, status = 200) {
@@ -1180,6 +1309,58 @@ export async function mockAllApis(page: Page) {
           paymentDate: null,
         },
       ])
+    },
+  )
+
+  // ---- Estimate Comparisons ----
+  await page.route(
+    (url) => /^\/api\/v1\/estimate-comparisons\/from-estimate\/\d+$/.test(url.pathname),
+    async (route) => {
+      if (route.request().method() === 'POST') {
+        await json(route, { ...MOCK_ESTIMATE_COMPARISON_DETAIL, comparisonNo: 99 }, 201)
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/estimate-comparisons\/\d+\/status$/.test(url.pathname),
+    async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}')
+      await json(route, { ...MOCK_ESTIMATE_COMPARISON_DETAIL, ...body })
+    },
+  )
+
+  await page.route(
+    (url) => /^\/api\/v1\/estimate-comparisons\/\d+$/.test(url.pathname),
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        await json(route, MOCK_ESTIMATE_COMPARISON_DETAIL)
+      } else if (method === 'PUT') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { ...MOCK_ESTIMATE_COMPARISON_DETAIL, ...body })
+      } else if (method === 'DELETE') {
+        await route.fulfill({ status: 204 })
+      } else {
+        await route.fallback()
+      }
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/estimate-comparisons',
+    async (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        await json(route, MOCK_ESTIMATE_COMPARISONS)
+      } else if (method === 'POST') {
+        const body = JSON.parse(route.request().postData() || '{}')
+        await json(route, { comparisonNo: 99, ...body, groupCount: body.groups?.length ?? 0, groups: [] }, 201)
+      } else {
+        await route.fallback()
+      }
     },
   )
 

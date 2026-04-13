@@ -27,6 +27,10 @@ public class PurchasePriceResponse {
     private BigDecimal includeTaxGoodsPrice;
     private BigDecimal taxRate;
     private int taxCategory;
+    private String includeTaxFlg;
+    private LocalDate periodFrom;
+    private LocalDate periodTo;
+    private String note;
     private LocalDate lastPurchaseDate;
 
     public static PurchasePriceResponse from(MPurchasePrice pp) {
@@ -41,6 +45,10 @@ public class PurchasePriceResponse {
                 .includeTaxGoodsPrice(pp.getIncludeTaxGoodsPrice())
                 .taxRate(pp.getTaxRate())
                 .taxCategory(pp.getTaxCategory())
+                .includeTaxFlg(pp.getIncludeTaxFlg())
+                .periodFrom(pp.getPeriodFrom())
+                .periodTo(pp.getPeriodTo())
+                .note(pp.getNote())
                 .lastPurchaseDate(pp.getLastPurchaseDate());
 
         if (pp.getMGoods() != null) {

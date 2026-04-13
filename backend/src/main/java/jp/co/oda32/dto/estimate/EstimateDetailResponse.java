@@ -23,6 +23,7 @@ public class EstimateDetailResponse {
     private BigDecimal profitRate;
     private String detailNote;
     private int displayOrder;
+    private String pricePlanInfo;
 
     public static EstimateDetailResponse from(TEstimateDetail d) {
         return EstimateDetailResponse.builder()
@@ -40,6 +41,7 @@ public class EstimateDetailResponse {
                 .profitRate(d.getProfitRate())
                 .detailNote(d.getDetailNote())
                 .displayOrder(d.getDisplayOrder())
+                .pricePlanInfo(null)
                 .build();
     }
 }

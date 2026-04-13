@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
 import { useShops, usePartners, useDestinations, useSuppliers } from '@/hooks/use-master-data'
@@ -78,12 +78,18 @@ function createEmptyRow(displayOrder: number): EstimateDetailRow {
 
 export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { user } = useAuth()
   const isAdmin = user?.shopNo === 0
   const isEditMode = estimateNo != null
 
-  // Header form state
+  // Header form state — non-adminの場合、userロード完了後にshopNoを設定
   const [shopNo, setShopNo] = useState<string>(isAdmin ? '' : String(user?.shopNo ?? ''))
+  useEffect(() => {
+    if (!isAdmin && user?.shopNo && shopNo === '') {
+      setShopNo(String(user.shopNo))
+    }
+  }, [isAdmin, user?.shopNo, shopNo])
   const [partnerNo, setPartnerNo] = useState<string>('')
   const [destinationNo, setDestinationNo] = useState<string>('')
   const [estimateDate, setEstimateDate] = useState<string>(
@@ -140,7 +146,7 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
           goodsName: d.goodsName ?? '',
           specification: d.specification ?? '',
           purchasePrice: d.purchasePrice,
-          pricePlanInfo: '',
+          pricePlanInfo: d.pricePlanInfo ?? '',
           goodsPrice: d.goodsPrice,
           containNum: d.containNum,
           changeContainNum: d.changeContainNum,
@@ -219,6 +225,8 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
     },
     onSuccess: (data) => {
       toast.success('見積を保存しました')
+      queryClient.invalidateQueries({ queryKey: ['estimate', data.estimateNo] })
+      queryClient.invalidateQueries({ queryKey: ['estimates'] })
       router.push(`/estimates/${data.estimateNo}`)
     },
     onError: () => {
@@ -245,22 +253,28 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
         )
 
         setRows((prev) =>
-          prev.map((row) =>
-            row.id === rowId
-              ? {
-                  ...row,
-                  goodsNo: result.goodsNo,
-                  goodsCode: result.goodsCode ?? '',
-                  goodsName: result.goodsName ?? '',
-                  specification: result.specification ?? '',
-                  purchasePrice: result.purchasePrice,
-                  containNum: result.containNum,
-                  changeContainNum: result.changeContainNum,
-                  pricePlanInfo: result.pricePlanInfo ?? '',
-                  supplierNo: result.supplierNo ?? row.supplierNo,
-                }
-              : row,
-          ),
+          prev.map((row) => {
+            if (row.id !== rowId) return row
+            // 備考が空で現行販売単価があれば自動入力（既存バッチ PriceChangeToEstimateCreateTasklet と同形式）
+            const autoNote =
+              (!row.detailNote || row.detailNote.trim() === '') &&
+              result.currentSalesPrice != null && result.currentSalesPrice !== 0
+                ? `現単価${result.currentSalesPrice}円`
+                : row.detailNote
+            return {
+              ...row,
+              goodsNo: result.goodsNo,
+              goodsCode: result.goodsCode ?? '',
+              goodsName: result.goodsName ?? '',
+              specification: result.specification ?? '',
+              purchasePrice: result.purchasePrice,
+              containNum: result.containNum,
+              changeContainNum: result.changeContainNum,
+              pricePlanInfo: result.pricePlanInfo ?? '',
+              supplierNo: result.supplierNo ?? row.supplierNo,
+              detailNote: autoNote,
+            }
+          }),
         )
       } catch {
         toast.info(`商品コード「${code}」が見つかりません。商品名・原価を手入力できます。`)

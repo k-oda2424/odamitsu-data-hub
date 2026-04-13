@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/partner-goods")
+@PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
 public class PartnerGoodsController {
 

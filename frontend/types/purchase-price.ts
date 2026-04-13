@@ -16,7 +16,25 @@ export interface PurchasePriceResponse {
   includeTaxGoodsPrice: number | null
   taxRate: number | null
   taxCategory: number
+  includeTaxFlg: string | null
+  periodFrom: string | null
+  periodTo: string | null
+  note: string | null
   lastPurchaseDate: string | null
+}
+
+export interface PurchasePriceCreateRequest {
+  shopNo: number
+  goodsNo: number
+  supplierNo: number
+  partnerNo: number | null
+  destinationNo: number | null
+  goodsPrice: number
+  taxRate: number | null
+  includeTaxFlg: boolean  // API送信時はboolean、レスポンスのincludeTaxFlgは'0'/'1'文字列（バックエンドで変換）
+  periodFrom: string | null
+  periodTo: string | null
+  note: string | null
 }
 
 export interface PurchasePriceChangePlanResponse {

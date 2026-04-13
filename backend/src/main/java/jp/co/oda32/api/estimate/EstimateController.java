@@ -97,7 +97,10 @@ public class EstimateController {
         if (denied != null) {
             return ResponseEntity.status(denied.getStatusCode()).build();
         }
-        return ResponseEntity.ok(EstimateResponse.fromWithDetails(estimate));
+        EstimateResponse resp = EstimateResponse.fromWithDetails(estimate);
+        estimateGoodsSearchService.enrichDetailsWithPricePlanInfo(
+                resp.getShopNo(), resp.getPartnerNo(), resp.getDestinationNo(), resp.getDetails());
+        return ResponseEntity.ok(resp);
     }
 
     @GetMapping("/{estimateNo}/pdf")
@@ -124,7 +127,6 @@ public class EstimateController {
                 .body(pdf);
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{estimateNo}/status")
     public ResponseEntity<EstimateResponse> updateStatus(
             @PathVariable Integer estimateNo,
@@ -142,7 +144,6 @@ public class EstimateController {
         return ResponseEntity.ok(EstimateResponse.from(saved));
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PostMapping
     public ResponseEntity<EstimateResponse> create(
             @Valid @RequestBody EstimateCreateRequest request) throws Exception {
@@ -151,11 +152,12 @@ public class EstimateController {
             return ResponseEntity.status(denied.getStatusCode()).build();
         }
         TEstimate estimate = estimateCreateService.createEstimate(request);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(EstimateResponse.fromWithDetails(estimate));
+        EstimateResponse resp = EstimateResponse.fromWithDetails(estimate);
+        estimateGoodsSearchService.enrichDetailsWithPricePlanInfo(
+                resp.getShopNo(), resp.getPartnerNo(), resp.getDestinationNo(), resp.getDetails());
+        return ResponseEntity.status(HttpStatus.CREATED).body(resp);
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{estimateNo}")
     public ResponseEntity<EstimateResponse> update(
             @PathVariable Integer estimateNo,
@@ -169,10 +171,12 @@ public class EstimateController {
             return ResponseEntity.status(denied.getStatusCode()).build();
         }
         TEstimate estimate = estimateCreateService.updateEstimate(estimateNo, request);
-        return ResponseEntity.ok(EstimateResponse.fromWithDetails(estimate));
+        EstimateResponse resp = EstimateResponse.fromWithDetails(estimate);
+        estimateGoodsSearchService.enrichDetailsWithPricePlanInfo(
+                resp.getShopNo(), resp.getPartnerNo(), resp.getDestinationNo(), resp.getDetails());
+        return ResponseEntity.ok(resp);
     }
 
-    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/{estimateNo}")
     public ResponseEntity<Void> delete(@PathVariable Integer estimateNo) throws Exception {
         TEstimate existing = tEstimateService.getByEstimateNo(estimateNo);

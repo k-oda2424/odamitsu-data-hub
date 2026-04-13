@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/bcart")
+@PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
 public class BCartController {
 
@@ -25,7 +26,6 @@ public class BCartController {
         return ResponseEntity.ok(orders.stream().map(BCartShippingResponse::from).collect(Collectors.toList()));
     }
 
-    @PreAuthorize("isAuthenticated()")
     @PutMapping("/shipping/{orderId}/status")
     public ResponseEntity<Void> updateShippingStatus(
             @PathVariable Long orderId,

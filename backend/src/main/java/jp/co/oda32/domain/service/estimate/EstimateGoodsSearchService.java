@@ -16,7 +16,10 @@ import jp.co.oda32.domain.repository.goods.MSalesGoodsRepository;
 import jp.co.oda32.domain.repository.goods.WSalesGoodsRepository;
 import jp.co.oda32.domain.repository.purchase.TQuoteImportDetailRepository;
 import jp.co.oda32.domain.repository.purchase.TQuoteImportHeaderRepository;
+import jp.co.oda32.domain.model.embeddable.MPartnerGoodsPK;
+import jp.co.oda32.domain.model.goods.MPartnerGoods;
 import jp.co.oda32.domain.service.goods.MGoodsService;
+import jp.co.oda32.domain.service.goods.MPartnerGoodsService;
 import jp.co.oda32.domain.service.goods.MSalesGoodsService;
 import jp.co.oda32.domain.service.goods.WSalesGoodsService;
 import jp.co.oda32.domain.service.master.MSupplierService;
@@ -36,11 +39,13 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
+@lombok.extern.slf4j.Slf4j
 public class EstimateGoodsSearchService {
 
     private final MGoodsService mGoodsService;
     private final MSalesGoodsService mSalesGoodsService;
     private final WSalesGoodsService wSalesGoodsService;
+    private final MPartnerGoodsService mPartnerGoodsService;
     private final MSupplierService mSupplierService;
     private final MPurchasePriceChangePlanService mPurchasePriceChangePlanService;
     private final VEstimateGoodsService vEstimateGoodsService;
@@ -415,6 +420,9 @@ public class EstimateGoodsSearchService {
             }
         }
 
+        // m_partner_goods から現行販売単価を取得（partnerNo/destinationNoが一致するレコードのみ）
+        BigDecimal currentSalesPrice = lookupCurrentSalesPrice(partnerNo, destinationNo, goodsNo);
+
         if (selected != null) {
             BigDecimal containNum = selected.getChangeContainNum() != null
                     ? selected.getChangeContainNum() : selected.getCaseContainNum();
@@ -432,6 +440,7 @@ public class EstimateGoodsSearchService {
                     .containNum(containNum)
                     .changeContainNum(selected.getChangeContainNum())
                     .nowGoodsPrice(selected.getAfterPrice())
+                    .currentSalesPrice(currentSalesPrice)
                     .pricePlanInfo(pricePlanInfo)
                     .janCode(janCode)
                     .source("GOODS")
@@ -445,9 +454,69 @@ public class EstimateGoodsSearchService {
                 .goodsCode(goodsCode)
                 .goodsName(mGoods != null ? mGoods.getGoodsName() : "")
                 .specification(specification)
+                .currentSalesPrice(currentSalesPrice)
                 .janCode(janCode)
                 .source("GOODS")
                 .supplierNo(supplierNo)
                 .build();
+    }
+
+    private BigDecimal lookupCurrentSalesPrice(Integer partnerNo, Integer destinationNo, Integer goodsNo) {
+        if (partnerNo == null || goodsNo == null) return null;
+        try {
+            MPartnerGoodsPK pk = new MPartnerGoodsPK();
+            pk.setPartnerNo(partnerNo);
+            pk.setGoodsNo(goodsNo);
+            pk.setDestinationNo(destinationNo != null ? destinationNo : 0);
+            MPartnerGoods pg = mPartnerGoodsService.getByPK(pk);
+            if (pg != null && pg.getGoodsPrice() != null && !"1".equals(pg.getDelFlg())) {
+                return pg.getGoodsPrice();
+            }
+        } catch (Exception e) {
+            log.warn("得意先商品価格の参照に失敗: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 見積明細に原価改訂予定情報 (pricePlanInfo) を埋める。
+     * 特値 (partnerNo + destinationNo 一致) を優先し、見つからなければ標準 (partnerNo=0, destinationNo=0) を参照。
+     * m_purchase_price_change_plan を直接検索（ビューはpartner_no IS NULL前提で partner_no=0 データを拾えないため）。
+     */
+    public void enrichDetailsWithPricePlanInfo(
+            Integer shopNo, Integer partnerNo, Integer destinationNo,
+            List<jp.co.oda32.dto.estimate.EstimateDetailResponse> details) {
+        if (details == null || details.isEmpty() || shopNo == null) return;
+
+        for (jp.co.oda32.dto.estimate.EstimateDetailResponse d : details) {
+            if (d.getGoodsCode() == null || d.getGoodsCode().isBlank()) continue;
+
+            MPurchasePriceChangePlan plan = null;
+            // 1. 特値
+            if (partnerNo != null && partnerNo != 0) {
+                plan = findLatestPlan(shopNo, d.getGoodsCode(),
+                        partnerNo, destinationNo != null ? destinationNo : 0);
+            }
+            // 2. 標準フォールバック
+            if (plan == null) {
+                plan = findLatestPlan(shopNo, d.getGoodsCode(), 0, 0);
+            }
+            if (plan != null && plan.getChangePlanDate() != null) {
+                String info = plan.getChangePlanDate() + "より"
+                        + plan.getBeforePrice() + "→" + plan.getAfterPrice();
+                d.setPricePlanInfo(info);
+            }
+        }
+    }
+
+    private MPurchasePriceChangePlan findLatestPlan(
+            Integer shopNo, String goodsCode, Integer partnerNo, Integer destinationNo) {
+        List<MPurchasePriceChangePlan> plans = mPurchasePriceChangePlanService.find(
+                shopNo, null, goodsCode, partnerNo, destinationNo, null, Flag.NO);
+        return plans.stream()
+                .filter(p -> !p.isPurchasePriceReflect())
+                .filter(p -> p.getChangePlanDate() != null)
+                .max(Comparator.comparing(MPurchasePriceChangePlan::getChangePlanDate))
+                .orElse(null);
     }
 }

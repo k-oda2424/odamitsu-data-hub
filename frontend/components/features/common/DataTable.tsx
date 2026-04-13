@@ -64,8 +64,16 @@ export function DataTable<T extends Record<string, any>>({
   const sorted = useMemo(() => {
     if (!sortKey) return filtered
     return [...filtered].sort((a, b) => {
-      const aVal = String(a[sortKey] ?? '')
-      const bVal = String(b[sortKey] ?? '')
+      const aRaw = a[sortKey]
+      const bRaw = b[sortKey]
+      // 数値として比較可能な場合は数値ソート
+      if (typeof aRaw === 'number' || typeof bRaw === 'number') {
+        const aNum = Number(aRaw ?? 0)
+        const bNum = Number(bRaw ?? 0)
+        return sortDir === 'asc' ? aNum - bNum : bNum - aNum
+      }
+      const aVal = String(aRaw ?? '')
+      const bVal = String(bRaw ?? '')
       return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
     })
   }, [filtered, sortKey, sortDir])
@@ -148,19 +156,19 @@ export function DataTable<T extends Record<string, any>>({
           全 {sorted.length} 件中 {sorted.length > 0 ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, sorted.length)} 件
         </span>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(0)} disabled={page === 0}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(0)} disabled={page === 0} aria-label="最初のページ">
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(p => p - 1)} disabled={page === 0}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(p => p - 1)} disabled={page === 0} aria-label="前のページ">
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="min-w-[4rem] text-center text-muted-foreground">
             {page + 1} / {totalPages}
           </span>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} aria-label="次のページ">
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1}>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} aria-label="最後のページ">
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>

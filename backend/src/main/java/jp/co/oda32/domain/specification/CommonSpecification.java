@@ -28,15 +28,24 @@ public class CommonSpecification<T> {
     }
 
     /**
+     * LIKE検索のワイルドカード文字をエスケープする。
+     * '%', '_', '\' を '\' でエスケープし、cb.like() の ESCAPE '\' と組み合わせて使用する。
+     */
+    private String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    /**
      * 全角・半角を統一（NFKC正規化）してLIKE検索するSpecificationを返します。
      * パターン: %value%（部分一致）
      */
     protected Specification<T> likeNormalized(String fieldName, String searchValue) {
         if (StringUtil.isEmpty(searchValue)) return null;
-        String normalized = StringUtil.normalizeForSearch(searchValue);
+        String escaped = escapeLike(StringUtil.normalizeForSearch(searchValue));
         return (root, query, cb) -> cb.like(
                 nfkc(cb, root.get(fieldName)),
-                "%" + normalized + "%"
+                "%" + escaped + "%",
+                '\\'
         );
     }
 
@@ -45,10 +54,11 @@ public class CommonSpecification<T> {
      */
     protected Specification<T> likeSuffixNormalized(String fieldName, String searchValue) {
         if (StringUtil.isEmpty(searchValue)) return null;
-        String normalized = StringUtil.normalizeForSearch(searchValue);
+        String escaped = escapeLike(StringUtil.normalizeForSearch(searchValue));
         return (root, query, cb) -> cb.like(
                 nfkc(cb, root.get(fieldName)),
-                "%" + normalized
+                "%" + escaped,
+                '\\'
         );
     }
 
@@ -57,10 +67,11 @@ public class CommonSpecification<T> {
      */
     protected Specification<T> likePrefixNormalized(String fieldName, String searchValue) {
         if (StringUtil.isEmpty(searchValue)) return null;
-        String normalized = StringUtil.normalizeForSearch(searchValue);
+        String escaped = escapeLike(StringUtil.normalizeForSearch(searchValue));
         return (root, query, cb) -> cb.like(
                 nfkc(cb, root.get(fieldName)),
-                normalized + "%"
+                escaped + "%",
+                '\\'
         );
     }
 
@@ -70,10 +81,11 @@ public class CommonSpecification<T> {
      */
     protected Specification<T> likeNormalized(String parent, String child, String searchValue) {
         if (StringUtil.isEmpty(searchValue)) return null;
-        String normalized = StringUtil.normalizeForSearch(searchValue);
+        String escaped = escapeLike(StringUtil.normalizeForSearch(searchValue));
         return (root, query, cb) -> cb.like(
                 nfkc(cb, root.get(parent).get(child)),
-                "%" + normalized + "%"
+                "%" + escaped + "%",
+                '\\'
         );
     }
 
@@ -82,10 +94,11 @@ public class CommonSpecification<T> {
      */
     protected Specification<T> likeSuffixNormalized(String parent, String child, String searchValue) {
         if (StringUtil.isEmpty(searchValue)) return null;
-        String normalized = StringUtil.normalizeForSearch(searchValue);
+        String escaped = escapeLike(StringUtil.normalizeForSearch(searchValue));
         return (root, query, cb) -> cb.like(
                 nfkc(cb, root.get(parent).get(child)),
-                "%" + normalized
+                "%" + escaped,
+                '\\'
         );
     }
 

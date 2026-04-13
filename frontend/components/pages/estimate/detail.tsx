@@ -12,11 +12,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ArrowLeft, Printer, Pencil, Trash2, Download } from 'lucide-react'
+import { ArrowLeft, Printer, Pencil, Trash2, Download, ArrowLeftRight } from 'lucide-react'
+import type { ComparisonResponse } from '@/types/estimate-comparison'
 import { fmt } from '@/lib/estimate-calc'
+import { formatDateJP } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { EstimateResponse } from '@/types/estimate'
-import { ESTIMATE_STATUS_OPTIONS, getEstimateStatusLabel } from '@/types/estimate'
+import { ESTIMATE_STATUS_OPTIONS, getEstimateStatusLabel, getNotifiedStatus } from '@/types/estimate'
 
 interface EstimateDetailPageProps {
   estimateNo: number
@@ -32,11 +34,7 @@ function statusVariant(code: string | null): 'default' | 'secondary' | 'outline'
   }
 }
 
-function formatDateJP(dateStr: string | null): string {
-  if (!dateStr) return '-'
-  const [y, m, d] = dateStr.split('-').map(Number)
-  return `${y}年${m}月${d}日`
-}
+
 
 export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
   const router = useRouter()
@@ -69,12 +67,53 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
       api.put<EstimateResponse>(`/estimates/${estimateNo}/status`, { estimateStatus: status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['estimate', estimateNo] })
+      queryClient.invalidateQueries({ queryKey: ['estimates'] })
       toast.success('ステータスを更新しました')
     },
     onError: () => toast.error('ステータスの更新に失敗しました'),
   })
 
+  const createComparisonMutation = useMutation({
+    mutationFn: () =>
+      api.post<ComparisonResponse>(`/estimate-comparisons/from-estimate/${estimateNo}`),
+    onSuccess: (data) => {
+      toast.success('比較見積を作成しました')
+      router.push(`/estimate-comparisons/${data.comparisonNo}/edit`)
+    },
+    onError: () => toast.error('比較見積の作成に失敗しました'),
+  })
+
+  const updateStatusOnOutput = useCallback(async (currentStatus: string | null) => {
+    const notified = getNotifiedStatus(currentStatus)
+    if (notified === null || notified === currentStatus) return
+    try {
+      await api.put(`/estimates/${estimateNo}/status`, { estimateStatus: notified })
+      queryClient.invalidateQueries({ queryKey: ['estimate', estimateNo] })
+      queryClient.invalidateQueries({ queryKey: ['estimates'] })
+      toast.success(`ステータスを「${getEstimateStatusLabel(notified)}」に更新しました`)
+    } catch {
+      toast.error('ステータスの更新に失敗しました')
+    }
+  }, [estimateNo, queryClient])
+
+  const handlePrint = useCallback(async () => {
+    const notified = getNotifiedStatus(estimateQuery.data?.estimateStatus ?? null)
+    const willChange = notified !== null && notified !== estimateQuery.data?.estimateStatus
+    if (willChange) {
+      if (!confirm(`印刷しますか？ステータスが「${getEstimateStatusLabel(notified)}」に更新されます。`)) return
+    }
+    window.print()
+    if (willChange) {
+      await updateStatusOnOutput(estimateQuery.data?.estimateStatus ?? null)
+    }
+  }, [estimateQuery.data?.estimateStatus, updateStatusOnOutput])
+
   const handleDownloadPdf = useCallback(async () => {
+    const notified = getNotifiedStatus(estimateQuery.data?.estimateStatus ?? null)
+    const willChange = notified !== null && notified !== estimateQuery.data?.estimateStatus
+    if (willChange) {
+      if (!confirm(`PDFをダウンロードしますか？ステータスが「${getEstimateStatusLabel(notified)}」に更新されます。`)) return
+    }
     try {
       const params = new URLSearchParams()
       if (user?.userName) params.append('userName', user.userName)
@@ -91,8 +130,12 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
       URL.revokeObjectURL(url)
     } catch {
       toast.error('PDFのダウンロードに失敗しました')
+      return
     }
-  }, [estimateNo, user?.userName])
+    if (willChange) {
+      await updateStatusOnOutput(estimateQuery.data?.estimateStatus ?? null)
+    }
+  }, [estimateNo, user?.userName, estimateQuery.data?.estimateStatus, updateStatusOnOutput])
 
   if (estimateQuery.isLoading) return <LoadingSpinner />
   if (estimateQuery.isError) return <ErrorMessage onRetry={() => estimateQuery.refetch()} />
@@ -132,7 +175,17 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
                   </Button>
                 </>
               )}
-              <Button variant="outline" onClick={() => window.print()}>
+              {isEditable(est) && (
+                <Button
+                  variant="outline"
+                  onClick={() => createComparisonMutation.mutate()}
+                  disabled={createComparisonMutation.isPending}
+                >
+                  <ArrowLeftRight className="mr-2 h-4 w-4" />
+                  {createComparisonMutation.isPending ? '作成中...' : '比較見積を作成'}
+                </Button>
+              )}
+              <Button variant="outline" onClick={handlePrint}>
                 <Printer className="mr-2 h-4 w-4" />
                 印刷
               </Button>

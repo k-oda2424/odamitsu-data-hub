@@ -35,7 +35,7 @@ import {
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return null
   const label = getEstimateStatusLabel(status)
-  const variant =
+  const variant: 'default' | 'secondary' | 'outline' | 'destructive' =
     status === '00' || status === '20'
       ? 'default'
       : status === '10' || status === '30'
@@ -43,7 +43,7 @@ function StatusBadge({ status }: { status: string | null }) {
         : status === '70'
           ? 'outline'
           : 'destructive'
-  return <Badge variant={variant as 'default' | 'secondary' | 'outline' | 'destructive'}>{label}</Badge>
+  return <Badge variant={variant}>{label}</Badge>
 }
 
 const columns: Column<EstimateResponse>[] = [

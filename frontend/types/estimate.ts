@@ -13,6 +13,7 @@ export interface EstimateDetailResponse {
   profitRate: number | null
   detailNote: string | null
   displayOrder: number
+  pricePlanInfo: string | null
 }
 
 export interface EstimateResponse {
@@ -52,6 +53,29 @@ export function getEstimateStatusLabel(code: string | null): string {
   return ESTIMATE_STATUS_OPTIONS.find((s) => s.value === code)?.label ?? code
 }
 
+/**
+ * 印刷/PDF出力時のステータス自動遷移ルール。
+ * 旧システム EstimateUtil.getNotifiedStatus() と同等。
+ *
+ * - 00 (作成)    → 10 (提出済)
+ * - 20 (修正)    → 30 (修正後提出済)
+ * - 10, 30       → 変化なし（そのまま返す）
+ * - 40以上       → null（自動更新対象外）
+ */
+export function getNotifiedStatus(currentStatus: string | null): string | null {
+  switch (currentStatus) {
+    case '00':
+      return '10'
+    case '20':
+      return '30'
+    case '10':
+    case '30':
+      return currentStatus // 変化なし
+    default:
+      return null // 40以上や不明なステータスは自動更新しない
+  }
+}
+
 export interface EstimateDetailCreateRequest {
   goodsNo: number | null
   goodsCode: string
@@ -89,6 +113,8 @@ export interface EstimateGoodsSearchResponse {
   containNum: number | null
   changeContainNum: number | null
   nowGoodsPrice: number | null
+  /** m_partner_goods.goods_price 由来の現行販売単価（得意先/届先一致のみ） */
+  currentSalesPrice: number | null
   pricePlanInfo: string | null
   janCode: string | null
   source: 'GOODS' | 'PRICE_PLAN' | 'QUOTE_IMPORT'

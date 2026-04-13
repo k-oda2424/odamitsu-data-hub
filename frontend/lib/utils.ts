@@ -14,6 +14,12 @@ export function formatNumber(num: number): string {
   return new Intl.NumberFormat('ja-JP').format(num)
 }
 
+export function formatDateJP(dateStr: string | null): string {
+  if (!dateStr) return '-'
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return `${y}年${m}月${d}日`
+}
+
 export function formatCurrency(num: number): string {
   return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(num)
 }
