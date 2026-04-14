@@ -123,7 +123,7 @@ const menuGroups: MenuGroup[] = [
       { title: '販売商品マスタ', icon: ShoppingCart, href: '/sales-goods' },
       { title: '販売商品ワーク', icon: ClipboardList, href: '/sales-goods/work' },
       { title: '得意先商品', icon: ClipboardList, href: '/partner-goods' },
-      { title: 'B-CART出荷', icon: Globe, href: '/bcart/shipping' },
+      { title: 'B-CART出荷情報入力', icon: Globe, href: '/bcart/shipping' },
       { title: 'B-CARTカテゴリ', icon: Database, href: '/bcart/categories' },
       { title: 'B-CART商品', icon: Package, href: '/bcart/products' },
     ],

@@ -2,17 +2,17 @@ package jp.co.oda32.domain.service.bcart;
 
 import jp.co.oda32.domain.model.bcart.BCartVolumeDiscount;
 import jp.co.oda32.domain.repository.bcart.BCartVolumeDiscountRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class BCartVolumeDiscountService {
 
-    @Autowired
-    private BCartVolumeDiscountRepository bCartVolumeDiscountRepository;
+    private final BCartVolumeDiscountRepository bCartVolumeDiscountRepository;
 
     public List<BCartVolumeDiscount> findByProductSetIdAndCustomerId(Long productSetId, Long customerId) {
         if (customerId == null) {

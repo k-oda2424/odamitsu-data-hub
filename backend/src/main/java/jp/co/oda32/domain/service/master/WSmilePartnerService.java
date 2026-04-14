@@ -9,16 +9,16 @@ package jp.co.oda32.domain.service.master;
 
 import jp.co.oda32.domain.model.master.WSmilePartner;
 import jp.co.oda32.domain.repository.master.WSmilePartnerRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class WSmilePartnerService {
 
-    @Autowired
-    private WSmilePartnerRepository wSmilePartnerRepository;
+    private final WSmilePartnerRepository wSmilePartnerRepository;
 
     public List<WSmilePartner> findAll() {
         return wSmilePartnerRepository.findAll();

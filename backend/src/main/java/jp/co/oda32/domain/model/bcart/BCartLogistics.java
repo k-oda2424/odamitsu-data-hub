@@ -107,7 +107,10 @@ public class BCartLogistics {
     @Column(name = "b_cart_csv_exported")
     private boolean bCartCsvExported;// B-CARTの出荷実績CSV出力したかどうか
 
-    @OneToMany(mappedBy = "bCartLogistics", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    // cascade は MERGE のみ。BCartOrderProduct の FK (logistics_id/order_id) は
+    // insertable=false/updatable=false で読み取り専用のため、PERSIST/REMOVE はそもそも機能しない。
+    // 新規作成時は BCartOrderProductService 経由で明示的に保存する (BCartOrderRegisterTasklet 等)。
+    @OneToMany(mappedBy = "bCartLogistics", cascade = CascadeType.MERGE, fetch = FetchType.EAGER)
     @BatchSize(size = 30)
     private List<BCartOrderProduct> bCartOrderProductList;
 

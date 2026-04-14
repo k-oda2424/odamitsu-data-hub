@@ -19,7 +19,6 @@ import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -44,31 +43,23 @@ import static jp.co.oda32.constant.Constants.SHIPPING_FEE_PRODUCT_CODE;
 @StepScope
 public class BCartOrderConvertSmileOrderFileTasklet implements Tasklet {
 
-    @Autowired
-    private TSmileOrderImportFileService TSmileOrderImportFileService;
+    private final TSmileOrderImportFileService TSmileOrderImportFileService;
     /**
      * ケース販売品番の接頭辞 (商品No.が "case_〇〇" ならケース販売とみなす)
      */
     private static final String PRODUCT_NO_CASE_PREFIX = "case_";
-    @Autowired
-    private BCartMemberService bCartMemberService;
-    @Autowired
-    private DeliveryMappingService deliveryMappingService;
-    @Autowired
-    private MTaxRateService mTaxRateService;
-    @Autowired
-    private WSalesGoodsService wSalesGoodsService;
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private final BCartMemberService bCartMemberService;
+    private final DeliveryMappingService deliveryMappingService;
+    private final MTaxRateService mTaxRateService;
+    private final WSalesGoodsService wSalesGoodsService;
+    private final JdbcTemplate jdbcTemplate;
     /**
      * bCartCustomerId -> BCartMember のキャッシュマップ
      */
     private final Map<Long, BCartMember> bCartMemberMap = new HashMap<>();
-    @Autowired
-    private BCartLogisticsService bCartLogisticsService;
+    private final BCartLogisticsService bCartLogisticsService;
 
-    @Autowired
-    private BCartOrderProductService bCartOrderProductService;
+    private final BCartOrderProductService bCartOrderProductService;
     /**
      * 現在の消費税率
      */

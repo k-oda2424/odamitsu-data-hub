@@ -8,6 +8,10 @@ spring:
 cors:
   allowed-origins: http://localhost:5173,http://localhost:3000
 
+app:
+  # 開発環境のみ: 500 レスポンスに例外クラス名/メッセージを含める
+  expose-exception-detail: true
+
 jwt:
   secret: dev-secret-key-odamitsu-data-hub-2024-must-be-at-least-256-bits-long
   expiration-ms: 86400000

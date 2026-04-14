@@ -4,7 +4,7 @@ import jp.co.oda32.domain.model.bcart.BCartLogistics;
 import jp.co.oda32.domain.model.bcart.BCartOrder;
 import jp.co.oda32.domain.model.bcart.BCartOrderProduct;
 import jp.co.oda32.domain.repository.bcart.BCartLogisticsRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,9 +20,9 @@ import java.util.List;
  * @since 2023/03/20
  */
 @Service
+@RequiredArgsConstructor
 public class BCartLogisticsService {
-    @Autowired
-    private BCartLogisticsRepository bCartLogisticsRepository;
+    private final BCartLogisticsRepository bCartLogisticsRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -107,11 +107,7 @@ public class BCartLogisticsService {
     }
 
     public List<BCartLogistics> save(List<BCartLogistics> bCartLogisticsList) {
-        List<BCartLogistics> savedList = new ArrayList<>();
-        for (BCartLogistics bCartLogistics : bCartLogisticsList) {
-            savedList.add(this.save(bCartLogistics));
-        }
-        return savedList;
+        return bCartLogisticsRepository.saveAll(bCartLogisticsList);
     }
 
     public BCartLogistics findById(Long id) {

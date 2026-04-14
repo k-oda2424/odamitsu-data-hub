@@ -17,7 +17,6 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedWriter;
@@ -40,10 +39,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @StepScope
 public class SmileOrderFileOutPutTasklet implements Tasklet {
-    @Autowired
-    private TSmileOrderImportFileService TSmileOrderImportFileService;
-    @Autowired
-    private MShopLinkedFileService mShopLinkedFileService;
+    private final TSmileOrderImportFileService TSmileOrderImportFileService;
+    private final MShopLinkedFileService mShopLinkedFileService;
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {

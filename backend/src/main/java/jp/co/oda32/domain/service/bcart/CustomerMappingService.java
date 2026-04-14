@@ -9,15 +9,15 @@ package jp.co.oda32.domain.service.bcart;
 
 import jp.co.oda32.domain.model.bcart.CustomerMapping;
 import jp.co.oda32.domain.repository.bcart.CustomerMappingRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class CustomerMappingService {
 
-    @Autowired
-    private CustomerMappingRepository customerMappingRepository;
+    private final CustomerMappingRepository customerMappingRepository;
 
     @Transactional
     public CustomerMapping save(CustomerMapping customerMapping) {

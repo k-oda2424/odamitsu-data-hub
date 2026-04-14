@@ -7,17 +7,17 @@ package jp.co.oda32.domain.service.bcart;
 
 import jp.co.oda32.domain.model.bcart.DeliveryMapping;
 import jp.co.oda32.domain.repository.bcart.DeliveryMappingRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class DeliveryMappingService {
 
-    @Autowired
-    private DeliveryMappingRepository deliveryMappingRepository;
+    private final DeliveryMappingRepository deliveryMappingRepository;
 
     @Transactional
     public DeliveryMapping save(DeliveryMapping deliveryMapping) {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { ShoppingCart, LifeBuoy, MessageSquare, ListChecks, BarChart3, ArrowRight } from 'lucide-react'
+import { ShoppingCart, LifeBuoy, MessageSquare, BarChart3, ArrowRight, Globe } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SalesChart } from '@/components/features/dashboard/SalesChart'
@@ -86,24 +86,26 @@ export function DashboardPage() {
             step={2}
             jobName="smileOrderFileImport"
             shopNo={1}
+            settingsHref="/masters/linked-files"
+          />
+          <BatchPanel
+            title="B-CART出荷情報入力"
+            description="B-CARTの出荷情報（送り状番号・出荷日・ステータス）を編集します"
+            detail="別タブで画面を開きます"
+            icon={Globe}
+            color="sky"
+            step={3}
+            linkHref="/bcart/shipping"
+            linkLabel="画面を開く"
           />
           <BatchPanel
             title="出荷実績CSV"
             description="小田光オンラインに取り込む出荷実績CSVを作成します"
             detail="\\Smile-srv\共有\業務内容\ネットショップ関連\連携ファイル\小田光オンラインへ連携"
             icon={MessageSquare}
-            color="sky"
-            step={3}
-            jobName="bCartLogisticsCsvExport"
-          />
-          <BatchPanel
-            title="新規会員取込"
-            description="小田光オンラインから新規会員情報を取り込み、SMILEへ連携するファイルを生成します"
-            detail="\\Smile-srv\共有\業務内容\ネットショップ関連\連携ファイル\smileへ連携"
-            icon={ListChecks}
             color="emerald"
             step={4}
-            jobName="bCartMemberUpdate"
+            jobName="bCartLogisticsCsvExport"
           />
         </div>
       </section>

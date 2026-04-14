@@ -28,8 +28,10 @@ test.describe('ダッシュボード', () => {
     await expect(page.getByRole('heading', { name: 'バッチ処理' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '新規受注取込' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '売上明細取込' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'B-CART出荷情報入力' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '出荷実績CSV' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: '新規会員取込' })).toBeVisible()
+    // 新規会員取込はワークフローガイド補足内のボタンに移動
+    await expect(page.getByRole('button', { name: /新規会員取込/ })).toBeVisible()
   })
 
   test('DB-02: 売上チャート・ワークフローセクション表示', async ({ page }) => {
