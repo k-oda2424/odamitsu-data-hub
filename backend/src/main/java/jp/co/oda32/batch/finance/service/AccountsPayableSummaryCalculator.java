@@ -2,6 +2,7 @@ package jp.co.oda32.batch.finance.service;
 
 import jp.co.oda32.batch.finance.model.SummaryKey;
 import jp.co.oda32.batch.finance.model.TaxAggregationResult;
+import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.model.master.MPaymentSupplier;
@@ -47,7 +48,7 @@ public class AccountsPayableSummaryCalculator {
         // 税率ごとに、取り込んだ明細の税抜金額（baseAmount）を集計し、消費税額は集計後に一括計算する
         Map<SummaryKey, TaxAggregationResult> summaryMap = tPurchaseDetails.stream()
                 // 小田光在庫表は棚卸時に手打ち商品について入れているだけなので無視する
-                .filter(tPurchaseDetail -> tPurchaseDetail.getTPurchase().getSupplierNo() != 303)
+                .filter(tPurchaseDetail -> tPurchaseDetail.getTPurchase().getSupplierNo() != FinanceConstants.EXCLUDED_SUPPLIER_NO)
                 .collect(Collectors.groupingBy(
                         detail -> {
                             Integer shopNo = detail.getShopNo();

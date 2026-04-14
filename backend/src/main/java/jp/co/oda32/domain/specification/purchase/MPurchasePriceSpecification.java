@@ -26,6 +26,15 @@ public class MPurchasePriceSpecification extends CommonSpecification<MPurchasePr
     }
 
     /**
+     * 仕入先番号リストのin句の条件
+     */
+    public Specification<MPurchasePrice> supplierNoListContains(java.util.List<Integer> supplierNoList) {
+        return (supplierNoList == null || supplierNoList.isEmpty())
+                ? null
+                : (root, query, cb) -> root.get("supplierNo").in(supplierNoList);
+    }
+
+    /**
      * 得意先番号の検索条件
      *
      * @param partnerNo 得意先番号
