@@ -10,8 +10,13 @@ import jp.co.oda32.domain.service.finance.MPartnerGroupService;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
 import jp.co.oda32.domain.service.finance.TInvoiceService;
 import jp.co.oda32.domain.service.util.LoginUserUtil;
+import jp.co.oda32.domain.model.master.MPaymentSupplier;
+import jp.co.oda32.domain.service.master.MPaymentSupplierService;
 import jp.co.oda32.dto.finance.AccountsPayableResponse;
+import jp.co.oda32.dto.finance.AccountsPayableSummaryResponse;
+import jp.co.oda32.dto.finance.AccountsPayableVerifyRequest;
 import jp.co.oda32.dto.finance.BulkPaymentDateRequest;
+import jp.co.oda32.dto.finance.MfExportToggleRequest;
 import jp.co.oda32.dto.finance.InvoiceImportResult;
 import jp.co.oda32.dto.finance.InvoiceResponse;
 import jp.co.oda32.dto.finance.PartnerGroupRequest;
@@ -28,10 +33,13 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.format.annotation.DateTimeFormat;
 
 @Slf4j
 @RestController
@@ -45,15 +53,87 @@ public class FinanceController {
     private final InvoiceImportService invoiceImportService;
     private final MPartnerGroupService partnerGroupService;
     private final AccountingStatusService accountingStatusService;
+    private final MPaymentSupplierService mPaymentSupplierService;
 
     @GetMapping("/accounts-payable")
     public ResponseEntity<Page<AccountsPayableResponse>> listAccountsPayable(
             @RequestParam(required = false) Integer shopNo,
             @RequestParam(required = false) Integer supplierNo,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth,
+            @RequestParam(required = false) String verificationFilter,
             @PageableDefault(size = 50, sort = "transactionMonth", direction = Sort.Direction.DESC) Pageable pageable) {
         Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
-        Page<TAccountsPayableSummary> page = accountsPayableSummaryService.findPaged(effectiveShopNo, supplierNo, pageable);
-        return ResponseEntity.ok(page.map(AccountsPayableResponse::from));
+        Page<TAccountsPayableSummary> page = accountsPayableSummaryService.findPaged(
+                effectiveShopNo, supplierNo, transactionMonth, verificationFilter, pageable);
+
+        Set<Integer> supplierNos = page.getContent().stream()
+                .map(TAccountsPayableSummary::getSupplierNo)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Integer, MPaymentSupplier> psMap = mPaymentSupplierService.findAllByPaymentSupplierNos(supplierNos).stream()
+                .collect(Collectors.toMap(MPaymentSupplier::getPaymentSupplierNo, p -> p, (a, b) -> a));
+
+        return ResponseEntity.ok(page.map(ap -> AccountsPayableResponse.from(ap, psMap.get(ap.getSupplierNo()))));
+    }
+
+    @GetMapping("/accounts-payable/summary")
+    public ResponseEntity<AccountsPayableSummaryResponse> getAccountsPayableSummary(
+            @RequestParam(required = false) Integer shopNo,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth) {
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
+        return ResponseEntity.ok(accountsPayableSummaryService.summary(effectiveShopNo, transactionMonth));
+    }
+
+    @PutMapping("/accounts-payable/{shopNo}/{supplierNo}/{transactionMonth}/{taxRate}/verify")
+    public ResponseEntity<AccountsPayableResponse> verifyAccountsPayable(
+            @PathVariable Integer shopNo,
+            @PathVariable Integer supplierNo,
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth,
+            @PathVariable BigDecimal taxRate,
+            @Valid @RequestBody AccountsPayableVerifyRequest request) {
+        assertShopAccess(shopNo);
+        TAccountsPayableSummary updated = accountsPayableSummaryService.verify(
+                shopNo, supplierNo, transactionMonth, taxRate,
+                request.getVerifiedAmount(), request.getNote());
+        MPaymentSupplier ps = mPaymentSupplierService.getByPaymentSupplierNo(supplierNo);
+        return ResponseEntity.ok(AccountsPayableResponse.from(updated, ps));
+    }
+
+    @DeleteMapping("/accounts-payable/{shopNo}/{supplierNo}/{transactionMonth}/{taxRate}/manual-lock")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AccountsPayableResponse> releaseManualLock(
+            @PathVariable Integer shopNo,
+            @PathVariable Integer supplierNo,
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth,
+            @PathVariable BigDecimal taxRate) {
+        assertShopAccess(shopNo);
+        TAccountsPayableSummary updated = accountsPayableSummaryService.releaseManualLock(
+                shopNo, supplierNo, transactionMonth, taxRate);
+        MPaymentSupplier ps = mPaymentSupplierService.getByPaymentSupplierNo(supplierNo);
+        return ResponseEntity.ok(AccountsPayableResponse.from(updated, ps));
+    }
+
+    @PatchMapping("/accounts-payable/{shopNo}/{supplierNo}/{transactionMonth}/{taxRate}/mf-export")
+    public ResponseEntity<AccountsPayableResponse> toggleMfExport(
+            @PathVariable Integer shopNo,
+            @PathVariable Integer supplierNo,
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth,
+            @PathVariable BigDecimal taxRate,
+            @Valid @RequestBody MfExportToggleRequest request) {
+        assertShopAccess(shopNo);
+        TAccountsPayableSummary updated = accountsPayableSummaryService.updateMfExport(
+                shopNo, supplierNo, transactionMonth, taxRate, request.getEnabled());
+        MPaymentSupplier ps = mPaymentSupplierService.getByPaymentSupplierNo(supplierNo);
+        return ResponseEntity.ok(AccountsPayableResponse.from(updated, ps));
+    }
+
+    private void assertShopAccess(Integer shopNo) {
+        Integer effective = LoginUserUtil.resolveEffectiveShopNo(shopNo);
+        if (effective != null && !effective.equals(shopNo)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "他ショップのデータにはアクセスできません");
+        }
     }
 
     @GetMapping("/invoices")

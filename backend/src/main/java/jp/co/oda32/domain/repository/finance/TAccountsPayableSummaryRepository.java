@@ -27,4 +27,6 @@ public interface TAccountsPayableSummaryRepository extends JpaRepository<TAccoun
     List<TAccountsPayableSummary> findByTransactionMonth(LocalDate transactionMonth);
 
     TAccountsPayableSummary getByShopNoAndSupplierNoAndTransactionMonthAndTaxRate(int shopNo, int supplierNo, LocalDate transactionMonth, BigDecimal taxRate);
+
+    List<TAccountsPayableSummary> findByShopNoAndSupplierCodeAndTransactionMonth(Integer shopNo, String supplierCode, LocalDate transactionMonth);
 }

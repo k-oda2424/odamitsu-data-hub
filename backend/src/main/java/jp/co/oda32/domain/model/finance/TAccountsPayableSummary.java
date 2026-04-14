@@ -67,4 +67,12 @@ public class TAccountsPayableSummary {
     // マネーフォワードエクスポート可否フラグを追加
     @Column(name = "mf_export_enabled")
     private Boolean mfExportEnabled; // デフォルトではエクスポート可能
+
+    // 手入力保護: trueならSMILE再検証バッチで上書きされない
+    @Column(name = "verified_manually")
+    private Boolean verifiedManually;
+
+    // 検証時の備考（請求書番号・確認経緯など）
+    @Column(name = "verification_note")
+    private String verificationNote;
 }
