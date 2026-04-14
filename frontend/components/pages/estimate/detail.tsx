@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ConfirmDialog } from '@/components/features/common/ConfirmDialog'
 import { ArrowLeft, Printer, Pencil, Trash2, Download, ArrowLeftRight } from 'lucide-react'
 import type { ComparisonResponse } from '@/types/estimate-comparison'
-import { fmt } from '@/lib/estimate-calc'
+import { fmt, stripPrintParens } from '@/lib/estimate-calc'
 import { formatDateJP } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { EstimateResponse } from '@/types/estimate'
@@ -306,7 +306,7 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
         {/* タイトル + 見積日 */}
         <div className="flex items-end justify-between mb-4">
           <div className="flex-1" />
-          <h1 className="text-2xl font-bold tracking-[0.3em]">御見積書</h1>
+          <h1 className="text-2xl font-semibold tracking-[0.3em]">御見積書</h1>
           <div className="flex-1 text-right text-sm">
             <span>御見積日　{formatDateJP(est.estimateDate)}</span>
           </div>
@@ -315,7 +315,7 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
         {/* 得意先名（担当者名がある場合は「{partnerName}　{recipientName} 様」） */}
         <div className="mb-2">
           <span className="inline-block border-b-2 border-black pb-1">
-            <span className="text-xl font-bold mr-4">{est.partnerName ?? ''}</span>
+            <span className="text-xl font-bold mr-4">{stripPrintParens(est.partnerName)}</span>
             {est.recipientName ? (
               <>
                 <span className="text-xl font-bold mr-4">{est.recipientName}</span>
@@ -339,7 +339,7 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
               <tbody>
                 <tr>
                   <td className="font-bold py-1 pr-4 border-b border-gray-400">受け渡し場所</td>
-                  <td className="py-1 border-b border-gray-400 px-2">{est.destinationName || '貴社指定場所'}</td>
+                  <td className="py-1 border-b border-gray-400 px-2">{est.destinationName && est.destinationName !== '標準届け先' ? est.destinationName : '貴社指定場所'}</td>
                 </tr>
                 <tr>
                   <td className="font-bold py-1 pr-4 border-b border-gray-400">有効期限</td>
