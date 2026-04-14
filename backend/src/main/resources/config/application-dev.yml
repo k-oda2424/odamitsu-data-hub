@@ -6,7 +6,7 @@ spring:
     driver-class-name: org.postgresql.Driver
 
 cors:
-  allowed-origins: http://localhost:5173,http://localhost:3000
+  allowed-origins: http://localhost:5173,http://localhost:3000,http://192.168.1.55:3000
 
 app:
   # 開発環境のみ: 500 レスポンスに例外クラス名/メッセージを含める
@@ -21,3 +21,5 @@ logging:
     org.hibernate.SQL: INFO
     org.hibernate.type.descriptor.sql.BasicBinder: OFF
     jp.co.oda32: INFO
+    # PageImpl 直返しの警告を抑制（FE が flat PageImpl 形状を前提としているため VIA_DTO に切替えると破壊的変更）
+    org.springframework.data.web.config.SpringDataWebConfiguration$PageModule$WarningLoggingModifier: ERROR

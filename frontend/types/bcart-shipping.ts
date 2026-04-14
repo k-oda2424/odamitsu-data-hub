@@ -23,9 +23,17 @@ export interface BCartShippingUpdateRequest {
   /** YYYY-MM-DD, 空文字は null として送信 */
   shipmentDate: string | null
   memo: string
-  /** 編集されていない場合は null を送信（バックエンドで adminMessage の上書きをスキップ） */
+  /** adminMessageDirty=true のときのみバックエンドで上書きされる */
   adminMessage: string | null
+  /** true のときのみ adminMessage を更新する */
+  adminMessageDirty: boolean
   shipmentStatus: BCartShipmentStatus
+}
+
+export interface BCartShippingSaveResponse {
+  updatedCount: number
+  /** B-CART CSV 出力済み＋発送済で更新スキップされた bCartLogisticsId */
+  skippedIds: number[]
 }
 
 export interface BCartShippingBulkStatusRequest {

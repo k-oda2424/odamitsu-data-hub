@@ -23,9 +23,12 @@ public record BCartShippingUpdateRequest(
         @Size(max = 65535)
         String memo,
 
-        /** 編集されていない場合は null (バックエンドで上書きをスキップ) */
+        /** UIで編集された場合の新しい値。adminMessageDirty=false のときは無視される。 */
         @Size(max = 65535)
         String adminMessage,
+
+        /** true のときのみ adminMessage を上書きする。false/null 時は既存値を保持。 */
+        boolean adminMessageDirty,
 
         @NotNull
         BcartShipmentStatus shipmentStatus

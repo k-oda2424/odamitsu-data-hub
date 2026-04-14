@@ -12,6 +12,7 @@ import jp.co.oda32.domain.model.goods.WSalesGoods;
 import jp.co.oda32.domain.service.goods.WSalesGoodsService;
 import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.dto.bcart.BCartShippingInputResponse;
+import jp.co.oda32.dto.bcart.BCartShippingSaveResponse;
 import jp.co.oda32.dto.bcart.BCartShippingUpdateRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -92,10 +94,10 @@ public class BCartShippingInputService {
     }
 
     @Transactional
-    public void saveAll(List<BCartShippingUpdateRequest> requests) {
+    public BCartShippingSaveResponse saveAll(List<BCartShippingUpdateRequest> requests) {
         checkBCartShopAccess();
         if (requests == null || requests.isEmpty()) {
-            return;
+            return new BCartShippingSaveResponse(0, Collections.emptyList());
         }
         List<Long> logisticsIds = requests.stream()
                 .map(BCartShippingUpdateRequest::bCartLogisticsId)
@@ -105,26 +107,53 @@ public class BCartShippingInputService {
         Map<Long, BCartShippingUpdateRequest> requestMap = requests.stream()
                 .collect(Collectors.toMap(BCartShippingUpdateRequest::bCartLogisticsId, r -> r, (a, b) -> a));
 
-        List<BCartLogistics> targets = bCartLogisticsService.findByIdIn(logisticsIds).stream()
-                .filter(l -> !(BcartShipmentStatus.SHIPPED.getDisplayName().equals(l.getStatus()) && l.isBCartCsvExported()))
-                .collect(Collectors.toList());
+        List<BCartLogistics> fetched = bCartLogisticsService.findByIdIn(logisticsIds);
+        List<BCartLogistics> targets = new ArrayList<>();
+        List<Long> skippedIds = new ArrayList<>();
+        for (BCartLogistics l : fetched) {
+            if (BcartShipmentStatus.SHIPPED.getDisplayName().equals(l.getStatus()) && l.isBCartCsvExported()) {
+                skippedIds.add(l.getId());
+            } else {
+                targets.add(l);
+            }
+        }
+
+        // adminMessage を同一 order 内で複数 logistics が更新しようとした場合、
+        // 「dirty フラグ付きで最後に来たリクエストの値」を採用する（決定論的）。
+        // targets の反復順は Repository の返却順（= logisticsIds 順）に依存するため、
+        // 明示的に orderId 単位で最後の値を計算する。
+        Map<Long, String> orderIdToAdminMessage = new HashMap<>();
+        for (BCartLogistics logistics : targets) {
+            BCartShippingUpdateRequest req = requestMap.get(logistics.getId());
+            if (req == null || !req.adminMessageDirty() || logistics.getBCartOrderProductList() == null) continue;
+            for (BCartOrderProduct product : logistics.getBCartOrderProductList()) {
+                BCartOrder order = product.getBCartOrder();
+                if (order != null) {
+                    orderIdToAdminMessage.put(order.getId(), req.adminMessage());
+                }
+            }
+        }
 
         List<BCartOrder> orderUpdates = new ArrayList<>();
-        Set<Long> orderIdSeen = new HashSet<>();
+        Set<Long> orderIdApplied = new HashSet<>();
         for (BCartLogistics logistics : targets) {
             BCartShippingUpdateRequest req = requestMap.get(logistics.getId());
             if (req == null) continue;
             logistics.setDeliveryCode(req.deliveryCode());
-            // b_cart_logistics.shipment_date は String 型カラムのため ISO 形式にフォーマット
-            logistics.setShipmentDate(req.shipmentDate() == null ? null : req.shipmentDate().toString());
+            // b_cart_logistics.shipment_date は String カラムのため ISO 形式で固定化する
+            logistics.setShipmentDate(req.shipmentDate() == null
+                    ? null
+                    : DateTimeFormatter.ISO_LOCAL_DATE.format(req.shipmentDate()));
             logistics.setStatus(req.shipmentStatus().getDisplayName());
             logistics.setMemo(req.memo());
-            // adminMessage は明示送信時のみ更新（null の場合は既存値を保持して上書き競合を避ける）
-            if (req.adminMessage() != null && logistics.getBCartOrderProductList() != null) {
+
+            if (logistics.getBCartOrderProductList() != null) {
                 for (BCartOrderProduct product : logistics.getBCartOrderProductList()) {
                     BCartOrder order = product.getBCartOrder();
-                    if (order != null && orderIdSeen.add(order.getId())) {
-                        order.setAdminMessage(req.adminMessage());
+                    if (order == null) continue;
+                    if (!orderIdToAdminMessage.containsKey(order.getId())) continue;
+                    if (orderIdApplied.add(order.getId())) {
+                        order.setAdminMessage(orderIdToAdminMessage.get(order.getId()));
                         orderUpdates.add(order);
                     }
                 }
@@ -136,6 +165,8 @@ public class BCartShippingInputService {
             bCartOrderService.save(orderUpdates);
         }
         syncBCartOrderStatus(targets);
+
+        return new BCartShippingSaveResponse(targets.size(), skippedIds);
     }
 
     @Transactional

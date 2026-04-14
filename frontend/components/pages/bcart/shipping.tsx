@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
@@ -11,17 +11,7 @@ import { ErrorMessage } from '@/components/features/common/ErrorMessage'
 import { ConfirmDialog } from '@/components/features/common/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import {
   Select,
   SelectContent,
@@ -34,27 +24,57 @@ import {
   type BCartShipmentStatus,
   type BCartShippingBulkStatusRequest,
   type BCartShippingInputResponse,
+  type BCartShippingSaveResponse,
   type BCartShippingUpdateRequest,
 } from '@/types/bcart-shipping'
-
-interface EditableRow extends BCartShippingInputResponse {
-  dirty: boolean
-  adminMessageDirty: boolean
-}
+import { isRowLocked, type MergedRow, type RowPatch } from './shipping-types'
+import { ShippingTable } from './ShippingTable'
 
 function isKnownStatus(value: string | null): value is BCartShipmentStatus {
   return value !== null && (BCART_SHIPMENT_STATUSES as readonly string[]).includes(value)
 }
 
-function toRequest(row: EditableRow): BCartShippingUpdateRequest {
+function mergeRow(
+  server: BCartShippingInputResponse,
+  patch: RowPatch | undefined,
+  adminMessageDirty: boolean,
+): MergedRow {
+  let baseStatus: BCartShipmentStatus
+  if (isKnownStatus(server.shipmentStatus)) {
+    baseStatus = server.shipmentStatus
+  } else {
+    // データ不整合（enum 定義外の値）を可視化する。フォールバックで握りつぶさない。
+    console.warn(
+      `[bcart-shipping] 未知のshipmentStatus "${server.shipmentStatus}" (logisticsId=${server.bCartLogisticsId}). '未発送' にフォールバックします。BE enum との整合性を確認してください。`,
+    )
+    baseStatus = '未発送'
+  }
+  return {
+    bCartLogisticsId: server.bCartLogisticsId,
+    partnerCode: server.partnerCode,
+    partnerName: server.partnerName,
+    deliveryCompName: server.deliveryCompName,
+    goodsInfo: server.goodsInfo,
+    smileSerialNoList: server.smileSerialNoList,
+    bCartCsvExported: server.bCartCsvExported,
+    deliveryCode: patch?.deliveryCode ?? server.deliveryCode ?? '',
+    shipmentDate: patch?.shipmentDate ?? server.shipmentDate ?? '',
+    memo: patch?.memo ?? server.memo ?? '',
+    adminMessage: patch?.adminMessage ?? server.adminMessage ?? '',
+    shipmentStatus: patch?.shipmentStatus ?? baseStatus,
+    dirty: patch !== undefined && Object.keys(patch).length > 0,
+    adminMessageDirty,
+  }
+}
+
+function toRequest(row: MergedRow): BCartShippingUpdateRequest {
   return {
     bCartLogisticsId: row.bCartLogisticsId,
-    deliveryCode: row.deliveryCode ?? '',
-    // 空文字はバックエンドで LocalDate パース不可のため null を送る
-    shipmentDate: row.shipmentDate && row.shipmentDate.length > 0 ? row.shipmentDate : null,
-    memo: row.memo ?? '',
-    // 編集されていない場合は null。バックエンドで adminMessage の上書きをスキップする契約。
-    adminMessage: row.adminMessageDirty ? (row.adminMessage ?? '') : null,
+    deliveryCode: row.deliveryCode,
+    shipmentDate: row.shipmentDate.length > 0 ? row.shipmentDate : null,
+    memo: row.memo,
+    adminMessage: row.adminMessageDirty ? row.adminMessage : null,
+    adminMessageDirty: row.adminMessageDirty,
     shipmentStatus: row.shipmentStatus,
   }
 }
@@ -82,7 +102,6 @@ function formatApiError(e: unknown, fallback: string): string {
 
 export function BCartShippingPage() {
   const queryClient = useQueryClient()
-  // 検索条件
   const [partnerCodeInput, setPartnerCodeInput] = useState('')
   const [statusInput, setStatusInput] = useState<BCartShipmentStatus | ''>('')
   const [searchParams, setSearchParams] = useState<{ partnerCode: string; status: BCartShipmentStatus | '' }>({
@@ -90,22 +109,21 @@ export function BCartShippingPage() {
     status: '',
   })
 
-  const [rows, setRows] = useState<EditableRow[]>([])
+  // サーバーデータを複製せず、dirty差分のみローカル保持する
+  const [dirtyMap, setDirtyMap] = useState<Map<number, RowPatch>>(new Map())
+  const [adminDirtyIds, setAdminDirtyIds] = useState<Set<number>>(new Set())
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkStatus, setBulkStatus] = useState<BCartShipmentStatus | ''>('')
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
   const [saveDialogOpen, setSaveDialogOpen] = useState(false)
+  const [pendingSave, setPendingSave] = useState<BCartShippingUpdateRequest[]>([])
 
   const listQuery = useQuery({
     queryKey: ['bcart-shipping', searchParams.status, searchParams.partnerCode],
     queryFn: async () => {
       const params = new URLSearchParams()
-      if (searchParams.status) {
-        params.append('statuses', searchParams.status)
-      }
-      if (searchParams.partnerCode) {
-        params.set('partnerCode', searchParams.partnerCode)
-      }
+      if (searchParams.status) params.append('statuses', searchParams.status)
+      if (searchParams.partnerCode) params.set('partnerCode', searchParams.partnerCode)
       const qs = params.toString()
       return await api.get<BCartShippingInputResponse[]>(`/bcart/shipping${qs ? `?${qs}` : ''}`)
     },
@@ -113,43 +131,27 @@ export function BCartShippingPage() {
     staleTime: 30_000,
   })
 
-  // listQuery 更新時にローカル編集状態をマージ
-  // dirty 行は保持し、サーバーの新規/変更行のみ反映する
-  useEffect(() => {
-    if (!listQuery.data) return
-    setRows((prev) => {
-      const prevDirtyMap = new Map(prev.filter((r) => r.dirty).map((r) => [r.bCartLogisticsId, r]))
-      const nextRows = listQuery.data.map((r) => {
-        const dirty = prevDirtyMap.get(r.bCartLogisticsId)
-        if (dirty) return dirty
-        return {
-          ...r,
-          deliveryCode: r.deliveryCode ?? '',
-          shipmentDate: r.shipmentDate ?? '',
-          memo: r.memo ?? '',
-          adminMessage: r.adminMessage ?? '',
-          shipmentStatus: isKnownStatus(r.shipmentStatus) ? r.shipmentStatus : ('未発送' as BCartShipmentStatus),
-          dirty: false,
-          adminMessageDirty: false,
-        }
-      })
-      return nextRows
-    })
-    // 選択状態は新しい行集合に絞る
-    setSelected((prev) => {
-      const validIds = new Set(listQuery.data!.map((r) => r.bCartLogisticsId))
-      const next = new Set<number>()
-      prev.forEach((id) => {
-        if (validIds.has(id)) next.add(id)
-      })
-      return next
-    })
-  }, [listQuery.data])
+  const serverRows = listQuery.data ?? []
+
+  const rows = useMemo<MergedRow[]>(
+    () => serverRows.map((r) => mergeRow(r, dirtyMap.get(r.bCartLogisticsId), adminDirtyIds.has(r.bCartLogisticsId))),
+    [serverRows, dirtyMap, adminDirtyIds],
+  )
+
+  const dirtyRows = useMemo(() => rows.filter((r) => r.dirty && !isRowLocked(r)), [rows])
 
   const saveAllMutation = useMutation({
-    mutationFn: (payload: BCartShippingUpdateRequest[]) => api.put<void>('/bcart/shipping', payload),
-    onSuccess: () => {
-      toast.success('出荷情報を更新しました')
+    mutationFn: (payload: BCartShippingUpdateRequest[]) =>
+      api.put<BCartShippingSaveResponse>('/bcart/shipping', payload),
+    onSuccess: (res) => {
+      toast.success(`出荷情報を更新しました (${res?.updatedCount ?? 0}件)`)
+      if (res?.skippedIds && res.skippedIds.length > 0) {
+        toast.warning(
+          `B-CART連携済・発送済のため ${res.skippedIds.length} 件は更新をスキップしました (ID: ${res.skippedIds.join(', ')})`,
+        )
+      }
+      setDirtyMap(new Map())
+      setAdminDirtyIds(new Set())
       queryClient.invalidateQueries({ queryKey: ['bcart-shipping'] })
     },
     onError: (e) => toast.error(formatApiError(e, '更新に失敗しました')),
@@ -167,19 +169,26 @@ export function BCartShippingPage() {
 
   const handleSearch = () => {
     setSearchParams({ partnerCode: partnerCodeInput.trim(), status: statusInput })
+    setDirtyMap(new Map())
+    setAdminDirtyIds(new Set())
+    setSelected(new Set())
   }
 
-  const handleRowChange = (id: number, patch: Partial<EditableRow>) => {
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.bCartLogisticsId !== id) return r
-        const next: EditableRow = { ...r, ...patch, dirty: true }
-        if (Object.prototype.hasOwnProperty.call(patch, 'adminMessage')) {
-          next.adminMessageDirty = true
-        }
+  const handleRowChange = (id: number, patch: RowPatch) => {
+    setDirtyMap((prev) => {
+      const next = new Map(prev)
+      const existing = next.get(id) ?? {}
+      next.set(id, { ...existing, ...patch })
+      return next
+    })
+    if (Object.prototype.hasOwnProperty.call(patch, 'adminMessage')) {
+      setAdminDirtyIds((prev) => {
+        if (prev.has(id)) return prev
+        const next = new Set(prev)
+        next.add(id)
         return next
-      }),
-    )
+      })
+    }
   }
 
   const toggleSelect = (id: number, checked: boolean) => {
@@ -199,13 +208,13 @@ export function BCartShippingPage() {
     else setSelected(new Set())
   }
 
-  const dirtyRows = rows.filter((r) => r.dirty && !isRowLocked(r))
-
   const confirmSave = () => {
     if (dirtyRows.length === 0) {
       toast.info('変更はありません')
       return
     }
+    // スナップショットを固定してからダイアログを開く（保存確認中の編集で送信内容が変わらないように）
+    setPendingSave(dirtyRows.map(toRequest))
     setSaveDialogOpen(true)
   }
 
@@ -222,7 +231,6 @@ export function BCartShippingPage() {
       toast.warning('未保存の編集があります。先に出荷情報更新してください')
       return
     }
-    // SMILE 未連携の行を「発送済」に一括更新することは不可
     if (bulkStatus === '発送済') {
       const unlinked = rows.filter((r) => selected.has(r.bCartLogisticsId) && r.goodsInfo.length === 0)
       if (unlinked.length > 0) {
@@ -237,7 +245,6 @@ export function BCartShippingPage() {
     <div className="space-y-4">
       <PageHeader title="B-CART出荷情報入力" />
 
-      {/* 検索フォーム */}
       <div className="rounded-md border bg-card p-4">
         <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
           <div className="space-y-1.5">
@@ -274,166 +281,15 @@ export function BCartShippingPage() {
 
       {!listQuery.isLoading && !listQuery.isError && (
         <>
-          {/* 出荷情報入力テーブル */}
-          <div className="rounded-md border bg-card">
-            <div className="border-b px-4 py-2 text-sm font-medium">出荷情報入力</div>
-            <div className="overflow-x-auto">
-              <Table className="text-xs">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead rowSpan={2} className="w-10 text-center align-middle border-r">
-                      <div className="flex flex-col items-center gap-0.5">
-                        <Checkbox
-                          checked={allSelected}
-                          onCheckedChange={(v) => toggleSelectAll(Boolean(v))}
-                          aria-label="全選択"
-                        />
-                        <span className="text-[10px]">選択</span>
-                      </div>
-                    </TableHead>
-                    <TableHead className="text-center align-middle border-r">得意先コード</TableHead>
-                    <TableHead className="text-center align-middle border-r">b-cart.LogisticsID</TableHead>
-                    <TableHead rowSpan={2} className="text-center align-middle border-r">届け先</TableHead>
-                    <TableHead rowSpan={2} className="text-center align-middle border-r">商品コード：商品名：数量</TableHead>
-                    <TableHead className="text-center align-middle border-r">送り状番号</TableHead>
-                    <TableHead rowSpan={2} className="text-center align-middle border-r min-w-[110px]">出荷ステータス</TableHead>
-                    <TableHead className="text-center align-middle">メモ</TableHead>
-                  </TableRow>
-                  <TableRow>
-                    <TableHead className="text-center align-middle border-r">得意先名</TableHead>
-                    <TableHead className="text-center align-middle border-r">smile連番</TableHead>
-                    <TableHead className="text-center align-middle border-r">出荷日</TableHead>
-                    <TableHead className="text-center align-middle">得意先へ連絡事項</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
-                        表示対象のデータがありません
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    rows.map((row) => {
-                      const locked = isRowLocked(row)
-                      const rowSelected = selected.has(row.bCartLogisticsId)
-                      const smileUnlinked = row.goodsInfo.length === 0
-                      const availableStatuses = BCART_SHIPMENT_STATUSES.filter(
-                        (s) => !(smileUnlinked && s === '発送済'),
-                      )
-                      return (
-                        <Fragment key={row.bCartLogisticsId}>
-                          {/* 1 行目 */}
-                          <TableRow className="border-b-0">
-                            <TableCell rowSpan={2} className="text-center align-middle border-r border-b">
-                              <Checkbox
-                                checked={rowSelected}
-                                onCheckedChange={(v) => toggleSelect(row.bCartLogisticsId, Boolean(v))}
-                                disabled={locked}
-                                aria-label={`row-${row.bCartLogisticsId}`}
-                              />
-                            </TableCell>
-                            <TableCell className="text-center align-middle border-r">
-                              {row.partnerCode ?? ''}
-                            </TableCell>
-                            <TableCell className="text-center align-middle border-r">
-                              {row.bCartLogisticsId}
-                            </TableCell>
-                            <TableCell rowSpan={2} className="align-middle border-r border-b">
-                              {row.deliveryCompName ?? ''}
-                            </TableCell>
-                            <TableCell rowSpan={2} className="align-middle border-r border-b">
-                              {row.goodsInfo.length === 0 ? (
-                                <span className="text-muted-foreground">SMILE未連携</span>
-                              ) : (
-                                <ul className="list-none space-y-0.5">
-                                  {row.goodsInfo.map((g, i) => (
-                                    <li key={`${row.bCartLogisticsId}-g-${i}`}>{g}</li>
-                                  ))}
-                                </ul>
-                              )}
-                            </TableCell>
-                            <TableCell className="align-middle border-r">
-                              <Input
-                                value={row.deliveryCode ?? ''}
-                                onChange={(e) => handleRowChange(row.bCartLogisticsId, { deliveryCode: e.target.value })}
-                                disabled={locked}
-                                placeholder="送り状番号"
-                                className="h-8"
-                                data-testid={`delivery-code-${row.bCartLogisticsId}`}
-                              />
-                            </TableCell>
-                            <TableCell rowSpan={2} className="align-middle border-r border-b min-w-[110px]">
-                              <Select
-                                value={row.shipmentStatus}
-                                onValueChange={(v) => handleRowChange(row.bCartLogisticsId, { shipmentStatus: v as BCartShipmentStatus })}
-                                disabled={locked}
-                              >
-                                <SelectTrigger className="h-8">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {availableStatuses.map((s) => (
-                                    <SelectItem key={s} value={s}>
-                                      {s}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              {locked && (
-                                <div className="mt-1 text-[10px] text-muted-foreground">B-CART連携済</div>
-                              )}
-                              {smileUnlinked && !locked && (
-                                <div className="mt-1 text-[10px] text-muted-foreground">SMILE未連携のため発送済不可</div>
-                              )}
-                            </TableCell>
-                            <TableCell className="align-middle">
-                              <Textarea
-                                value={row.memo ?? ''}
-                                onChange={(e) => handleRowChange(row.bCartLogisticsId, { memo: e.target.value })}
-                                disabled={locked}
-                                rows={2}
-                                className="min-h-[40px] text-xs"
-                              />
-                            </TableCell>
-                          </TableRow>
-                          {/* 2 行目 */}
-                          <TableRow>
-                            <TableCell className="text-center align-middle border-r">
-                              {row.partnerName ?? ''}
-                            </TableCell>
-                            <TableCell className="text-center align-middle border-r">
-                              {row.smileSerialNoList.length === 0 ? '' : row.smileSerialNoList.join(', ')}
-                            </TableCell>
-                            <TableCell className="align-middle border-r">
-                              <Input
-                                type="date"
-                                value={row.shipmentDate ?? ''}
-                                onChange={(e) => handleRowChange(row.bCartLogisticsId, { shipmentDate: e.target.value })}
-                                disabled={locked}
-                                className="h-8"
-                              />
-                            </TableCell>
-                            <TableCell className="align-middle">
-                              <Textarea
-                                value={row.adminMessage ?? ''}
-                                onChange={(e) => handleRowChange(row.bCartLogisticsId, { adminMessage: e.target.value })}
-                                disabled={locked}
-                                rows={2}
-                                className="min-h-[40px] text-xs"
-                              />
-                            </TableCell>
-                          </TableRow>
-                        </Fragment>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
+          <ShippingTable
+            rows={rows}
+            selected={selected}
+            allSelected={allSelected}
+            onToggleSelect={toggleSelect}
+            onToggleSelectAll={toggleSelectAll}
+            onRowChange={handleRowChange}
+          />
 
-          {/* 一括更新 */}
           <div className="flex flex-wrap items-center gap-2 rounded-md border bg-card p-4">
             <Label>一括更新:</Label>
             <Select value={bulkStatus || '__none__'} onValueChange={(v) => setBulkStatus(v === '__none__' ? '' : (v as BCartShipmentStatus))}>
@@ -454,7 +310,6 @@ export function BCartShippingPage() {
             </Button>
           </div>
 
-          {/* 出荷情報更新ボタン */}
           <div>
             <Button onClick={confirmSave} disabled={saveAllMutation.isPending}>
               出荷情報更新
@@ -467,8 +322,8 @@ export function BCartShippingPage() {
         open={saveDialogOpen}
         onOpenChange={setSaveDialogOpen}
         title="出荷情報更新"
-        description={`${dirtyRows.length} 件の変更を更新します。よろしいですか？`}
-        onConfirm={() => saveAllMutation.mutate(dirtyRows.map(toRequest))}
+        description={`${pendingSave.length} 件の変更を更新します。よろしいですか？`}
+        onConfirm={() => saveAllMutation.mutate(pendingSave)}
         confirmLabel="更新"
       />
       <ConfirmDialog
@@ -486,8 +341,4 @@ export function BCartShippingPage() {
       />
     </div>
   )
-}
-
-function isRowLocked(row: BCartShippingInputResponse): boolean {
-  return row.bCartCsvExported && row.shipmentStatus === '発送済'
 }
