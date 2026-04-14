@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Download, Upload, AlertCircle } from 'lucide-react'
+import { Download, Upload, AlertCircle, MapPin, Scale } from 'lucide-react'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import type {
   CashBookPreviewResponse,
@@ -83,7 +84,25 @@ export default function CashBookImportPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="現金出納帳 → MoneyForward CSV変換" />
+      <PageHeader
+        title="現金出納帳 → MoneyForward CSV変換"
+        actions={
+          <>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/finance/mf-client-mappings">
+                <MapPin className="mr-1 h-4 w-4" />
+                MF得意先マッピング
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/finance/mf-journal-rules">
+                <Scale className="mr-1 h-4 w-4" />
+                MF仕訳ルール
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
       <div className="rounded border p-4 space-y-3">
         <Label>Excelファイル（.xlsx）</Label>

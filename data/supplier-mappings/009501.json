@@ -1,0 +1,51 @@
+{
+  "_meta": {
+    "supplierCode": "009501",
+    "supplierNo": 514,
+    "supplierName": "オルディ第1事業部",
+    "paymentSupplierNo": 259,
+    "lastUpdated": "2026-04-13"
+  },
+  "mappings": {
+    "ASW破れにくい手提げ袋ﾌﾞﾛｯｸS/30号 乳白": {
+      "goodsCode": "00095602",
+      "goodsNo": 9456,
+      "systemGoodsName": "ﾚｼﾞ袋ｱｽﾉﾜ S/30号 乳白 100P",
+      "janCode": "4972759534319",
+      "note": "メーカー品番ASW-HW30YNT-100 (ASW=アスノワ)",
+      "confirmedAt": "2026-04-13"
+    },
+    "ASW破れにくい手提げ袋ﾌﾞﾛｯｸM/35号 乳白": {
+      "goodsCode": "00095603",
+      "goodsNo": 9267,
+      "systemGoodsName": "ﾚｼﾞ袋ｱｽﾉﾜ M/35号 乳白 100P",
+      "janCode": "4972759534326",
+      "note": "メーカー品番ASW-HW35YNT-100",
+      "confirmedAt": "2026-04-13"
+    },
+    "ASW破れにくい手提げ袋ﾌﾞﾛｯｸL/40号 乳白": {
+      "goodsCode": "00095604",
+      "goodsNo": 9337,
+      "systemGoodsName": "ﾚｼﾞ袋ｱｽﾉﾜ L/40号 乳白 100P",
+      "janCode": "4972759534333",
+      "note": "メーカー品番ASW-HW40YNT-100",
+      "confirmedAt": "2026-04-13"
+    },
+    "ASW破れにくい手提げ袋ﾌﾞﾛｯｸ2L/45号 乳白": {
+      "goodsCode": "00095605",
+      "goodsNo": 9265,
+      "systemGoodsName": "ﾚｼﾞ袋ｱｽﾉﾜ 2L/45号 乳白 100P",
+      "janCode": "4972759534340",
+      "note": "メーカー品番ASW-HW45YNT-100",
+      "confirmedAt": "2026-04-13"
+    },
+    "ASW破れにくい手提げ袋ﾌﾞﾛｯｸ3L/50号 乳白": {
+      "goodsCode": "00095606",
+      "goodsNo": 9273,
+      "systemGoodsName": "ﾚｼﾞ袋ｱｽﾉﾜ 3L/50号 乳白 100P",
+      "janCode": "4972759534357",
+      "note": "メーカー品番ASW-HW50YNT-100",
+      "confirmedAt": "2026-04-13"
+    }
+  }
+}
