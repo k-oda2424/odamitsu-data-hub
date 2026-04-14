@@ -18,7 +18,6 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -35,16 +34,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @StepScope
 public class SmileProcessingSerialNumberUpdateTasklet implements Tasklet {
-    @Autowired
-    private WSmileOrderOutputFileService wSmileOrderOutputFileService;
-    @Autowired
-    private TOrderService tOrderService;
-    @Autowired
-    private TOrderDetailService tOrderDetailService;
-    @Autowired
-    private TDeliveryService tDeliveryService;
-    @Autowired
-    private TDeliveryDetailService tDeliveryDetailService;
+    private final WSmileOrderOutputFileService wSmileOrderOutputFileService;
+    private final TOrderService tOrderService;
+    private final TOrderDetailService tOrderDetailService;
+    private final TDeliveryService tDeliveryService;
+    private final TDeliveryDetailService tDeliveryDetailService;
 
     Map<Map<Integer, String>, List<TDeliveryDetail>> existDeliveryMap = new HashMap<>();
 

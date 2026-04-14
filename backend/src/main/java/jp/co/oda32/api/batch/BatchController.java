@@ -29,7 +29,7 @@ public class BatchController {
 
     private static final List<Map<String, String>> JOB_DEFINITIONS = List.of(
             Map.of("jobName", "bCartOrderImport", "category", "B-CART連携", "description", "新規受注取込", "requiresShopNo", "false"),
-            Map.of("jobName", "smileOrderFileImport", "category", "B-CART連携", "description", "売上明細取込", "requiresShopNo", "true"),
+            Map.of("jobName", "smileOrderFileImport", "category", "B-CART連携", "description", "売上明細取込", "requiresShopNo", "false"),
             Map.of("jobName", "bCartLogisticsCsvExport", "category", "B-CART連携", "description", "出荷実績CSV出力", "requiresShopNo", "false"),
             Map.of("jobName", "bCartMemberUpdate", "category", "B-CART連携", "description", "新規会員取込", "requiresShopNo", "false"),
             Map.of("jobName", "bCartProductsImport", "category", "B-CART連携", "description", "商品マスタ同期", "requiresShopNo", "false"),
@@ -37,8 +37,8 @@ public class BatchController {
             Map.of("jobName", "bCartCategoryUpdate", "category", "B-CART連携", "description", "カテゴリマスタ反映", "requiresShopNo", "false"),
             Map.of("jobName", "bCartProductDescriptionUpdate", "category", "B-CART連携", "description", "商品説明反映", "requiresShopNo", "false"),
             Map.of("jobName", "goodsFileImport", "category", "マスタ取込", "description", "SMILE商品マスタCSV取込", "requiresShopNo", "true"),
-            Map.of("jobName", "purchaseFileImport", "category", "SMILE取込", "description", "SMILE仕入ファイル取込", "requiresShopNo", "true"),
-            Map.of("jobName", "smilePaymentImport", "category", "SMILE取込", "description", "SMILE支払情報取込", "requiresShopNo", "true"),
+            Map.of("jobName", "purchaseFileImport", "category", "SMILE取込", "description", "SMILE仕入ファイル取込", "requiresShopNo", "false"),
+            Map.of("jobName", "smilePaymentImport", "category", "SMILE取込", "description", "SMILE支払情報取込", "requiresShopNo", "false"),
             Map.of("jobName", "accountsPayableAggregation", "category", "買掛金", "description", "買掛金集計", "requiresShopNo", "false"),
             Map.of("jobName", "accountsPayableVerification", "category", "買掛金", "description", "買掛金検証", "requiresShopNo", "false"),
             Map.of("jobName", "accountsPayableSummary", "category", "買掛金", "description", "買掛金サマリ", "requiresShopNo", "false"),

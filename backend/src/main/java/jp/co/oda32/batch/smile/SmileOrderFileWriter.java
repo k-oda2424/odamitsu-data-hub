@@ -2,10 +2,10 @@ package jp.co.oda32.batch.smile;
 
 import jp.co.oda32.domain.model.smile.WSmileOrderOutputFile;
 import jp.co.oda32.domain.service.smile.WSmileOrderOutputFileService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.item.ItemWriter;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import org.springframework.batch.item.Chunk;
@@ -21,9 +21,9 @@ import java.util.List;
 @Component
 @StepScope
 @Log4j2
+@RequiredArgsConstructor
 public class SmileOrderFileWriter implements ItemWriter<SmileOrderFile> {
-    @Autowired
-    private WSmileOrderOutputFileService wSmileOrderOutputFileService;
+    private final WSmileOrderOutputFileService wSmileOrderOutputFileService;
 
     /**
      * Process the supplied data element. Will not be called with any null items

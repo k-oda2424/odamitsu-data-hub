@@ -2,7 +2,7 @@ package jp.co.oda32.domain.service.bcart;
 
 import jp.co.oda32.domain.model.bcart.BCartOrderProduct;
 import jp.co.oda32.domain.repository.bcart.BCartOrderProductRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,9 +13,9 @@ import java.util.List;
  * @since 2023/03/20
  */
 @Service
+@RequiredArgsConstructor
 public class BCartOrderProductService {
-    @Autowired
-    private BCartOrderProductRepository bCartOrderProductRepository;
+    private final BCartOrderProductRepository bCartOrderProductRepository;
 
     public BCartOrderProduct save(BCartOrderProduct bCartOrder) {
         return bCartOrderProductRepository.save(bCartOrder);

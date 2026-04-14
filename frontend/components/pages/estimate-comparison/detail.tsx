@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ArrowLeft, Printer, Pencil, Trash2 } from 'lucide-react'
-import { fmt } from '@/lib/estimate-calc'
+import { fmt, stripPrintParens } from '@/lib/estimate-calc'
 import { formatDateJP } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ComparisonResponse } from '@/types/estimate-comparison'
@@ -221,7 +221,7 @@ export function ComparisonDetailPage({ comparisonNo }: Props) {
         {/* タイトル + 日付 */}
         <div className="flex items-end justify-between mb-4">
           <div className="flex-1" />
-          <h1 className="text-2xl font-bold tracking-[0.3em]">御見積書</h1>
+          <h1 className="text-2xl font-semibold tracking-[0.3em]">御見積書</h1>
           <div className="flex-1 text-right text-sm">
             <span>御見積日　{formatDateJP(c.comparisonDate)}</span>
           </div>
@@ -230,7 +230,7 @@ export function ComparisonDetailPage({ comparisonNo }: Props) {
         {/* 得意先名 */}
         <div className="mb-2">
           <span className="inline-block border-b-2 border-black pb-1">
-            <span className="text-xl font-bold mr-4">{c.partnerName ?? ''}</span>
+            <span className="text-xl font-bold mr-4">{stripPrintParens(c.partnerName)}</span>
             <span className="text-lg ml-4">御中</span>
           </span>
         </div>

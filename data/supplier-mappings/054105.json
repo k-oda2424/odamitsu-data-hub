@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "supplierCode": "054105",
+    "supplierName": "福助工業株式会社",
+    "shopNo": 2,
+    "lastUpdated": "2026-04-14"
+  },
+  "mappings": {
+    "OPPシート 0.025×150×170": {
+      "goodsCode": "00907008",
+      "systemGoodsName": "ＯＰ２５－１５０－１７０",
+      "confirmedAt": "2026-04-14"
+    },
+    "OPPシート 0.025×220×270mm": {
+      "goodsCode": "00907014",
+      "systemGoodsName": "ＯＰ２５－２２０－２７０",
+      "confirmedAt": "2026-04-14"
+    }
+  },
+  "notes": [
+    {
+      "date": "2026-04-14",
+      "relatedGoodsCodes": ["00907008", "00907014"],
+      "changePlanDate": "2026-05-11",
+      "memo": "現在の在庫にも限りがあるため、受注については調整させていただくことがあります。（得意先向け見積作成時に記載）"
+    }
+  ]
+}

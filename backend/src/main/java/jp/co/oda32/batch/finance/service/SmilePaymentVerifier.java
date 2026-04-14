@@ -152,6 +152,11 @@ public class SmilePaymentVerifier {
                 // マネーフォワードエクスポート不可のフラグを設定
                 for (TAccountsPayableSummary summary : summaries) {
                     if (summary.getSupplierCode().equals(supplierCode)) {
+                        if (Boolean.TRUE.equals(summary.getVerifiedManually())) {
+                            log.info("手動確定済みのためMFエクスポートフラグ更新をスキップ: 仕入先コード={}, 税率={}%",
+                                    supplierCode, summary.getTaxRate());
+                            continue;
+                        }
                         summary.setMfExportEnabled(false);
                         log.info("仕入先コード={}のマネーフォワードエクスポートを無効に設定しました", supplierCode);
                     }
@@ -258,6 +263,11 @@ public class SmilePaymentVerifier {
                 // 検証結果が「一致」の場合のみマネーフォワードエクスポート可能に設定
                 for (TAccountsPayableSummary summary : summaries) {
                     if (summary.getSupplierCode().equals(supplierCode)) {
+                        if (Boolean.TRUE.equals(summary.getVerifiedManually())) {
+                            log.info("手動確定済みのためMFエクスポートフラグ更新をスキップ: 仕入先コード={}, 税率={}%",
+                                    supplierCode, summary.getTaxRate());
+                            continue;
+                        }
                         if (summary.getVerificationResult() != null && summary.getVerificationResult() == 1) {
                             summary.setMfExportEnabled(true);
                             log.debug("検証結果「一致」のためマネーフォワードエクスポート可能に設定: 仕入先コード={}, 税率={}%",
@@ -361,6 +371,13 @@ public class SmilePaymentVerifier {
         boolean anyChanged = false;
 
         for (TAccountsPayableSummary summary : targetSummaries) {
+            // 手動確定済み行はSMILE再検証で上書きしない
+            if (Boolean.TRUE.equals(summary.getVerifiedManually())) {
+                log.info("手動確定済みのため検証結果更新をスキップ: 仕入先コード={}, 税率={}%",
+                        supplierCode, summary.getTaxRate());
+                continue;
+            }
+
             // 元の値を保存
             Integer originalVerificationResult = summary.getVerificationResult();
 
@@ -411,10 +428,19 @@ public class SmilePaymentVerifier {
                                                BigDecimal smilePaymentAmount,
                                                BigDecimal originalTaxIncluded) {
 
-        // 対象の仕入先の買掛データを抽出
+        // 対象の仕入先の買掛データを抽出（手動確定済みは除外）
         List<TAccountsPayableSummary> targetSummaries = summaries.stream()
                 .filter(s -> s.getSupplierCode().equals(supplierCode))
+                .filter(s -> !Boolean.TRUE.equals(s.getVerifiedManually()))
                 .collect(Collectors.toList());
+
+        long manualCount = summaries.stream()
+                .filter(s -> s.getSupplierCode().equals(supplierCode))
+                .filter(s -> Boolean.TRUE.equals(s.getVerifiedManually()))
+                .count();
+        if (manualCount > 0) {
+            log.info("手動確定済み {}件 を買掛金額調整から除外: 仕入先コード={}", manualCount, supplierCode);
+        }
 
         if (targetSummaries.isEmpty() || originalTaxIncluded.compareTo(BigDecimal.ZERO) == 0) {
             return;

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api-client'
-import { Play, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { Play, CheckCircle2, XCircle, Loader2, ExternalLink } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 interface BatchPanelProps {
@@ -14,8 +14,13 @@ interface BatchPanelProps {
   icon: LucideIcon
   color: 'amber' | 'rose' | 'sky' | 'emerald'
   step: number
-  jobName: string
+  jobName?: string
   shopNo?: number
+  settingsHref?: string
+  settingsLabel?: string
+  /** 設定時はバッチ起動ではなく別タブでリンクを開く */
+  linkHref?: string
+  linkLabel?: string
 }
 
 interface JobStatus {
@@ -52,12 +57,13 @@ const colorMap = {
   },
 }
 
-export function BatchPanel({ title, description, detail, icon: Icon, color, step, jobName, shopNo }: BatchPanelProps) {
+export function BatchPanel({ title, description, detail, icon: Icon, color, step, jobName, shopNo, settingsHref, settingsLabel, linkHref, linkLabel }: BatchPanelProps) {
   const [polling, setPolling] = useState(false)
   const [launchedAt, setLaunchedAt] = useState<string | null>(null)
   const [displayStatus, setDisplayStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle')
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const colors = colorMap[color]
+  const isLinkMode = !!linkHref
 
   // アンマウント時にタイマーをクリア
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
@@ -65,7 +71,7 @@ export function BatchPanel({ title, description, detail, icon: Icon, color, step
   const statusQuery = useQuery({
     queryKey: ['batch-panel-status', jobName],
     queryFn: () => api.get<JobStatus>(`/batch/status/${jobName}`),
-    enabled: polling,
+    enabled: polling && !!jobName,
     refetchInterval: polling ? 5000 : false,
   })
 
@@ -84,6 +90,7 @@ export function BatchPanel({ title, description, detail, icon: Icon, color, step
   }, [polling, statusQuery.data, launchedAt])
 
   const handleExecute = async () => {
+    if (!jobName) return
     setDisplayStatus('running')
     try {
       const params = shopNo != null ? `?shopNo=${shopNo}` : ''
@@ -117,27 +124,53 @@ export function BatchPanel({ title, description, detail, icon: Icon, color, step
         <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground/60 break-all">{detail}</p>
         <div className="flex-1" />
         <div className="mt-4 flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={handleExecute}
-            disabled={displayStatus === 'running'}
-            className={`bg-gradient-to-r ${colors.gradient} text-white shadow-sm hover:opacity-90 transition-opacity`}
-          >
-            {displayStatus === 'running' ? (
-              <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />実行中...</>
-            ) : (
-              <><Play className="mr-1.5 h-3.5 w-3.5" />バッチ起動</>
-            )}
-          </Button>
-          {displayStatus === 'completed' && (
-            <span className="flex items-center gap-1 text-xs font-medium text-emerald-600">
-              <CheckCircle2 className="h-3.5 w-3.5" />完了
-            </span>
+          {isLinkMode ? (
+            <Button
+              asChild
+              size="sm"
+              className={`bg-gradient-to-r ${colors.gradient} text-white shadow-sm hover:opacity-90 transition-opacity`}
+            >
+              <a href={linkHref} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                {linkLabel ?? '画面を開く'}
+              </a>
+            </Button>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                onClick={handleExecute}
+                disabled={displayStatus === 'running'}
+                className={`bg-gradient-to-r ${colors.gradient} text-white shadow-sm hover:opacity-90 transition-opacity`}
+              >
+                {displayStatus === 'running' ? (
+                  <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />実行中...</>
+                ) : (
+                  <><Play className="mr-1.5 h-3.5 w-3.5" />バッチ起動</>
+                )}
+              </Button>
+              {displayStatus === 'completed' && (
+                <span className="flex items-center gap-1 text-xs font-medium text-emerald-600">
+                  <CheckCircle2 className="h-3.5 w-3.5" />完了
+                </span>
+              )}
+              {displayStatus === 'failed' && (
+                <span className="flex items-center gap-1 text-xs font-medium text-destructive">
+                  <XCircle className="h-3.5 w-3.5" />失敗
+                </span>
+              )}
+            </>
           )}
-          {displayStatus === 'failed' && (
-            <span className="flex items-center gap-1 text-xs font-medium text-destructive">
-              <XCircle className="h-3.5 w-3.5" />失敗
-            </span>
+          {settingsHref && (
+            <a
+              href={settingsHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              {settingsLabel ?? '連携ファイル設定'}
+              <ExternalLink className="h-3 w-3" />
+            </a>
           )}
         </div>
       </div>

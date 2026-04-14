@@ -2,10 +2,10 @@ package jp.co.oda32.batch.goods;
 
 import jp.co.oda32.batch.goods.logic.GoodsFileWriterFactory;
 import jp.co.oda32.batch.goods.logic.IGoodsFileWriterLogic;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.item.ItemWriter;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import org.springframework.batch.item.Chunk;
@@ -20,9 +20,9 @@ import java.util.List;
 @Component
 @StepScope
 @Log4j2
+@RequiredArgsConstructor
 public class GoodsFileWriter implements ItemWriter<GoodsFile> {
-    @Autowired
-    private GoodsFileWriterFactory goodsFileWriterFactory;
+    private final GoodsFileWriterFactory goodsFileWriterFactory;
 
     /**
      * Process the supplied data element. Will not be called with any null items

@@ -2,7 +2,7 @@ package jp.co.oda32.domain.service.bcart;
 
 import jp.co.oda32.domain.model.bcart.BCartOrder;
 import jp.co.oda32.domain.repository.bcart.BCartOrderRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -12,18 +12,16 @@ import java.util.List;
  * @since 2023/03/20
  */
 @Service
+@RequiredArgsConstructor
 public class BCartOrderService {
-    @Autowired
-    private BCartOrderRepository bCartOrderRepository;
+    private final BCartOrderRepository bCartOrderRepository;
 
     public BCartOrder save(BCartOrder bCartOrder) {
         return bCartOrderRepository.save(bCartOrder);
     }
 
-    public void save(List<BCartOrder> bCartOrderList) {
-        for (BCartOrder bCartOrder : bCartOrderList) {
-            this.save(bCartOrder);
-        }
+    public List<BCartOrder> save(List<BCartOrder> bCartOrderList) {
+        return bCartOrderRepository.saveAll(bCartOrderList);
     }
 
     public BCartOrder findById(Long id) {
@@ -32,6 +30,13 @@ public class BCartOrderService {
 
     public List<BCartOrder> findByIdIn(List<Long> idList) {
         return bCartOrderRepository.findByIdIn(idList);
+    }
+
+    /**
+     * orderProductList を EAGER に取得する。
+     */
+    public List<BCartOrder> findWithProductsByIdIn(List<Long> idList) {
+        return bCartOrderRepository.findWithProductsByIdIn(idList);
     }
 
     public List<BCartOrder> findByStatus(String status) {

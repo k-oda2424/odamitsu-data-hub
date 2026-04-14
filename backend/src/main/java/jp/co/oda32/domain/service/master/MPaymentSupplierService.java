@@ -32,6 +32,13 @@ public class MPaymentSupplierService extends CustomService {
         return mPaymentSupplierRepository.findById(paymentSupplierNo).orElse(null);
     }
 
+    public List<MPaymentSupplier> findAllByPaymentSupplierNos(java.util.Collection<Integer> paymentSupplierNos) {
+        if (paymentSupplierNos == null || paymentSupplierNos.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        return mPaymentSupplierRepository.findAllById(paymentSupplierNos);
+    }
+
     /**
      * 指定店舗の支払先一覧を返します（削除フラグ無視せず active のみ）。
      * DB側でフィルタ・ソートを実施。

@@ -98,4 +98,16 @@ public class TPurchaseSpecification extends CommonSpecification<TPurchase> {
     public Specification<TPurchase> purchaseNoListContains(List<Integer> purchaseNoList) {
         return CollectionUtil.isEmpty(purchaseNoList) ? null : (root, query, cb) -> root.get("purchaseNo").in(purchaseNoList);
     }
+
+    public Specification<TPurchase> supplierNoListContains(List<Integer> supplierNoList) {
+        return CollectionUtil.isEmpty(supplierNoList) ? null : (root, query, cb) -> root.get("supplierNo").in(supplierNoList);
+    }
+
+    public Specification<TPurchase> supplierNoEquals(Integer supplierNo) {
+        return supplierNo == null ? null : (root, query, cb) -> cb.equal(root.get("supplierNo"), supplierNo);
+    }
+
+    public Specification<TPurchase> purchaseNoEquals(Integer purchaseNo) {
+        return purchaseNo == null ? null : (root, query, cb) -> cb.equal(root.get("purchaseNo"), purchaseNo);
+    }
 }

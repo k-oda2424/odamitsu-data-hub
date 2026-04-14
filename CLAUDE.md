@@ -48,6 +48,11 @@ cd frontend && npx playwright test
 - 共通フィールド: `company_no`, `shop_no`, `del_flg`, `add_date_time`, `add_user_no`, `modify_date_time`, `modify_user_no`
 - ワークテーブル `w_*` → 本テーブル `t_*` / `m_*`
 
+## 開発プロセス
+- **増分レビュー必須**: 機能追加・バグ修正・デバッグコード投入のたびに `tsc --noEmit` + `./gradlew compileJava` + E2E (モック PASS だけでなく実バックエンド疎通を最低 1 パス) を実施。`/code-review` は常にブランチ差分全体を対象
+- **デバッグ用コードはマーキング**: `detail` レスポンス、擬似 state、`null as unknown as X` などは投入時に TaskCreate で整理対象に登録、マージ前に再確認
+- **JVM 再起動が必要な変更**（新 Bean / Repository method / @JsonProperty / Converter 等）を入れたらユーザーに再起動依頼を明示し、curl で疎通確認してから UI で検証
+
 ## 注意事項
 - `javax.*` ではなく `jakarta.*`
 - Spring Batch メタデータテーブルは 5.x スキーマ（`parameter_name` / `create_time`）

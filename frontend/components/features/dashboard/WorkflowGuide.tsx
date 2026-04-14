@@ -1,4 +1,9 @@
-import { ExternalLink } from 'lucide-react'
+'use client'
+
+import { useState } from 'react'
+import { ExternalLink, Play, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { api } from '@/lib/api-client'
 
 const BCART_ADMIN_ORDER = 'https://odamitsu.i13.bcart.jp/admin/order/list'
 const BCART_ADMIN_IMPORT = 'https://odamitsu.i13.bcart.jp/admin/logistics/csv/import'
@@ -38,7 +43,7 @@ const steps: WorkflowStep[] = [
   },
   {
     number: 7,
-    text: '左メニュー「B-Cart出荷」で出荷ステータスを「出荷済」に変更',
+    text: '左メニュー「B-CART出荷」で出荷ステータスを「出荷済」に変更',
   },
   {
     number: 8,
@@ -51,10 +56,24 @@ const steps: WorkflowStep[] = [
   },
 ]
 
-const NOTE_TEXT =
-  '新規得意先が登録された場合は、Smile用得意先コードを作成し、小田光オンラインの会員＞貴社コードに設定。その後「新規会員取込」バッチを起動してください。'
+const MEMBER_IMPORT_JOB = 'bCartMemberUpdate'
 
 export function WorkflowGuide() {
+  // バッチ完了監視はバッチ管理画面の役割。このボタンは起動の成否のみ toast で伝える。
+  const [launching, setLaunching] = useState(false)
+
+  const handleMemberImport = async () => {
+    setLaunching(true)
+    try {
+      await api.post(`/batch/execute/${MEMBER_IMPORT_JOB}`)
+      toast.success('新規会員取込バッチを起動しました')
+    } catch {
+      toast.error('新規会員取込バッチの起動に失敗しました')
+    } finally {
+      setLaunching(false)
+    }
+  }
+
   return (
     <div className="px-5 pb-5">
       <ol className="relative ml-3 border-l-2 border-border/60">
@@ -93,7 +112,20 @@ export function WorkflowGuide() {
       {/* Note */}
       <div className="mt-4 rounded-lg bg-muted/50 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
         <span className="font-medium text-foreground/70">補足: </span>
-        {NOTE_TEXT}
+        新規得意先が登録された場合は、Smile用得意先コードを作成し、小田光オンラインの会員＞貴社コードに設定。その後
+        <button
+          type="button"
+          onClick={handleMemberImport}
+          disabled={launching}
+          className="mx-1 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-60"
+        >
+          {launching ? (
+            <><Loader2 className="h-3 w-3 animate-spin" />起動中</>
+          ) : (
+            <><Play className="h-3 w-3" />新規会員取込</>
+          )}
+        </button>
+        バッチを起動してください。
       </div>
     </div>
   )

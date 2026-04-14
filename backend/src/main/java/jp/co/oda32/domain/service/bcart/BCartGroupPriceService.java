@@ -2,17 +2,17 @@ package jp.co.oda32.domain.service.bcart;
 
 import jp.co.oda32.domain.model.bcart.productSets.BCartGroupPrice;
 import jp.co.oda32.domain.repository.bcart.BCartGroupPriceRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class BCartGroupPriceService {
 
-    @Autowired
-    private BCartGroupPriceRepository bCartGroupPriceRepository;
+    private final BCartGroupPriceRepository bCartGroupPriceRepository;
 
     public List<BCartGroupPrice> findByProductSetId(Long productSetId) {
         return bCartGroupPriceRepository.findByProductSetId(productSetId);

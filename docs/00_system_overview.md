@@ -329,7 +329,13 @@ B-CART の出荷ステータスは以下の 4 種類。
 
 #### 4.2.3 Web 画面連携
 
-`BCartShippingInputController` / `BCartShippingSearchForm` で出荷情報入力画面を提供。
+新システム: `BCartController` が REST API (`/api/v1/bcart/shipping`) を、Next.js 画面 (`/bcart/shipping`) が B-Cart出荷情報入力を提供。
+
+- `GET /api/v1/bcart/shipping` — 出荷一覧取得（status, partnerCode で絞り込み）
+- `PUT /api/v1/bcart/shipping` — dirty 行一括保存
+- `PUT /api/v1/bcart/shipping/bulk-status` — 選択行のステータス一括更新
+
+ビジネスロジックは `BCartShippingInputService` で実装。SMILE 突合・出荷完了時の `BCartOrder.status` 連動（全 logistics SHIPPED → `完了`, 不揃い → `カスタム1`）を含む。B-CART CSV 出力済みの発送済み行 (`bCartCsvExported=true && SHIPPED`) は更新対象外。
 
 #### 4.2.4 B-CART API 設定
 

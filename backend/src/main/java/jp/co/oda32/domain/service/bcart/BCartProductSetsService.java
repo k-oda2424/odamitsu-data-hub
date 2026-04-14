@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import jp.co.oda32.domain.model.bcart.BCartProductSets;
 import jp.co.oda32.domain.repository.bcart.BCartProductSetsRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -12,8 +11,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class BCartProductSetsService {
-    @Autowired
-    private BCartProductSetsRepository bCartProductSetsRepository;
+    private final BCartProductSetsRepository bCartProductSetsRepository;
 
     public BCartProductSets getByPK(Long id) {
         return this.bCartProductSetsRepository.findById(id).orElse(null);

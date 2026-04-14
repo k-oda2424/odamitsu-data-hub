@@ -28,6 +28,7 @@ public class PurchasePriceController {
 
     private final MPurchasePriceService mPurchasePriceService;
     private final jp.co.oda32.domain.service.login.LoginUserService loginUserService;
+    private final jp.co.oda32.domain.service.master.MSupplierService mSupplierService;
 
     @GetMapping
     public ResponseEntity<List<PurchasePriceResponse>> list(
@@ -35,9 +36,22 @@ public class PurchasePriceController {
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
             @RequestParam(required = false) Integer supplierNo,
+            @RequestParam(required = false) Integer paymentSupplierNo,
             @RequestParam(required = false) @Pattern(regexp = "standard|partner|all", message = "scopeはstandard/partner/allのいずれかです") String scope) {
+
+        // paymentSupplierNo 指定時は子仕入先リストに展開
+        List<Integer> supplierNoList = null;
+        if (paymentSupplierNo != null) {
+            var children = mSupplierService.findByPaymentSupplierNo(shopNo, paymentSupplierNo);
+            supplierNoList = children.stream()
+                    .map(jp.co.oda32.domain.model.master.MSupplier::getSupplierNo)
+                    .collect(Collectors.toList());
+            if (supplierNoList.isEmpty()) {
+                return ResponseEntity.ok(List.of());
+            }
+        }
         List<MPurchasePrice> prices = mPurchasePriceService.find(
-                shopNo, null, goodsCode, goodsName, null, supplierNo, null, Flag.NO);
+                shopNo, null, goodsCode, goodsName, null, supplierNo, supplierNoList, null, Flag.NO);
 
         // scope filter: standard / partner / all (default: all)
         if ("standard".equals(scope)) {

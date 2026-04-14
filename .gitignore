@@ -32,3 +32,11 @@ frontend/playwright-report/
 
 # Temp
 /tmp/
+/test-results/
+
+# Office lock files
+~$*
+
+# Claude local files
+.claude/settings.local.json
+frontend/claudedocs/

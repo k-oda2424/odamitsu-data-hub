@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '@/lib/api-client'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { ApiError, api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
 import { useShops } from '@/hooks/use-master-data'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
@@ -22,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus } from 'lucide-react'
+import { Plus, Play } from 'lucide-react'
 import type { PurchasePriceChangePlanResponse, PriceScope } from '@/types/purchase-price'
 import { CHANGE_REASON_OPTIONS, getChangeReasonLabel, PRICE_SCOPE_OPTIONS, isPartnerSpecificPrice } from '@/types/purchase-price'
 import { emptyPage, type Paginated } from '@/types/paginated'
@@ -126,6 +127,27 @@ export function PurchasePriceChangeListPage() {
     setSearchParams({ supplierCode, goodsCode, janCode, changeReason, changePlanDateFrom, changePlanDateTo, scope })
   }
 
+  const runEstimateBatchMutation = useMutation({
+    mutationFn: async () =>
+      api.post<{ message: string }>('/batch/execute/partnerPriceChangePlanCreate'),
+    onSuccess: (res) => {
+      toast.success(res?.message ?? '得意先価格変更予定作成・見積自動生成バッチを起動しました')
+    },
+    onError: (e: Error) => {
+      if (e instanceof ApiError && e.status === 429) {
+        toast.error('他のバッチが実行中です。しばらく待ってから再実行してください')
+      } else {
+        toast.error(e.message)
+      }
+    },
+  })
+
+  const handleRunEstimateBatch = () => {
+    if (runEstimateBatchMutation.isPending) return
+    if (!window.confirm('仕入価格変更予定を元に、得意先価格変更予定と見積を自動生成します。実行しますか？')) return
+    runEstimateBatchMutation.mutate()
+  }
+
   const handleReset = () => {
     setSupplierCode('')
     setGoodsCode('')
@@ -144,10 +166,20 @@ export function PurchasePriceChangeListPage() {
       <PageHeader
         title="仕入価格変更一覧"
         actions={
-          <Button onClick={() => router.push('/purchase-prices/changes/bulk-input')}>
-            <Plus className="mr-2 h-4 w-4" />
-            一括入力
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleRunEstimateBatch}
+              disabled={runEstimateBatchMutation.isPending}
+            >
+              <Play className="mr-2 h-4 w-4" />
+              {runEstimateBatchMutation.isPending ? '実行中...' : '得意先見積自動生成'}
+            </Button>
+            <Button onClick={() => router.push('/purchase-prices/changes/bulk-input')}>
+              <Plus className="mr-2 h-4 w-4" />
+              一括入力
+            </Button>
+          </div>
         }
       />
 

@@ -1,5 +1,8 @@
 package jp.co.oda32.constant;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+
 /**
  * BCart出荷ステータス
  *
@@ -18,7 +21,7 @@ public enum BcartShipmentStatus {
         this.displayName = displayName;
     }
 
-    public static BcartShipmentStatus purse(String key) {
+    public static BcartShipmentStatus parse(String key) {
         for (BcartShipmentStatus bcartShipmentStatus : values()) {
             if (bcartShipmentStatus.getDisplayName().equals(key)) {
                 return bcartShipmentStatus;
@@ -27,6 +30,19 @@ public enum BcartShipmentStatus {
         return null;
     }
 
+    @JsonCreator
+    public static BcartShipmentStatus fromJson(String value) {
+        if (value == null) return null;
+        BcartShipmentStatus byDisplay = parse(value);
+        if (byDisplay != null) return byDisplay;
+        try {
+            return BcartShipmentStatus.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unknown BcartShipmentStatus: " + value);
+        }
+    }
+
+    @JsonValue
     public String getDisplayName() {
         return displayName;
     }

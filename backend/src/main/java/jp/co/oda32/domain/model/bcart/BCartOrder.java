@@ -155,7 +155,8 @@ public class BCartOrder {
     @Column(name = "status")
     @SerializedName("status")
     private String status; // 対応状況 (文字列, 最大255桁)
-    @OneToMany(mappedBy = "bCartOrder", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    // cascade は MERGE のみ (BCartLogistics と同方針)
+    @OneToMany(mappedBy = "bCartOrder", cascade = CascadeType.MERGE, fetch = FetchType.LAZY)
     @SerializedName("order_products")
     private List<BCartOrderProduct> orderProductList;// 受注商品情報
     @Transient

@@ -11,6 +11,7 @@ import jp.co.oda32.domain.service.bcart.BCartLogisticsService;
 import jp.co.oda32.domain.service.bcart.BCartOrderProductService;
 import jp.co.oda32.domain.service.bcart.BCartOrderService;
 import jp.co.oda32.util.gson.CustomNumberDeserializer;
+import jp.co.oda32.util.gson.LocalDateTypeAdapter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import okhttp3.HttpUrl;
@@ -25,6 +26,7 @@ import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -65,6 +67,7 @@ public class BCartOrderRegisterTasklet implements Tasklet {
                     .registerTypeAdapter(Double.class, new CustomNumberDeserializer<>(Double.class))
                     .registerTypeAdapter(Float.class, new CustomNumberDeserializer<>(Float.class))
                     .registerTypeAdapter(Long.class, new CustomNumberDeserializer<>(Long.class))
+                    .registerTypeAdapter(LocalDate.class, new LocalDateTypeAdapter())
                     .create();
 
             BCartOrdersApiResponse bCartOrdersApiResponse = gson.fromJson(jsonResponse, BCartOrdersApiResponse.class);

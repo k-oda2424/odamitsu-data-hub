@@ -118,6 +118,21 @@ public class TPurchaseService extends CustomService {
     }
 
     /**
+     * 仕入一覧画面用の絞込み検索
+     */
+    public List<TPurchase> search(Integer shopNo, Integer supplierNo, List<Integer> supplierNoList,
+                                  LocalDate purchaseDateFrom, LocalDate purchaseDateTo,
+                                  Integer purchaseNo, Flag delFlg) {
+        return this.tPurchaseRepository.findAll(Specification
+                .where(this.tPurchaseSpecification.shopNoContains(shopNo))
+                .and(this.tPurchaseSpecification.supplierNoEquals(supplierNo))
+                .and(this.tPurchaseSpecification.supplierNoListContains(supplierNoList))
+                .and(this.tPurchaseSpecification.purchaseDateContains(purchaseDateFrom, purchaseDateTo))
+                .and(this.tPurchaseSpecification.purchaseNoEquals(purchaseNo))
+                .and(this.tPurchaseSpecification.delFlgContains(delFlg)));
+    }
+
+    /**
      * 仕入を更新します。
      *
      * @param updatePurchase 仕入Entity

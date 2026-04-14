@@ -9,16 +9,16 @@ package jp.co.oda32.domain.service.master;
 
 import jp.co.oda32.domain.model.master.MDeliveryPerson;
 import jp.co.oda32.domain.repository.master.MDeliveryPersonRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class MDeliveryPersonService {
 
-    @Autowired
-    private MDeliveryPersonRepository mDeliveryPersonRepository;
+    private final MDeliveryPersonRepository mDeliveryPersonRepository;
 
     public List<MDeliveryPerson> findAll() {
         return mDeliveryPersonRepository.findAll();

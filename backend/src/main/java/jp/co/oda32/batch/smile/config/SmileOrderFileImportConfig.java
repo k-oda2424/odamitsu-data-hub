@@ -2,6 +2,7 @@ package jp.co.oda32.batch.smile.config;
 
 import jp.co.oda32.batch.ExitStatusChangeListener;
 import jp.co.oda32.batch.JobStartEndListener;
+import jp.co.oda32.batch.bcart.BCartOrderProcessingSerialNumberUpdateTasklet;
 import jp.co.oda32.batch.order.OrderStatusUpdateTasklet;
 import jp.co.oda32.batch.order.PartnerGoodsSyncTasklet;
 import jp.co.oda32.batch.order.StockAllocateTasklet;
@@ -10,6 +11,7 @@ import jp.co.oda32.batch.smile.SmileOrderFile;
 import jp.co.oda32.batch.smile.SmileOrderFileProcessor;
 import jp.co.oda32.batch.smile.SmileOrderFileReader;
 import jp.co.oda32.batch.smile.SmileOrderFileWriter;
+import jp.co.oda32.batch.smile.SmileOrderImportTasklet;
 import jp.co.oda32.batch.stock.ShopAppropriateStockCalculateTasklet;
 import jp.co.oda32.batch.util.FileManagerTasklet;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +62,10 @@ public class SmileOrderFileImportConfig {
     private final ShopAppropriateStockCalculateTasklet shopAppropriateStockCalculateTasklet;
     @NonNull
     private final FileManagerTasklet fileManagerTasklet;
+    @NonNull
+    private final SmileOrderImportTasklet smileOrderImportTasklet;
+    @NonNull
+    private final BCartOrderProcessingSerialNumberUpdateTasklet bCartOrderProcessingSerialNumberUpdateTasklet;
     @Value("input/smile_order_import.csv")
     private Resource inputResources;
 
@@ -79,12 +85,37 @@ public class SmileOrderFileImportConfig {
                 .listener(smileOrderJobListener())
                 .flow(smileOrderFileImportStep())
                 // stockAllocateStep: t_stockベースの在庫引当は使用しない方針のため除外
+                .next(smileOrderImportStep())
                 .next(orderStatusUpdateStep())
+                .next(bCartOrderProcessingSerialNumberUpdateStep())
                 .next(partnerGoodsSyncStep())
                 // shopAppropriateStockCalculateStep: 適正在庫計算は一旦除外
                 .next(vSalesMonthlySummaryRefreshStep())
                 .next(fileMoveStep())
                 .end()
+                .build();
+    }
+
+    /**
+     * SMILE 売上明細ワークテーブル → t_delivery_detail 等への取込。
+     * 既存受注の更新・削除処理もここで行う。
+     */
+    @Bean
+    public Step smileOrderImportStep() {
+        return new StepBuilder("smileOrderImportStep", jobRepository)
+                .tasklet(smileOrderImportTasklet, transactionManager)
+                .build();
+    }
+
+    /**
+     * B-Cart 出荷情報入力画面の smile連番 表示に必須。
+     * t_smile_order_import_file.processing_serial_number を SMILE 真正連番に更新し、
+     * psn_updated=true に反映する。
+     */
+    @Bean
+    public Step bCartOrderProcessingSerialNumberUpdateStep() {
+        return new StepBuilder("bCartOrderProcessingSerialNumberUpdateStep", jobRepository)
+                .tasklet(bCartOrderProcessingSerialNumberUpdateTasklet, transactionManager)
                 .build();
     }
 

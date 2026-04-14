@@ -39,8 +39,6 @@ import {
   Users,
   ArrowLeftRight,
   BookOpen,
-  MapPin,
-  Scale,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
@@ -75,6 +73,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       { title: '見積一覧', icon: FileText, href: '/estimates' },
       { title: '比較見積', icon: ArrowLeftRight, href: '/estimate-comparisons' },
+      { title: 'AI見積取込', icon: Sparkles, href: '/purchase-prices/imports' },
     ],
   },
   {
@@ -84,10 +83,9 @@ const menuGroups: MenuGroup[] = [
     items: [
       { title: '経理業務フロー', icon: ClipboardList, href: '/finance/workflow' },
       { title: '現金出納帳取込', icon: BookOpen, href: '/finance/cashbook-import' },
+      { title: '買掛仕入MF変換', icon: BookOpen, href: '/finance/payment-mf-import' },
       { title: '請求書', icon: Receipt, href: '/finance/invoices' },
       { title: '買掛金', icon: BarChart3, href: '/finance/accounts-payable' },
-      { title: 'MF得意先マッピング', icon: MapPin, href: '/finance/mf-client-mappings' },
-      { title: 'MF仕訳ルール', icon: Scale, href: '/finance/mf-journal-rules' },
     ],
   },
   {
@@ -96,7 +94,6 @@ const menuGroups: MenuGroup[] = [
     collapsible: true,
     items: [
       { title: '受注一覧', icon: FileText, href: '/orders' },
-      { title: '得意先発注', icon: Truck, href: '/partner-orders' },
     ],
   },
   {
@@ -104,10 +101,10 @@ const menuGroups: MenuGroup[] = [
     icon: ShoppingCart,
     collapsible: true,
     items: [
-      { title: '仕入一覧', icon: Receipt, href: '/purchase-prices' },
+      { title: '仕入一覧', icon: Receipt, href: '/purchases' },
+      { title: '仕入価格一覧', icon: Receipt, href: '/purchase-prices' },
       { title: '仕入価格変更一覧', icon: ClipboardList, href: '/purchase-prices/changes' },
       { title: '仕入価格変更一括入力', icon: ClipboardList, href: '/purchase-prices/changes/bulk-input' },
-      { title: 'AI見積取込', icon: Sparkles, href: '/purchase-prices/imports' },
       { title: '仕入先見積データ', icon: FileSearch, href: '/purchase-prices/quotes' },
       { title: '発注一覧', icon: Send, href: '/send-orders' },
       { title: '発注入力', icon: Truck, href: '/send-orders/create' },
@@ -123,7 +120,7 @@ const menuGroups: MenuGroup[] = [
       { title: '販売商品マスタ', icon: ShoppingCart, href: '/sales-goods' },
       { title: '販売商品ワーク', icon: ClipboardList, href: '/sales-goods/work' },
       { title: '得意先商品', icon: ClipboardList, href: '/partner-goods' },
-      { title: 'B-CART出荷', icon: Globe, href: '/bcart/shipping' },
+      { title: 'B-CART出荷情報入力', icon: Globe, href: '/bcart/shipping' },
       { title: 'B-CARTカテゴリ', icon: Database, href: '/bcart/categories' },
       { title: 'B-CART商品', icon: Package, href: '/bcart/products' },
     ],

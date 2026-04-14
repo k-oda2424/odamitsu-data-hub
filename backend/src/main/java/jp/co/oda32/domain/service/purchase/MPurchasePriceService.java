@@ -90,6 +90,12 @@ public class MPurchasePriceService extends CustomService {
     }
 
     public List<MPurchasePrice> find(Integer shopNo, Integer goodsNo, String goodsCode, String goodsName, String notLikeGoodsName, Integer supplierNo, Integer partnerNo, Flag delFlg) {
+        return find(shopNo, goodsNo, goodsCode, goodsName, notLikeGoodsName, supplierNo, null, partnerNo, delFlg);
+    }
+
+    public List<MPurchasePrice> find(Integer shopNo, Integer goodsNo, String goodsCode, String goodsName,
+                                     String notLikeGoodsName, Integer supplierNo, List<Integer> supplierNoList,
+                                     Integer partnerNo, Flag delFlg) {
         return this.mPurchasePriceRepository.findAll(Specification
                 .where(this.mPurchasePriceSpecification.shopNoContains(shopNo))
                 .and(this.mPurchasePriceSpecification.goodsNoContains(goodsNo))
@@ -97,6 +103,7 @@ public class MPurchasePriceService extends CustomService {
                 .and(this.mPurchasePriceSpecification.goodsNamesContains(goodsName))
                 .and(this.mPurchasePriceSpecification.goodsNamesNotContains(notLikeGoodsName))
                 .and(this.mPurchasePriceSpecification.supplierNoContains(supplierNo))
+                .and(this.mPurchasePriceSpecification.supplierNoListContains(supplierNoList))
                 .and(this.mPurchasePriceSpecification.partnerNoContains(partnerNo))
                 .and(this.mPurchasePriceSpecification.delFlgContains(delFlg)));
     }
