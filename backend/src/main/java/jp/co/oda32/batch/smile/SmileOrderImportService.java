@@ -44,6 +44,10 @@ public class SmileOrderImportService extends AbstractSmileOrderImportService {
     }
 
     public void preProcess(List<WSmileOrderOutputFile> newOrderList) {
+        // ページごとに preProcess が呼ばれるため、前回の map を必ずクリアする（メモリ肥大・古いキャッシュヒット防止）
+        wSalesGoodsMap.clear();
+        mPartnerMap.clear();
+
         // shop_no,shouhin_codeのListのMapを作成
         Map<Integer, List<String>> goodsMap = newOrderList.stream()
                 .collect(Collectors.groupingBy(
@@ -165,7 +169,8 @@ public class SmileOrderImportService extends AbstractSmileOrderImportService {
                     .orderNum(newOrder.getSuuryou())
                     .goodsPrice(newOrder.getTanka())
                     .goodsName(newOrder.getShouhinMei())
-                    .taxRate(newOrder.getShouhizeiritsu())
+                    .taxRate(BigDecimalUtil.requireTaxRate(newOrder.getShouhizeiritsu(),
+                            String.format("shori_renban=%d, gyou=%d, shouhin_code=%s", newOrder.getShoriRenban(), newOrder.getGyou(), newOrder.getShouhinCode())))
                     .taxType(newOrder.getKazeiKubun())
                     .deliveryNo(null)
                     .deliveryDetailNo(null)
@@ -220,7 +225,9 @@ public class SmileOrderImportService extends AbstractSmileOrderImportService {
                 deliveryDetailStatus = DeliveryDetailStatus.WAIT_SHIPPING;
             }
             TDeliveryDetail tDeliveryDetail = new TDeliveryDetail();
-            BeanUtils.copyProperties(tOrderDetail, tDeliveryDetail);
+            // goodsPrice は TDeliveryDetail 側で廃止済みのため除外する
+            // （setGoodsPrice は UnsupportedOperationException を投げる）。
+            BeanUtils.copyProperties(tOrderDetail, tDeliveryDetail, "goodsPrice");
             tDeliveryDetail.setDeliveryNo(tDelivery.getDeliveryNo());
             tDeliveryDetail.setDeliveryDetailNo(wSmileOrderOutputFile.getGyou());
             tDeliveryDetail.setOrderDetailNo(wSmileOrderOutputFile.getGyou());

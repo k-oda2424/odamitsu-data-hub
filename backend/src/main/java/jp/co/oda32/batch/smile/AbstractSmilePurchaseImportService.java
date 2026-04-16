@@ -57,6 +57,10 @@ public abstract class AbstractSmilePurchaseImportService {
     }
 
     public void preProcess(List<WSmilePurchaseOutputFile> newPurchaseList) {
+        // ページごとに preProcess が呼ばれるため、前回の map を必ずクリアする（メモリ肥大・古いキャッシュヒット防止）
+        wSalesGoodsMap.clear();
+        mSupplierMap.clear();
+
         // shop_no,shouhin_codeのListのMapを作成 TODO 商品コードが空のときどうするか
         Map<Integer, List<String>> goodsMap = newPurchaseList.stream()
                 .filter(wSmilePurchaseOutputFile -> !StringUtil.isEmpty(wSmilePurchaseOutputFile.getShouhinCode()))

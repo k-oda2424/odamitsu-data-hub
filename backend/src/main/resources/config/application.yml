@@ -21,3 +21,10 @@ spring:
 
 server:
   port: 8090
+
+# 外部API接続設定
+# B-CART アクセストークンは環境変数 BCART_ACCESS_TOKEN 経由で必ず設定する。
+# ソースコードや git 管理対象ファイルに直接書き込まないこと。
+bcart:
+  api:
+    access-token: ${BCART_ACCESS_TOKEN:}

@@ -83,15 +83,21 @@ public class BCartLogisticsCsvOutputTasklet implements Tasklet {
                 .withHeader(BCartLogisticsCsv.CSV_HEADERS)
                 .withQuoteMode(QuoteMode.ALL_NON_NULL);
 
+        // CSV 出力成功後にのみフラグ更新 & save する。書込中の例外は throw して step transaction をロールバック。
         try (FileOutputStream fos = new FileOutputStream(outputFilePath);
              OutputStreamWriter osw = new OutputStreamWriter(fos, Charset.forName("Shift_JIS"));
              BufferedWriter writer = new BufferedWriter(osw);
              CSVPrinter csvPrinter = new CSVPrinter(writer, csvFormat)) {
 
             for (BCartLogistics record : outPutList) {
-                // マップから注文情報を取得
+                // マップから注文情報を取得（紐付かない logistics に備えて null ガード）
                 BCartOrder bCartOrder = orderMap.get(record.getId());
-                
+                String adminMessage = bCartOrder != null ? bCartOrder.getAdminMessage() : null;
+                String orderStatus = bCartOrder != null ? bCartOrder.getStatus() : null;
+                if (bCartOrder == null) {
+                    log.warn("BCartLogistics id={} に紐づく BCartOrder が見つかりません。連絡事項・対応状況を空でCSV出力します。", record.getId());
+                }
+
                 // "Bカート発送ID", "送り状番号", "発送日", "出荷管理番号", "発送状況", "発送メモ", "お客様への連絡事項", "対応状況"
                 csvPrinter.printRecord(
                         record.getId(),// Bカート発送ID
@@ -100,25 +106,17 @@ public class BCartLogisticsCsvOutputTasklet implements Tasklet {
                         record.getShipmentCode(),//出荷管理番号(SMILE処理連番)
                         record.getStatus(),//発送状況
                         record.getMemo(),// 発送メモ
-                        bCartOrder.getAdminMessage(), // お客様への連絡事項
-                        bCartOrder.getStatus()  // 対応状況
+                        adminMessage, // お客様への連絡事項
+                        orderStatus   // 対応状況
                 );
             }
             csvPrinter.flush();
-            List<BCartLogistics> updatedOutputList = outPutList.stream()
-                    .peek(logistics -> logistics.setUpdated(false))
-                    .peek(logistics -> logistics.setBCartCsvExported(true))
-                    .collect(Collectors.toList());
-            this.bCartLogisticsService.save(updatedOutputList);
-        } catch (IOException e) {
-            e.printStackTrace();
         }
-    }
-
-    /**
-     * 既存メソッドとの互換性のために維持
-     */
-    private void exportToCsv(List<BCartLogistics> outPutList, String outputFilePath) throws IOException {
-        exportToCsv(outPutList, outputFilePath, new HashMap<>());
+        // CSV 書き出しが成功した場合のみフラグを更新して保存
+        List<BCartLogistics> updatedOutputList = outPutList.stream()
+                .peek(logistics -> logistics.setUpdated(false))
+                .peek(logistics -> logistics.setBCartCsvExported(true))
+                .collect(Collectors.toList());
+        this.bCartLogisticsService.save(updatedOutputList);
     }
 }

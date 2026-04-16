@@ -171,19 +171,27 @@ INSERT INTO m_payment_mf_rule (source_name, rule_kind, debit_account, debit_depa
 
 ## 5. 突合ロジック（買掛金一覧との）
 
-### 5.1 取引月の決定ルール
+### 5.1 取引月の決定ルール（重要: 仕様変更あり）
 
 送金日(`E1`)の日付から、以下で買掛金一覧の `transaction_month` を決定:
 
-| 送金日の日 | 突合対象の取引月 | 根拠 |
-|---|---|---|
-| 5日 | **前月20日締め分** = `前月の年-月-20` | 20日締め → 翌月5日払い運用 |
-| 20日 | **当月20日締め分** = `当月の年-月-20` | 20日締め → 当月20日払い運用 |
-| その他 | エラー or 警告（想定外） | |
+**現行ルール（`PaymentMfImportService#deriveTransactionMonth`）**:
+5日払い・20日払いともに **前月20日締め** に統一する。
 
-例:
-- 送金日 2026/2/5 → 取引月 2026-01-20
-- 送金日 2026/2/20 → 取引月 2026-02-20
+```java
+transactionMonth = transferDate.minusMonths(1).withDayOfMonth(20)
+```
+
+| 送金日 | 突合対象の取引月 |
+|---|---|
+| 2026/2/5 | 2026-01-20（前月20日締め分） |
+| 2026/2/20 | 2026-01-20（前月20日締め分） |
+
+理由: 20日払いの振込明細は「前月20日締め分」の支払いであり、当月20日締めの集計はまだ
+確定していないため。これにより集計タイミングと突合タイミングが整合する。
+
+（旧仕様では 20日払いは「当月20日締め分」と突合していたが、集計確定前に突合が走るケースが
+あるため前月締めに統一した。）
 
 ### 5.2 突合処理
 
@@ -260,9 +268,31 @@ CREATE TABLE t_payment_mf_import_history (
 | POST | `/api/v1/finance/payment-mf-import/preview` | xlsx アップロード → プレビュー返却（`uploadId` 含む） |
 | GET  | `/api/v1/finance/payment-mf-import/preview/{uploadId}` | プレビュー再取得（マスタ編集後） |
 | POST | `/api/v1/finance/payment-mf-import/convert/{uploadId}` | CSV生成 + 履歴保存 → CSV返却 |
+| POST | `/api/v1/finance/payment-mf-import/bulk-verify/{uploadId}` | 買掛金一括検証（`verified_amount` / `verifiedManually=true` をセット） |
 | GET  | `/api/v1/finance/payment-mf-import/history` | 履歴一覧 |
 | GET  | `/api/v1/finance/payment-mf-import/history/{id}/csv` | 履歴からCSV再ダウンロード |
 | GET/POST/PUT/DELETE | `/api/v1/finance/payment-mf-rules` | マスタCRUD（cashbookのmf-rulesと同様） |
+| POST | `/api/v1/finance/payment-mf/rules/backfill-codes?dryRun=true\|false` | 支払先コード自動補完（admin） |
+
+#### `payment_supplier_code` 自動補完（backfill-codes）
+
+PAYABLE ルールで `payment_supplier_code` が未設定のものに対し、`source_name` を正規化して
+`m_payment_supplier.payment_supplier_name` と名寄せマッチし、コードを自動補完する。
+
+正規化ルール:
+- NFKC 正規化
+- 「株式会社」「㈱」「（株）」を除去
+- 「支店」などの営業所記号（[20] 等）を除去
+- 全/半角空白を除去
+
+`dryRun=true` でプレビュー（対象件数・マッチ内訳を返却）、`dryRun=false` で実適用。
+画面の「支払先コード自動補完」ボタン（admin、`/finance/payment-mf-rules` ヘッダー）から起動。
+
+### 正規化・マッチングユーティリティ
+
+- `normalizePaymentSupplierCode`: Excel 側の仕入コード（2-3桁、例: `12`）を DB 形式（6桁ゼロ埋め、×100、例: `001200`）に正規化
+- `deriveTransactionMonth`: 5日払い・20日払いともに前月20日締めに統一（§5.1）
+- reconcileCode fallback: Excel 側にコードが無い（送り先名のみ）行でも、バックフィルで埋めたルール側のコードを使って `t_accounts_payable_summary` と突合可能
 
 ### クラス
 - `PaymentMfImportController` — API層
@@ -294,8 +324,30 @@ cashbook-import と同じパターン: `ConcurrentHashMap<String, ParsedWorkbook
    - マスタ更新後は同 `uploadId` でプレビュー再取得
 3. **Step3 Download**: CSVダウンロードボタン
 
+#### BulkVerifyDialog（振込明細で一括検証）
+
+プレビュー後、買掛金サマリへ一括検証する確認ダイアログ。強化機能:
+
+- **未登録セクション**: 右上に「マスタマスタを確認」ボタン（`/finance/payment-mf-rules` へ遷移）
+- 各未登録行の「マスタで検索」リンク: `?q=<送り先名>` で検索語プリフィル
+- **買掛金なし行一覧**: 赤色ボックス、行ごとにコード・送り先名・金額を表示
+- 実行時: `POST /api/v1/finance/payment-mf-import/bulk-verify/{uploadId}`
+  - `PaymentMfImportService#applyVerification` が `t_accounts_payable_summary` に以下をセット
+    - `verified_amount = Excel請求額`
+    - `verified_manually = true`
+    - `verification_note = 「振込明細 yyyy-MM-dd 一括検証」` 等
+  - 税率別複数行には同一 `verified_amount` を同期セット
+  - 一致判定（100円閾値）→ `verification_result`, `payment_difference` を更新
+
 **`/finance/payment-mf-rules`** — マスタCRUD
-cashbook の `/finance/mf-journal-rules` のUIを流用。
+cashbook の `/finance/mf-journal-rules` のUIを流用。強化機能:
+
+- **ルール複製ボタン**: 各行に Copy アイコン。既存ルールを雛形に新規ルール作成
+- **「支払先コード自動補完」ボタン**（admin、ヘッダー）: `POST /payment-mf/rules/backfill-codes`
+  - `dryRun=true` でプレビュー（対象件数・マッチ内訳）
+  - 一括適用で `dryRun=false`
+- 会社名正規化検索（株式会社 / ㈱ / 空白ゆれを吸収して比較）
+- `?q=<検索語>` URLパラメータで検索語プリフィル対応（未登録行リンクから誘導）
 
 **`/finance/payment-mf-history`** — 変換履歴
 日付降順一覧 + 再ダウンロード（後回し可）。
@@ -330,10 +382,14 @@ cashbook の `/finance/mf-journal-rules` のUIを流用。
 
 ### 確定
 - **シート構造差分**: 5日払い（`振込明細`）/ 20日払い（`支払い明細`）は**列レイアウトがずれる**（G列の自社/値引、H/I列の早払位置など）。→ ヘッダ名での列マップ動的構築で吸収（§2.2）。
-- **取引月決定**: 送金日が5日=前月20日締め / 20日=当月20日締めと突合（§5.1）。
+- **取引月決定**: 5日払い・20日払いともに **前月20日締め分** と突合（§5.1, 仕様変更済み）。
 - **合計行の判定**: B列文字列 `合計` でヒット。位置は固定しない（§2.3）。
 - **無視する列**: 自社 / 値引 / 相殺 / 備考 / 打込金額 / 振込金額（§2.5）。
 - **シード出典**: MVP時点で **`変換MAP` シート（56件想定）全件**を `m_payment_mf_rule` に投入（PAYABLE扱い）。加えて過去3ヶ月CSVから固定費行（EXPENSE/DIRECT_PURCHASE）約15件を抽出して追加。
+- **一括検証の永続化**: `t_accounts_payable_summary.verified_amount` + `verified_manually=true` に書込。税率別複数行には同一値を同期。
+- **支払先コード正規化**: Excel 2-3桁コード → DB 6桁ゼロ埋め（×100）に `normalizePaymentSupplierCode` で変換。
+- **reconcile fallback**: Excel 側にコードが無い行でも、バックフィル済ルールのコードで突合可能。
+- **バックフィル運用**: `m_payment_mf_rule` PAYABLE 74件に `payment_supplier_code` を自動補完済み（2026-04-15）。
 
 ### 残論点（実装中に詰める）
 - `m_payment_supplier.payment_supplier_code` のDB内実型（VARCHAR/INT）確認 → Excel A列との照合時の型変換。

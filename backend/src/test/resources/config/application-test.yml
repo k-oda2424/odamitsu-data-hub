@@ -23,6 +23,12 @@ jwt:
   secret: test-secret-key-odamitsu-data-hub-must-be-at-least-256-bits-long-for-hmac
   expiration-ms: 3600000
 
+# テスト用のダミートークン（実際の B-CART API には到達しない）。
+# BCartApiConfig#init() の空文字検証だけを通すための placeholder。
+bcart:
+  api:
+    access-token: test-dummy-bcart-token
+
 logging:
   level:
     jp.co.oda32: DEBUG

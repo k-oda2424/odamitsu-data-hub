@@ -48,9 +48,13 @@ public class AccountsPayableSummaryInitTasklet implements Tasklet {
                 periodStartDate, periodEndDate);
 
         // 対象期間のデータの差額と連携可否をリセット
+        // - shop_no=1 のみ対象（shop_no=2 の手動買掛レコードに影響させない）
+        // - verified_manually=true の手動確定レコードは保護（SmilePaymentVerifier もスキップする）
         String sql = "UPDATE t_accounts_payable_summary " +
                 "SET payment_difference = NULL, verification_result = NULL, mf_export_enabled = FALSE " +
-                "WHERE transaction_month = ?";
+                "WHERE transaction_month = ? " +
+                "  AND shop_no = 1 " +
+                "  AND (verified_manually IS NULL OR verified_manually = FALSE)";
 
         int updatedRows = jdbcTemplate.update(sql, java.sql.Date.valueOf(periodEndDate));
 

@@ -3,6 +3,7 @@ package jp.co.oda32.batch.smile;
 import jp.co.oda32.domain.model.smile.WSmilePurchaseOutputFile;
 import jp.co.oda32.util.CollectionUtil;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -23,6 +24,7 @@ import java.util.stream.Collectors;
  */
 @Log4j2
 @Component
+@StepScope
 public class NewSmilePurchaseProcessor {
 
     @Autowired
@@ -34,31 +36,28 @@ public class NewSmilePurchaseProcessor {
     public void newPurchaseProcess() throws Exception {
         log.info("=== 新規仕入取込処理を開始します ===");
         int pageSize = 1000;
-        int pageNumber = 0;
-
-        Pageable pageable = PageRequest.of(pageNumber, pageSize);
-        Page<WSmilePurchaseOutputFile> page;
-        do {
-            page = smilePurchaseImportService.findNewPurchases(pageable);
-            if (pageNumber == 0) {
+        // 「未登録」条件の query で登録処理により結果セットが縮むため、page 0 を繰り返し取得する方式。
+        // 通常のオフセット方式だと処理済み分だけ行がずれてレコードがスキップされる。
+        Pageable pageable = PageRequest.of(0, pageSize);
+        int iteration = 0;
+        int maxIterations = 10000;
+        while (iteration++ < maxIterations) {
+            Page<WSmilePurchaseOutputFile> page = smilePurchaseImportService.findNewPurchases(pageable);
+            if (iteration == 1) {
                 this.totalElements = page.getTotalElements();
                 log.info("=== 全体の件数: {}件 ===", totalElements);
             }
-
             List<WSmilePurchaseOutputFile> newPurchaseList = page.getContent();
             if (CollectionUtil.isEmpty(newPurchaseList)) {
-                log.info("新規仕入登録はありません");
+                if (iteration == 1) log.info("新規仕入登録はありません");
                 break;
             }
-            log.info("新規仕入登録: {}件, 現在処理中: {}/{}件", newPurchaseList.size(), processedCount + newPurchaseList.size(), totalElements);
-
+            log.info("新規仕入登録: {}件 (累計処理: {}/{}件)", newPurchaseList.size(), processedCount + newPurchaseList.size(), totalElements);
             this.processBatch(newPurchaseList);
-            pageNumber++;
-            log.info("ページング {}ページ目処理終了", pageNumber);
-            pageable = page.nextPageable();  // 次のページを取得
-        } while (page.hasNext());  // 次のページが存在するか確認
-
-        log.info("=== 全ページの処理が完了しました。合計{}ページ ===", page.getTotalPages());
+        }
+        if (iteration >= maxIterations) {
+            log.error("新規仕入取込が最大反復回数({})に達しました。データ不整合の可能性があります", maxIterations);
+        }
         log.info("=== 新規仕入取込処理が完了しました。合計{}件を処理しました。 ===", processedCount);
     }
 

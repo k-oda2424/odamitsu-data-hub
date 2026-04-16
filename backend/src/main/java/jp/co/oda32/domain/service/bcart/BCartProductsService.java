@@ -28,6 +28,11 @@ public class BCartProductsService {
         return bCartProductsRepository.findById(id);
     }
 
+    /** id リストから一括取得（N+1 クエリ回避用） */
+    public List<BCartProducts> findAllById(List<Integer> ids) {
+        return bCartProductsRepository.findAllById(ids);
+    }
+
     public List<BCartProducts> findAll() {
         return bCartProductsRepository.findAll();
     }

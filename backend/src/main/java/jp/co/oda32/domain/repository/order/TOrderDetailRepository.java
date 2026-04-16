@@ -3,6 +3,7 @@ package jp.co.oda32.domain.repository.order;
 import jp.co.oda32.domain.model.order.TOrderDetail;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -53,4 +54,21 @@ public interface TOrderDetailRepository extends JpaRepository<TOrderDetail, Inte
             "AND o.order_date_time >= NOW() - INTERVAL '2 years' " +
             "ORDER BY o.partner_no, o.order_date_time DESC", nativeQuery = true)
     List<Object[]> findLastDeliveredPricesByGoodsCode(@Param("shopNo") Integer shopNo, @Param("goodsCode") String goodsCode);
+
+    /**
+     * 注文明細のうち、受付/入荷待ち/在庫引当 状態かつ紐づく伝票日付が過去または当日の行を
+     * 一括で納品済（order_detail_status='20'）に更新する。
+     * 初回 catch-up 時の 528k 件規模でもメモリを消費せず単発 SQL で処理する。
+     */
+    @Modifying
+    @Query(value = "UPDATE t_order_detail " +
+            "   SET order_detail_status = '20', modify_date_time = NOW() " +
+            " WHERE order_detail_status IN ('00','01','10') " +
+            "   AND del_flg = '0' " +
+            "   AND delivery_no IN (" +
+            "         SELECT delivery_no FROM t_delivery " +
+            "          WHERE slip_date <= CURRENT_DATE AND del_flg = '0'" +
+            "       )",
+            nativeQuery = true)
+    int bulkUpdatePastDetailsToDelivered();
 }

@@ -7,6 +7,7 @@ import jp.co.oda32.domain.model.order.TDelivery;
 import jp.co.oda32.domain.model.order.TDeliveryDetail;
 import jp.co.oda32.domain.model.order.TOrderDetail;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -22,11 +23,12 @@ import java.util.stream.Collectors;
  * @author k_oda
  * @since 2018/11/30
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DeliveryUtil {
     private Function<List<TDeliveryDetail>, BigDecimal> getTotalPrice = (tDeliveryDetailList -> tDeliveryDetailList.stream()
-            .map(tDeliveryDetail -> tDeliveryDetail.getGoodsPrice().multiply(tDeliveryDetail.getDeliveryNum()))
+            .map(tDeliveryDetail -> tDeliveryDetail.getTOrderDetail().getGoodsPrice().multiply(tDeliveryDetail.getDeliveryNum()))
             .reduce(BigDecimal.ZERO, BigDecimal::add));
 
     private static TaxCalculationResult calculateTax(List<TDeliveryDetail> tDeliveryDetailList) {
@@ -43,17 +45,24 @@ public class DeliveryUtil {
     }
 
     private static OrderDetailCalculationResult calculateAmounts(TDeliveryDetail detail) {
-        BigDecimal goodsPrice = detail.getGoodsPrice();
+        TOrderDetail orderDetail = detail.getTOrderDetail();
+        BigDecimal goodsPrice = orderDetail.getGoodsPrice();
         BigDecimal deliveryNum = detail.getDeliveryNum();
         BigDecimal totalAmount = goodsPrice.multiply(deliveryNum);
 
-        TOrderDetail orderDetail = detail.getTOrderDetail();
         TaxType taxType = TaxType.purse(orderDetail.getTaxType());
         BigDecimal taxRate = orderDetail.getTaxRate();
 
         BigDecimal amountExcludingTax = BigDecimal.ZERO;
         BigDecimal taxAmount = BigDecimal.ZERO;
         BigDecimal amountIncludingTax = BigDecimal.ZERO;
+
+        // 紐づく注文明細の tax_rate が NULL（旧 stock-app 移行時の orphan 明細）は税計算から除外し、税抜＝税込＝数量×単価 扱い
+        if (taxRate == null) {
+            log.warn("紐づく注文明細の tax_rate が NULL のため税計算から除外します。delivery_no={}, delivery_detail_no={}, order_no={}, order_detail_no={}, goods_code={}",
+                    detail.getDeliveryNo(), detail.getDeliveryDetailNo(), orderDetail.getOrderNo(), orderDetail.getOrderDetailNo(), detail.getGoodsCode());
+            return new OrderDetailCalculationResult(totalAmount, BigDecimal.ZERO, totalAmount);
+        }
 
         switch (Objects.requireNonNull(taxType)) {
             case TAX_EXCLUDE:

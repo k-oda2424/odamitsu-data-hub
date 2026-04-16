@@ -23,6 +23,7 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -44,18 +45,19 @@ public class BCartOrderRegisterTasklet implements Tasklet {
     private final BCartOrderService bCartOrderService;
     private final BCartOrderProductService bCartOrderProductService;
     private final BCartLogisticsService bCartLogisticsService;
+    @Qualifier("bCartHttpClient")
+    private final OkHttpClient httpClient;
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
         try (Response response = executeBCartOrdersAPI()) {
             if (!response.isSuccessful()) {
-                log.error("API call failed: " + response.code());
-                return RepeatStatus.CONTINUABLE;
+                // CONTINUABLE だと無限ループの恐れがあるため、例外でバッチを失敗扱いに
+                throw new RuntimeException("B-Cart 受注 API 呼び出しが失敗しました: code=" + response.code());
             }
 
             if (response.body() == null) {
-                log.error("Response body is null");
-                return RepeatStatus.CONTINUABLE;
+                throw new RuntimeException("B-Cart 受注 API のレスポンスボディが null です");
             }
 
             log.info(response);
@@ -76,16 +78,14 @@ public class BCartOrderRegisterTasklet implements Tasklet {
             for (BCartOrder bCartOrder : bCartOrderList) {
                 saveBCartOrder(bCartOrder);
             }
-        } catch (IOException e) {
-            log.error("Failed to execute B-Cart API: ", e);
-            return RepeatStatus.CONTINUABLE;
         }
+        // IOException は伝播させて batch を失敗扱いに
 
         return RepeatStatus.FINISHED;
     }
 
     private Response executeBCartOrdersAPI() throws IOException {
-        OkHttpClient client = new OkHttpClient().newBuilder().build();
+        OkHttpClient client = this.httpClient;
         HttpUrl url = new HttpUrl.Builder()
                 .scheme("https")
                 .host("api.bcart.jp")

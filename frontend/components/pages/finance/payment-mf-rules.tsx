@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -15,9 +16,9 @@ import {
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Copy, Wand2, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
-import type { PaymentMfRule, PaymentMfRuleRequest, RuleKind } from '@/types/payment-mf'
+import type { PaymentMfRule, PaymentMfRuleRequest, RuleKind, BackfillResult } from '@/types/payment-mf'
 import { RULE_KINDS, TAX_CATEGORIES } from '@/types/payment-mf'
 
 export default function PaymentMfRulesPage() {
@@ -25,15 +26,28 @@ export default function PaymentMfRulesPage() {
   const { user } = useAuth()
   const isAdmin = user?.shopNo === 0
 
-  const [search, setSearch] = useState('')
+  const searchParams = useSearchParams()
+  const qParam = searchParams.get('q') ?? ''
+  // 検索欄は ?q= を初期値として受け取り、その後は片方向 (URL→input) でのみ同期する。
+  // ユーザーが手入力で編集した内容は URL には反映されない（永続化不要な検索体験のため）。
+  // 別タブから `?q=XYZ` で再アクセスした場合は新しい qParam で初期化される
+  // （target="_blank" 開きのため毎回マウントされる前提）。
+  const [search, setSearch] = useState(qParam)
+  useEffect(() => {
+    // 同一タブで URL だけ変わるケース(履歴操作など)に備えて追従する。
+    // ユーザー編集を尊重したい場合は "search !== qParam" 判定を変えること。
+    setSearch(qParam)
+  }, [qParam])
   const [editing, setEditing] = useState<PaymentMfRule | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<PaymentMfRule | null>(null)
   const [form, setForm] = useState<PaymentMfRuleRequest>(blank())
+  const [backfill, setBackfill] = useState<BackfillResult | null>(null)
 
   const { data: rules = [], isLoading } = useQuery({
     queryKey: ['payment-mf-rules'],
     queryFn: () => api.get<PaymentMfRule[]>('/finance/payment-mf/rules'),
+    staleTime: 60_000,
   })
 
   const createMut = useMutation({
@@ -65,19 +79,55 @@ export default function PaymentMfRulesPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const backfillMut = useMutation({
+    mutationFn: (dryRun: boolean) =>
+      api.post<BackfillResult>(`/finance/payment-mf/rules/backfill-codes?dryRun=${dryRun}`),
+    onSuccess: (r) => {
+      setBackfill(r)
+      if (!r.dryRun) {
+        queryClient.invalidateQueries({ queryKey: ['payment-mf-rules'] })
+        toast.success(`一括補完しました: 一致 ${r.matchedCount} / 未確定 ${r.ambiguousCount} / 該当なし ${r.notFoundCount}`)
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const filtered = useMemo(() => {
-    const q = search.toLowerCase()
-    return rules.filter((r) =>
-      !q || r.sourceName.toLowerCase().includes(q)
-          || (r.debitSubAccount ?? '').toLowerCase().includes(q)
-          || (r.paymentSupplierCode ?? '').includes(q)
-    )
+    const raw = search.toLowerCase()
+    const q = normalizeName(raw)
+    return rules.filter((r) => {
+      if (!raw) return true
+      const name = normalizeName(r.sourceName.toLowerCase())
+      return name.includes(q)
+          || (r.debitSubAccount ?? '').toLowerCase().includes(raw)
+          || (r.paymentSupplierCode ?? '').includes(raw)
+    })
   }, [rules, search])
 
   function close() {
     setCreating(false); setEditing(null); setForm(blank())
   }
   function openCreate() { setForm(blank()); setCreating(true) }
+  function openDuplicate(r: PaymentMfRule) {
+    setEditing(null)
+    setForm({
+      sourceName: `${r.sourceName}（複製）`,
+      paymentSupplierCode: r.paymentSupplierCode ?? '',
+      ruleKind: r.ruleKind,
+      debitAccount: r.debitAccount,
+      debitSubAccount: r.debitSubAccount ?? '',
+      debitDepartment: r.debitDepartment ?? '',
+      debitTaxCategory: r.debitTaxCategory,
+      creditAccount: r.creditAccount,
+      creditSubAccount: r.creditSubAccount ?? '',
+      creditDepartment: r.creditDepartment ?? '',
+      creditTaxCategory: r.creditTaxCategory,
+      summaryTemplate: r.summaryTemplate,
+      tag: r.tag ?? '',
+      priority: r.priority,
+    })
+    setCreating(true)
+  }
   function openEdit(r: PaymentMfRule) {
     setEditing(r)
     setForm({
@@ -107,9 +157,19 @@ export default function PaymentMfRulesPage() {
       <PageHeader
         title="買掛仕入MFルール マスタ"
         actions={
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="mr-1 h-4 w-4" />新規
-          </Button>
+          <>
+            {isAdmin && (
+              <Button size="sm" variant="outline"
+                onClick={() => backfillMut.mutate(true)}
+                disabled={backfillMut.isPending}>
+                <Wand2 className="mr-1 h-4 w-4" />
+                {backfillMut.isPending ? '解析中...' : '支払先コード自動補完'}
+              </Button>
+            )}
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="mr-1 h-4 w-4" />新規
+            </Button>
+          </>
         }
       />
       <Input
@@ -151,11 +211,14 @@ export default function PaymentMfRulesPage() {
                   <td className="p-2 text-right">
                     {isAdmin && (
                       <>
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>
+                        <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="編集">
                           <Pencil className="h-4 w-4" />
                         </Button>
+                        <Button size="sm" variant="ghost" onClick={() => openDuplicate(r)} title="複製">
+                          <Copy className="h-4 w-4" />
+                        </Button>
                         <Button size="sm" variant="ghost"
-                          onClick={() => setDeleteTarget(r)}>
+                          onClick={() => setDeleteTarget(r)} title="削除">
                           <Trash2 className="h-4 w-4 text-red-600" />
                         </Button>
                       </>
@@ -248,6 +311,83 @@ export default function PaymentMfRulesPage() {
         description={deleteTarget ? `「${deleteTarget.sourceName}」を削除します` : ''}
         onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget.id)}
       />
+
+      <Dialog open={backfill !== null} onOpenChange={(o) => { if (!o) setBackfill(null) }}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>
+              支払先コード自動補完 {backfill?.dryRun ? '（プレビュー）' : '（結果）'}
+            </DialogTitle>
+          </DialogHeader>
+          {backfill && (
+            <div className="space-y-3">
+              <div className="flex gap-4 text-sm">
+                <span className="text-green-700">一致 {backfill.matchedCount}</span>
+                <span className="text-amber-700">候補複数 {backfill.ambiguousCount}</span>
+                <span className="text-red-600">該当なし {backfill.notFoundCount}</span>
+                <span className="text-muted-foreground">対象外 {backfill.skippedCount}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                対象: 種別=PAYABLE かつ支払先コード未設定のルール。
+                m_payment_supplier の支払先名と正規化して一致照合します。
+                候補複数／該当なしのルールは個別に編集してください。
+              </p>
+              <div className="max-h-[50vh] overflow-auto rounded border">
+                <table className="min-w-full text-xs">
+                  <thead className="sticky top-0 bg-muted">
+                    <tr>
+                      <th className="p-1 text-left">ルールID</th>
+                      <th className="p-1 text-left">ルール送り先名</th>
+                      <th className="p-1 text-left">状態</th>
+                      <th className="p-1 text-left">候補コード</th>
+                      <th className="p-1 text-left">候補名</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backfill.items.map((it) => (
+                      <tr key={it.ruleId} className="border-t">
+                        <td className="p-1">{it.ruleId}</td>
+                        <td className="p-1">{it.sourceName}</td>
+                        <td className="p-1">
+                          {it.status === 'MATCHED' && (
+                            <span className="inline-flex items-center gap-1 text-green-700">
+                              <CheckCircle2 className="h-3.5 w-3.5" />一致
+                            </span>
+                          )}
+                          {it.status === 'AMBIGUOUS' && (
+                            <span className="inline-flex items-center gap-1 text-amber-700">
+                              <AlertTriangle className="h-3.5 w-3.5" />候補複数
+                            </span>
+                          )}
+                          {it.status === 'NOT_FOUND' && (
+                            <span className="inline-flex items-center gap-1 text-red-600">
+                              <XCircle className="h-3.5 w-3.5" />該当なし
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-1 font-mono">{it.candidateCode ?? ''}</td>
+                        <td className="p-1">
+                          {it.candidateName ?? (it.alternatives ? it.alternatives.join(' / ') : '')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBackfill(null)}>閉じる</Button>
+            {backfill?.dryRun && isAdmin && (backfill.matchedCount > 0) && (
+              <Button
+                disabled={backfillMut.isPending}
+                onClick={() => backfillMut.mutate(false)}>
+                {backfillMut.isPending ? '適用中...' : `${backfill.matchedCount} 件を一括適用`}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -259,6 +399,23 @@ function F({ label, children }: { label: string; children: React.ReactNode }) {
       {children}
     </div>
   )
+}
+
+/**
+ * 会社表記ゆれ（㈱/株式会社/空白など）を吸収した正規化文字列を返す。
+ *
+ * 除去順序が重要: 「(株)」「(有)」は丸括弧を含むため、先に除去しないと
+ * 括弧のみ除去されて「株」「有」が本文として残り、別エントリと誤マッチする。
+ * 例: 「サラヤ(株)」→ `(株)` を先に除去 →「サラヤ」(正)
+ *   従来の順序では `株式会社` 除去 →「サラヤ(株)」→ 括弧除去 →「サラヤ株」
+ */
+function normalizeName(s: string): string {
+  return s
+    .replace(/[\s\u3000]/g, '')
+    .replace(/\(株\)|\(有\)|（株）|（有）/g, '')
+    .replace(/株式会社|有限会社|合同会社|合資会社|合名会社/g, '')
+    .replace(/[㈱㈲]/g, '')
+    .replace(/[()（）]/g, '')
 }
 
 function blank(): PaymentMfRuleRequest {

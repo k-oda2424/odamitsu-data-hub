@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/components/features/common/PageHeader'
+import { ConfirmDialog } from '@/components/features/common/ConfirmDialog'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
@@ -31,6 +32,7 @@ export default function PaymentMfImportPage() {
   const [preview, setPreview] = useState<PaymentMfPreviewResponse | null>(null)
   const [ruleDialog, setRuleDialog] = useState<RuleDialogState>(null)
   const [form, setForm] = useState<PaymentMfRuleRequest>(blankRuleRequest())
+  const [confirmVerify, setConfirmVerify] = useState(false)
 
   const previewMut = useMutation({
     mutationFn: async (f: File) => {
@@ -64,7 +66,8 @@ export default function PaymentMfImportPage() {
       toast.success('ルールを追加しました')
       setRuleDialog(null)
       setForm(blankRuleRequest())
-      if (preview) rePreviewMut.mutate(preview.uploadId)
+      // 再プレビューが既に走っている場合はスキップ（連続ルール追加時のフリッカ防止）
+      if (preview && !rePreviewMut.isPending) rePreviewMut.mutate(preview.uploadId)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -89,12 +92,14 @@ export default function PaymentMfImportPage() {
       const date = preview.transferDate?.replaceAll('-', '') ?? 'unknown'
       const suggest = filename ?? `買掛仕入MFインポートファイル_${date}.csv`
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
+      const url = URL.createObjectURL(blob)
+      a.href = url
       a.download = suggest
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      URL.revokeObjectURL(a.href)
+      // revoke は非同期ダウンロード完了を待つ（同期 revoke は大容量 CSV で稀に失敗する）
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
       toast.success('CSVをダウンロードしました')
     } catch (e) {
       toast.error(`ダウンロード失敗: ${(e as Error).message}`)
@@ -153,9 +158,42 @@ export default function PaymentMfImportPage() {
             {previewMut.isPending ? '解析中...' : 'プレビュー'}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
-          「支払い明細」(20日払い) または「振込明細」(5日払い) シートを読み込みます。shop_no=1 固定。
-        </p>
+        <div className="rounded bg-muted/50 p-3 text-xs space-y-2 leading-relaxed">
+          <div className="font-medium text-foreground">どのファイルを選べばいい？</div>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>
+              経理が作成した <b>「振込み明細〇〇.xlsx」</b>（例: <code>振込み明細08-2-5.xlsx</code>）を
+              そのままアップロードしてください。ファイル名の末尾 <code>-5</code> が5日払い、
+              <code>-20</code> が20日払いです（シートは自動判別）。
+            </li>
+            <li>
+              保管場所の目安:
+              <br />
+              <code>\\Smile-srv\共有\BKUP-001\Documents\Documents\買掛関係\支払\{'{'}年{'}'}\{'{'}支払月{'}'}\</code>
+            </li>
+            <li>
+              取引月（買掛金突合先）の決まり方:
+              <ul className="list-[circle] pl-5">
+                <li>
+                  送金日が <b>5日・20日</b> いずれも <b>前月20日締め</b> の買掛が対象です。
+                </li>
+                <li>例: 2026/1/5 支払 → 取引月 <b>2025-12-20</b></li>
+                <li>例: 2026/1/20 支払 → 取引月 <b>2025-12-20</b></li>
+                <li>例: 2026/2/5 支払 → 取引月 <b>2026-01-20</b></li>
+                <li>例: 2026/2/20 支払 → 取引月 <b>2026-01-20</b></li>
+              </ul>
+              ※ 送金日は Excel の <code>E1</code> セルから自動取得します。プレビュー上部の
+              「送金日 / 対応取引月」で必ず確認してください。
+            </li>
+            <li>
+              対象シート: 20日払い＝「支払い明細」 / 5日払い＝「振込明細」。shop_no=1 固定。
+            </li>
+            <li>
+              同じ月を2回読み込むと <b>買掛金一覧への反映（手動確定）が上書き</b>されます。
+              二重取込しないようご注意ください。
+            </li>
+          </ul>
+        </div>
       </div>
 
       {preview && (
@@ -186,11 +224,7 @@ export default function PaymentMfImportPage() {
               <Button
                 variant="outline"
                 disabled={preview.errorCount > 0 || verifyMut.isPending}
-                onClick={() => {
-                  if (confirm('この突合結果で買掛金一覧を検証確定します。よろしいですか？\n（verified_manually=true として手動確定扱いになります）')) {
-                    verifyMut.mutate(preview.uploadId)
-                  }
-                }}
+                onClick={() => setConfirmVerify(true)}
               >
                 <CheckCheck className="mr-1 h-4 w-4" />
                 {verifyMut.isPending ? '反映中...' : '買掛金一覧へ反映'}
@@ -204,24 +238,44 @@ export default function PaymentMfImportPage() {
 
           {preview.unregisteredSources.length > 0 && (
             <div className="rounded border border-orange-300 bg-orange-50 p-4">
-              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-orange-700">
-                <AlertCircle className="h-4 w-4" />
-                マスタ未登録の送り先 ({preview.unregisteredSources.length})
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-orange-700">
+                  <AlertCircle className="h-4 w-4" />
+                  マスタ未登録の送り先 ({preview.unregisteredSources.length})
+                </div>
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/finance/payment-mf-rules">
+                    <Scale className="mr-1 h-4 w-4" />
+                    マッピングマスタを確認
+                  </Link>
+                </Button>
               </div>
+              <p className="mb-2 text-xs text-orange-800">
+                略称違い（例: 「カミイソ ㈱」⇔「カミイソ産商 ㈱」）で未登録扱いになる場合があります。
+                まずは <Link href="/finance/payment-mf-rules" className="underline font-medium">マッピングマスタ</Link> で類似名を検索し、既存ルールの送り先名を Excel 表記に合わせて修正してください。
+                該当がなければ「ルール追加」で新規登録できます。
+              </p>
               <div className="space-y-1">
                 {preview.unregisteredSources.map((c) => (
                   <div key={c} className="flex items-center justify-between gap-2 text-sm">
                     <code className="rounded bg-white px-2 py-0.5">{c}</code>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        const row = preview.rows.find((r) => r.sourceName === c)
-                        if (row) openRuleDialog(row)
-                      }}
-                    >
-                      ルール追加
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button asChild size="sm" variant="ghost">
+                        <Link href={`/finance/payment-mf-rules?q=${encodeURIComponent(c)}`}>
+                          マスタで検索
+                        </Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const row = preview.rows.find((r) => r.sourceName === c)
+                          if (row) openRuleDialog(row)
+                        }}
+                      >
+                        ルール追加
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -346,6 +400,15 @@ export default function PaymentMfImportPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmVerify}
+        onOpenChange={setConfirmVerify}
+        title="買掛金一覧へ反映"
+        description="この突合結果で買掛金一覧を検証確定します。よろしいですか？（verified_manually=true として手動確定扱いになります）"
+        confirmLabel="反映する"
+        onConfirm={() => preview && verifyMut.mutate(preview.uploadId)}
+      />
     </div>
   )
 }
@@ -398,5 +461,6 @@ function MatchBadge({
       </Link>
     ) : <span className="text-amber-700">🟡 差異</span>
   if (status === 'UNMATCHED') return <span className="text-red-600">🔴 買掛金なし</span>
+  if (status === 'NA') return <span className="text-muted-foreground">対象外</span>
   return <span className="text-muted-foreground">–</span>
 }

@@ -476,37 +476,14 @@ public class TAccountsReceivableSummaryTasklet implements Tasklet {
                                 roundedTotalAmount, roundedInvoiceAmount, diffAmount);
                     }
 
-                    // 請求書金額で上書き
-                    for (TAccountsReceivableSummary summary : invoiceGroupSummaries) {
-                        // 税込金額を請求書金額に合わせる（比率で調整）
-                        if (roundedTotalAmount.compareTo(BigDecimal.ZERO) != 0) {
-                            BigDecimal ratio = roundedInvoiceAmount.divide(roundedTotalAmount, 10, RoundingMode.HALF_UP);
-                            summary.setTaxIncludedAmountChange(summary.getTaxIncludedAmountChange().multiply(ratio).setScale(0, RoundingMode.DOWN));
-
-                            // 税抜金額も同じ比率で調整（設定されている場合）
-                            if (summary.getTaxExcludedAmountChange() != null) {
-                                summary.setTaxExcludedAmountChange(summary.getTaxExcludedAmountChange().multiply(ratio).setScale(0, RoundingMode.DOWN));
-                            }
-                        } else {
-                            // 集計金額が0の場合は、請求書金額をそのまま設定（複数のサマリーがある場合は最初のものに設定）
-                            if (invoiceGroupSummaries.indexOf(summary) == 0) {
-                                summary.setTaxIncludedAmountChange(roundedInvoiceAmount);
-                                // 税抜金額の調整（税率に基づいて計算）
-                                BigDecimal taxRate = summary.getTaxRate();
-                                if (taxRate != null && taxRate.compareTo(BigDecimal.ZERO) > 0) {
-                                    BigDecimal divider = BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100), 10, RoundingMode.DOWN));
-                                    BigDecimal taxExcludedAmount = roundedInvoiceAmount.divide(divider, 0, RoundingMode.DOWN);
-                                    summary.setTaxExcludedAmountChange(taxExcludedAmount);
-                                } else {
-                                    // 税率が0または設定されていない場合は税抜=税込
-                                    summary.setTaxExcludedAmountChange(roundedInvoiceAmount);
-                                }
-                            } else {
-                                // 2つ目以降のサマリーがある場合は0に設定
-                                summary.setTaxIncludedAmountChange(BigDecimal.ZERO);
-                                summary.setTaxExcludedAmountChange(BigDecimal.ZERO);
-                            }
-                        }
+                    // 請求書金額で上書き（比率按分 + 残差は最大金額行で吸収）
+                    if (roundedTotalAmount.compareTo(BigDecimal.ZERO) != 0) {
+                        allocateProportionallyWithRemainder(invoiceGroupSummaries, roundedInvoiceAmount, roundedTotalAmount);
+                    } else {
+                        // 集計金額が 0 の場合: 税率別按分の根拠がないため上書きをスキップし ERROR ログ
+                        // （従来は 1 件目に全額・2 件目以降 0 でデータ破損していた）
+                        log.error("上様分の集計金額が 0 のため、請求書金額({})を按分できません。該当 summary は変更しません。shop={}, partnerCode={}, partnerNo={}",
+                                roundedInvoiceAmount, shopNo, partnerCodeForLog, partnerNoForLog);
                     }
                 } else if (roundedTotalAmount.compareTo(roundedInvoiceAmount) == 0) {
                     // 元の注文ごとのサマリーを保持
@@ -547,20 +524,8 @@ public class TAccountsReceivableSummaryTasklet implements Tasklet {
                                 roundedTotalAmount, roundedInvoiceAmount, roundedTotalAmount.subtract(roundedInvoiceAmount));
                     }
 
-                    // 得意先ごとの請求金額を調整
-                    // サマリーの金額を請求書の金額に合わせる
-                    for (TAccountsReceivableSummary summary : invoiceGroupSummaries) {
-                        if (summary.getTaxIncludedAmountChange() != null) {
-                            // 比率を計算して金額を調整
-                            BigDecimal ratio = roundedInvoiceAmount.divide(roundedTotalAmount, 10, RoundingMode.HALF_UP);
-                            BigDecimal adjustedAmount = summary.getTaxIncludedAmountChange().multiply(ratio).setScale(0, RoundingMode.DOWN);
-                            summary.setTaxIncludedAmountChange(adjustedAmount);
-                            // 税抜金額も同じ比率で調整
-                            if (summary.getTaxExcludedAmountChange() != null) {
-                                summary.setTaxExcludedAmountChange(summary.getTaxExcludedAmountChange().multiply(ratio).setScale(0, RoundingMode.DOWN));
-                            }
-                        }
-                    }
+                    // 得意先ごとの請求金額を調整（比率按分 + 残差は最大金額行で吸収）
+                    allocateProportionallyWithRemainder(invoiceGroupSummaries, roundedInvoiceAmount, roundedTotalAmount);
 
                 } else {
                     validationNgCount++;
@@ -900,6 +865,63 @@ public class TAccountsReceivableSummaryTasklet implements Tasklet {
 
         log.info("売掛金集計計算完了。生成されたSummary件数: {}", summaries.size());
         return summaries;
+    }
+
+    /**
+     * 集計サマリー群を請求書金額に合わせて按分する。
+     * <p>単純に比率を掛けて DOWN で丸めると合計が請求書金額に届かない（最大で行数円ぶん下振れ）ため、
+     * 最大金額の行で残差を吸収する。税抜も同様に按分して調整。
+     *
+     * @param summaries        調整対象の summary リスト（順序は呼出元で維持）
+     * @param targetIncTotal   目標税込合計（請求書金額）
+     * @param originalIncTotal 現在の税込合計（按分根拠）
+     */
+    private void allocateProportionallyWithRemainder(
+            List<TAccountsReceivableSummary> summaries,
+            BigDecimal targetIncTotal,
+            BigDecimal originalIncTotal) {
+        if (summaries == null || summaries.isEmpty()) return;
+        if (originalIncTotal == null || originalIncTotal.compareTo(BigDecimal.ZERO) == 0) return;
+
+        BigDecimal ratio = targetIncTotal.divide(originalIncTotal, 10, RoundingMode.HALF_UP);
+
+        // 最大金額行（残差を吸収する行）を特定
+        TAccountsReceivableSummary largest = summaries.stream()
+                .filter(s -> s.getTaxIncludedAmountChange() != null)
+                .max(Comparator.comparing(TAccountsReceivableSummary::getTaxIncludedAmountChange))
+                .orElse(null);
+
+        BigDecimal incAllocated = BigDecimal.ZERO;
+        BigDecimal excAllocated = BigDecimal.ZERO;
+        BigDecimal targetExcTotal = summaries.stream()
+                .filter(s -> s.getTaxExcludedAmountChange() != null)
+                .map(TAccountsReceivableSummary::getTaxExcludedAmountChange)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .multiply(ratio)
+                .setScale(0, RoundingMode.DOWN);
+
+        // 最大行以外を先に按分
+        for (TAccountsReceivableSummary s : summaries) {
+            if (s == largest) continue;
+            if (s.getTaxIncludedAmountChange() != null) {
+                BigDecimal adjIncluded = s.getTaxIncludedAmountChange().multiply(ratio).setScale(0, RoundingMode.DOWN);
+                s.setTaxIncludedAmountChange(adjIncluded);
+                incAllocated = incAllocated.add(adjIncluded);
+            }
+            if (s.getTaxExcludedAmountChange() != null) {
+                BigDecimal adjExcluded = s.getTaxExcludedAmountChange().multiply(ratio).setScale(0, RoundingMode.DOWN);
+                s.setTaxExcludedAmountChange(adjExcluded);
+                excAllocated = excAllocated.add(adjExcluded);
+            }
+        }
+
+        // 最大行に残差を割り当て（これにより合計が targetIncTotal にピタリ一致する）
+        if (largest != null) {
+            largest.setTaxIncludedAmountChange(targetIncTotal.subtract(incAllocated));
+            if (largest.getTaxExcludedAmountChange() != null) {
+                largest.setTaxExcludedAmountChange(targetExcTotal.subtract(excAllocated));
+            }
+        }
     }
 
     private BigDecimal calculateAmountExcludingTax(TOrderDetail detail) {

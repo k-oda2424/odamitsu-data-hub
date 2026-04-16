@@ -61,7 +61,7 @@ public class FinanceController {
             @RequestParam(required = false) Integer supplierNo,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth,
             @RequestParam(required = false) String verificationFilter,
-            @PageableDefault(size = 50, sort = "transactionMonth", direction = Sort.Direction.DESC) Pageable pageable) {
+            @PageableDefault(size = 50, sort = "supplierCode", direction = Sort.Direction.ASC) Pageable pageable) {
         Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         Page<TAccountsPayableSummary> page = accountsPayableSummaryService.findPaged(
                 effectiveShopNo, supplierNo, transactionMonth, verificationFilter, pageable);

@@ -20,6 +20,7 @@ interface MockRow {
   mfExportEnabled: boolean
   verifiedManually: boolean
   verificationNote: string | null
+  verifiedAmount?: number | null
 }
 
 function row(overrides: Partial<MockRow> = {}): MockRow {
@@ -39,6 +40,7 @@ function row(overrides: Partial<MockRow> = {}): MockRow {
     mfExportEnabled: true,
     verifiedManually: false,
     verificationNote: null,
+    verifiedAmount: null,
     ...overrides,
   }
 }
@@ -187,8 +189,11 @@ test.describe('買掛金一覧', () => {
     await loginAndGoto(page, '/finance/accounts-payable')
     await expect(page.getByText('手動', { exact: true }).first()).toBeVisible()
     await page.getByRole('button', { name: '詳細', exact: true }).first().click()
+    const deleteResp = page.waitForResponse(
+      (r) => /\/manual-lock$/.test(new URL(r.url()).pathname) && r.request().method() === 'DELETE',
+    )
     await page.getByRole('button', { name: /手動確定解除/ }).click()
-    await page.waitForTimeout(200)
+    await deleteResp
     expect(deleted).toBe(true)
   })
 
@@ -202,7 +207,7 @@ test.describe('買掛金一覧', () => {
   test('再集計で他バッチ実行中なら 429 エラーがトーストされる', async ({ page }) => {
     await setupApRoutes(page, [row()])
     await page.route(
-      (url) => url.pathname === '/api/v1/batch/execute/accountsPayableSummary',
+      (url) => url.pathname === '/api/v1/batch/execute/accountsPayableAggregation',
       async (route) => {
         await route.fulfill({
           status: 429,
@@ -232,8 +237,11 @@ test.describe('買掛金一覧', () => {
       },
     )
     await loginAndGoto(page, '/finance/accounts-payable')
+    const patchResp = page.waitForResponse(
+      (r) => /\/mf-export$/.test(new URL(r.url()).pathname) && r.request().method() === 'PATCH',
+    )
     await page.getByRole('switch', { name: 'MF出力可否' }).click()
-    await page.waitForTimeout(200)
+    await patchResp
     expect(patchBody).not.toBeNull()
     expect(patchBody!.enabled).toBe(false)
   })
@@ -263,8 +271,13 @@ test.describe('買掛金一覧', () => {
     await loginAndGoto(page, '/finance/accounts-payable')
     // 検証状態セレクトは shadcn Select (data-slot=select-trigger)
     await page.locator('[data-slot="select-trigger"]').click()
+    const filteredResp = page.waitForResponse(
+      (r) =>
+        r.url().includes('/finance/accounts-payable?') &&
+        r.url().includes('verificationFilter=unmatched'),
+    )
     await page.getByRole('option', { name: '不一致', exact: true }).click()
-    await page.waitForTimeout(300)
+    await filteredResp
     expect(lastUrl).toContain('verificationFilter=unmatched')
   })
 })

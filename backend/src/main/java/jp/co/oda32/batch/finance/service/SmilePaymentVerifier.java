@@ -236,7 +236,7 @@ public class SmilePaymentVerifier {
                 String supplierName = supplierNameMap.getOrDefault(supplierCode, "不明");
 
                 // 重要：差額が5円未満の場合、SMILE支払額に合わせる
-                boolean adjustToSmilePayment = truncatedDifference.abs().compareTo(new BigDecimal(5)) < 0
+                boolean adjustToSmilePayment = truncatedDifference.abs().compareTo(jp.co.oda32.constant.FinanceConstants.PAYMENT_VERIFICATION_TOLERANCE) < 0
                         && truncatedDifference.compareTo(BigDecimal.ZERO) != 0;
 
                 // 税込金額を指定（差額が5円未満ならSMILE支払額に合わせる）
@@ -254,7 +254,7 @@ public class SmilePaymentVerifier {
                 );
 
                 // 差額が5円未満または0円なら常に「一致」のフラグを設定
-                boolean isMatched = truncatedDifference.abs().compareTo(new BigDecimal(5)) < 0
+                boolean isMatched = truncatedDifference.abs().compareTo(jp.co.oda32.constant.FinanceConstants.PAYMENT_VERIFICATION_TOLERANCE) < 0
                         || truncatedDifference.compareTo(BigDecimal.ZERO) == 0;
 
                 // 対象のサマリーデータの検証結果フラグを更新
@@ -385,7 +385,7 @@ public class SmilePaymentVerifier {
             // 差額が0円または絶対値が5円未満の場合は常に「一致」とする
             boolean finalMatch = isMatched ||
                     (difference != null && difference.abs().compareTo(BigDecimal.ZERO) == 0) ||
-                    (difference != null && difference.abs().compareTo(new BigDecimal(5)) < 0);
+                    (difference != null && difference.abs().compareTo(jp.co.oda32.constant.FinanceConstants.PAYMENT_VERIFICATION_TOLERANCE) < 0);
 
             summary.setVerificationResult(finalMatch ? 1 : 0);
             // 差額も設定
@@ -459,15 +459,16 @@ public class SmilePaymentVerifier {
         // 最大金額のサマリーを選択
         TAccountsPayableSummary largestSummary = targetSummaries.get(0);
 
-        // 元の税込金額
-        BigDecimal originalAmount = largestSummary.getTaxIncludedAmountChange();
+        // 元の税込金額（null は ZERO 扱い）
+        BigDecimal originalAmount = largestSummary.getTaxIncludedAmountChange() != null
+                ? largestSummary.getTaxIncludedAmountChange() : BigDecimal.ZERO;
 
         // 差額を加算して調整（SMILE支払額に合わせる）
-        // ここで、合計金額に対する差額を適用するのではなく、
-        // SMILE支払額から他のレコードの合計を引いて算出する
+        // SMILE支払額から他のレコードの合計を引いて最大レコードの値を算出する
+        // null は ZERO 扱いで NPE を防ぐ
         BigDecimal otherSummariesTotal = targetSummaries.stream()
                 .filter(s -> !s.equals(largestSummary))
-                .map(TAccountsPayableSummary::getTaxIncludedAmountChange)
+                .map(s -> s.getTaxIncludedAmountChange() != null ? s.getTaxIncludedAmountChange() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // 最大レコードの金額は、SMILE支払額から他のレコード合計を引いた値にする

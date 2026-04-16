@@ -13,6 +13,7 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -35,6 +36,8 @@ public class BCartProductDescriptionUpdateTasklet implements Tasklet {
 
     private final BCartProductsService productsService;
     private final BCartChangeHistoryService changeHistoryService;
+    @Qualifier("bCartHttpClient")
+    private final OkHttpClient httpClient;
     private static final int RATE_LIMIT_BATCH = 250;
     private static final long RATE_LIMIT_WAIT_MS = 5 * 60 * 1000;
 
@@ -53,6 +56,11 @@ public class BCartProductDescriptionUpdateTasklet implements Tasklet {
         Map<Long, List<BCartChangeHistory>> historyMap = unreflectedHistories.stream()
                 .collect(Collectors.groupingBy(BCartChangeHistory::getTargetId));
 
+        // 対象商品を一括取得（N+1 クエリ回避）
+        List<Integer> targetIds = targetProductIds.stream().map(Long::intValue).collect(Collectors.toList());
+        Map<Long, BCartProducts> productMap = productsService.findAllById(targetIds).stream()
+                .collect(Collectors.toMap(p -> p.getId().longValue(), p -> p, (a, b) -> a));
+
         int successCount = 0;
         int requestCount = 0;
         for (Long productId : targetProductIds) {
@@ -63,10 +71,8 @@ public class BCartProductDescriptionUpdateTasklet implements Tasklet {
             }
             requestCount++;
 
-            var productOpt = productsService.findById(productId.intValue());
-            if (productOpt.isEmpty()) continue;
-
-            BCartProducts product = productOpt.get();
+            BCartProducts product = productMap.get(productId);
+            if (product == null) continue;
             try {
                 boolean success = patchProduct(product);
                 if (success) {
@@ -88,7 +94,7 @@ public class BCartProductDescriptionUpdateTasklet implements Tasklet {
     }
 
     private boolean patchProduct(BCartProducts product) throws IOException {
-        OkHttpClient client = new OkHttpClient().newBuilder().build();
+        OkHttpClient client = this.httpClient;
 
         FormBody.Builder formBuilder = new FormBody.Builder(StandardCharsets.UTF_8);
         addIfNotNull(formBuilder, "name", product.getName());

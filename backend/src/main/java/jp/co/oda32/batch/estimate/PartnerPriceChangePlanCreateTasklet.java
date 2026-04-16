@@ -21,6 +21,8 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,6 +59,11 @@ public class PartnerPriceChangePlanCreateTasklet implements Tasklet {
     @NonNull
     jp.co.oda32.domain.repository.order.TOrderDetailRepository tOrderDetailRepository;
 
+    /** 自己注入: createPartnerPriceChangePlan の @Transactional を有効化するため、AOP プロキシ経由で呼び出す */
+    @Autowired
+    @Lazy
+    private PartnerPriceChangePlanCreateTasklet self;
+
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
         // 再生成ガード解除: 自動生成・作成('00')ステータスの既存見積に対応する価格変更予定のフラグをリセット
@@ -80,7 +87,7 @@ public class PartnerPriceChangePlanCreateTasklet implements Tasklet {
                     mPurchasePriceChangePlanService.update(mPurchasePriceChangePlan);
                     continue;
                 }
-                this.createPartnerPriceChangePlan(mPurchasePriceChangePlan);
+                self.createPartnerPriceChangePlan(mPurchasePriceChangePlan);
             }
         }
         // 商品番号をまとめて設定、更新
@@ -94,7 +101,7 @@ public class PartnerPriceChangePlanCreateTasklet implements Tasklet {
      * @param purchasePriceChangePlan 仕入価格変更予定Entity
      */
     @Transactional
-    protected void createPartnerPriceChangePlan(MPurchasePriceChangePlan purchasePriceChangePlan) {
+    public void createPartnerPriceChangePlan(MPurchasePriceChangePlan purchasePriceChangePlan) {
         List<MPartner> childPartners = null;
         if (purchasePriceChangePlan.getPartnerNo() != 0) {
             // Find the partners where parentPartnerNo is the given partnerNo

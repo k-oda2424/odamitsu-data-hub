@@ -96,6 +96,20 @@ public class TOrderService extends CustomService {
     }
 
     /**
+     * 配下 order_detail が **全て** '20' の注文を '20'(納品済) に一括遷移する。
+     */
+    public int bulkUpdateParentOrderToDelivered() {
+        return this.tOrderRepository.bulkUpdateParentOrderToDelivered();
+    }
+
+    /**
+     * 配下 order_detail に '20' と未納品が **混在** する注文を '10'(出荷待ち) に一括遷移する。
+     */
+    public int bulkUpdateParentOrderToWaitShipping() {
+        return this.tOrderRepository.bulkUpdateParentOrderToWaitShipping();
+    }
+
+    /**
      * 注文を登録します。
      *
      * @param tOrder 注文Entity

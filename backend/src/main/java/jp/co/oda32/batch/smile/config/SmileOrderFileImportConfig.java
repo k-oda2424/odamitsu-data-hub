@@ -5,13 +5,13 @@ import jp.co.oda32.batch.JobStartEndListener;
 import jp.co.oda32.batch.bcart.BCartOrderProcessingSerialNumberUpdateTasklet;
 import jp.co.oda32.batch.order.OrderStatusUpdateTasklet;
 import jp.co.oda32.batch.order.PartnerGoodsSyncTasklet;
-import jp.co.oda32.batch.order.StockAllocateTasklet;
 import jp.co.oda32.batch.order.VSalesMonthlySummaryRefreshTasklet;
 import jp.co.oda32.batch.smile.SmileOrderFile;
 import jp.co.oda32.batch.smile.SmileOrderFileProcessor;
 import jp.co.oda32.batch.smile.SmileOrderFileReader;
 import jp.co.oda32.batch.smile.SmileOrderFileWriter;
 import jp.co.oda32.batch.smile.SmileOrderImportTasklet;
+import jp.co.oda32.batch.smile.WSmileOrderOutputFileTrancateTasklet;
 import jp.co.oda32.batch.stock.ShopAppropriateStockCalculateTasklet;
 import jp.co.oda32.batch.util.FileManagerTasklet;
 import lombok.RequiredArgsConstructor;
@@ -53,8 +53,6 @@ public class SmileOrderFileImportConfig {
     @NonNull
     private final PartnerGoodsSyncTasklet partnerGoodsSyncTasklet;
     @NonNull
-    private final StockAllocateTasklet stockAllocateTasklet;
-    @NonNull
     private final VSalesMonthlySummaryRefreshTasklet vSalesMonthlySummaryRefreshTasklet;
     @NonNull
     private final OrderStatusUpdateTasklet orderStatusUpdateTasklet;
@@ -66,6 +64,8 @@ public class SmileOrderFileImportConfig {
     private final SmileOrderImportTasklet smileOrderImportTasklet;
     @NonNull
     private final BCartOrderProcessingSerialNumberUpdateTasklet bCartOrderProcessingSerialNumberUpdateTasklet;
+    @NonNull
+    private final WSmileOrderOutputFileTrancateTasklet wSmileOrderOutputFileTrancateTasklet;
     @Value("input/smile_order_import.csv")
     private Resource inputResources;
 
@@ -76,14 +76,18 @@ public class SmileOrderFileImportConfig {
 
     /**
      * Smile注文取込バッチのジョブ定義
-     * フロー: SMILE取込 → ステータス更新 → 得意先商品同期 → 適正在庫計算 → 月次サマリ更新 → ファイル移動
+     * フロー: w_smile TRUNCATE → SMILE取込 → ステータス更新 → 得意先商品同期 → 月次サマリ更新 → ファイル移動
+     * <p>TRUNCATE を先頭に置かないと、過去の CSV に含まれていた行が w_smile_order_output_file に
+     * 残り続け（save() の merge で UPSERT 挙動）、SMILE 側で既に削除した明細が「まだ存在する」扱いに
+     * なって誤更新を引き起こす（処理連番 335597 / gyou=3 問題の原因）。
      */
     @Bean
     public Job smileOrderFileImportJob() {
         return new JobBuilder("smileOrderFileImport", jobRepository)
                 .incrementer(new RunIdIncrementer())
                 .listener(smileOrderJobListener())
-                .flow(smileOrderFileImportStep())
+                .flow(wSmileOrderOutputFileTruncateStep())
+                .next(smileOrderFileImportStep())
                 // stockAllocateStep: t_stockベースの在庫引当は使用しない方針のため除外
                 .next(smileOrderImportStep())
                 .next(orderStatusUpdateStep())
@@ -93,6 +97,17 @@ public class SmileOrderFileImportConfig {
                 .next(vSalesMonthlySummaryRefreshStep())
                 .next(fileMoveStep())
                 .end()
+                .build();
+    }
+
+    /**
+     * w_smile_order_output_file を TRUNCATE する step。Job の先頭で実行し、
+     * 前回取込の残骸を確実に除去してから CSV を再ロードする。
+     */
+    @Bean
+    public Step wSmileOrderOutputFileTruncateStep() {
+        return new StepBuilder("wSmileOrderOutputFileTruncateStep", jobRepository)
+                .tasklet(wSmileOrderOutputFileTrancateTasklet, transactionManager)
                 .build();
     }
 
@@ -126,12 +141,6 @@ public class SmileOrderFileImportConfig {
                 .processor(this.smileOrderFileProcessor)
                 .writer(this.smileOrderFileWriter)
                 .listener(new ExitStatusChangeListener())
-                .build();
-    }
-
-    public Step stockAllocateStep() {
-        return new StepBuilder("stockAllocateStep", jobRepository)
-                .tasklet(stockAllocateTasklet, transactionManager)
                 .build();
     }
 

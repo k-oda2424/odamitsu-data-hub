@@ -4,6 +4,7 @@ import jp.co.oda32.constant.OrderDetailStatus;
 import jp.co.oda32.constant.OrderStatus;
 import jp.co.oda32.domain.model.order.TOrder;
 import jp.co.oda32.domain.model.order.TOrderDetail;
+import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -16,6 +17,7 @@ import java.util.stream.Collectors;
  * @author k_oda
  * @since 2018/11/30
  */
+@Slf4j
 public class OrderUtil {
 
     private static final Function<List<TOrderDetail>, BigDecimal> getTotalPrice = (tOrderDetailList -> tOrderDetailList.stream()
@@ -69,13 +71,25 @@ public class OrderUtil {
         BigDecimal taxAmount = BigDecimal.ZERO;
         BigDecimal totalAmountIncludingTax = BigDecimal.ZERO;
 
-        List<BigDecimal> taxRates = tOrderDetailList.stream()
+        // tax_rate が NULL の明細（旧 stock-app 移行時の埋め忘れ）は税計算から除外して WARN 出力
+        List<TOrderDetail> validDetails = tOrderDetailList.stream()
+                .filter(detail -> {
+                    if (detail.getTaxRate() == null) {
+                        log.warn("tax_rate が NULL の注文明細を税計算から除外します。order_no={}, order_detail_no={}, goods_code={}",
+                                detail.getOrderNo(), detail.getOrderDetailNo(), detail.getGoodsCode());
+                        return false;
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
+
+        List<BigDecimal> taxRates = validDetails.stream()
                 .map(TOrderDetail::getTaxRate)
                 .distinct()
                 .collect(Collectors.toList());
 
         for (BigDecimal taxRate : taxRates) {
-            List<TOrderDetail> detailsForRate = tOrderDetailList.stream()
+            List<TOrderDetail> detailsForRate = validDetails.stream()
                     .filter(detail -> detail.getTaxRate().compareTo(taxRate) == 0)
                     .collect(Collectors.toList());
 
@@ -97,9 +111,9 @@ public class OrderUtil {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         BigDecimal totalAmountExcludingTax = totalAmountIncludingTax
-                .divide(BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100), 2, BigDecimal.ROUND_DOWN)), 0, BigDecimal.ROUND_CEILING);
+                .divide(BigDecimal.ONE.add(taxRate.divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.DOWN)), 0, java.math.RoundingMode.CEILING);
 
-        BigDecimal taxAmount = totalAmountIncludingTax.subtract(totalAmountExcludingTax).setScale(0, BigDecimal.ROUND_DOWN);
+        BigDecimal taxAmount = totalAmountIncludingTax.subtract(totalAmountExcludingTax).setScale(0, java.math.RoundingMode.DOWN);
 
         return new TaxCalculationResult(totalAmountIncludingTax, taxAmount);
     }

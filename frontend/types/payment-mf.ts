@@ -45,6 +45,28 @@ export interface PaymentMfPreviewResponse {
 
   rows: PaymentMfPreviewRow[]
   unregisteredSources: string[]
+  /** PAYABLE ルールがマッチしたが payment_supplier_code 未設定の送り先（CSV除外予備軍）。 */
+  rulesMissingSupplierCode: string[]
+  /** 請求額-値引-早払 と 振込金額合計 の整合性チェック結果。 */
+  amountReconciliation: AmountReconciliation | null
+}
+
+export interface AmountReconciliation {
+  // チェック1: Excel 合計行の列間整合 (C - F - H = E)
+  summaryInvoiceTotal: number   // 合計行 C列
+  summaryFee: number            // 合計行 F列
+  summaryEarly: number          // 合計行 H列
+  summaryTransferAmount: number // 合計行 E列
+  expectedTransferAmount: number // C - F - H
+  excelDifference: number       // E - (C - F - H)
+  excelMatched: boolean
+
+  // チェック2: 明細行 読取り整合 (sum明細 = C合計行)
+  preTotalInvoiceSum: number    // 合計行前の明細 請求額合計
+  readDifference: number        // sum明細 - C合計行
+  readMatched: boolean
+
+  directPurchaseTotal: number   // 合計行後セクション（参考）
 }
 
 export interface PaymentMfRule {
@@ -104,6 +126,67 @@ export interface PaymentMfVerifyResult {
   notFoundCount: number
   skippedCount: number
   unmatchedSuppliers: string[]
+}
+
+export type BackfillStatus = 'MATCHED' | 'AMBIGUOUS' | 'NOT_FOUND'
+
+export interface BackfillItem {
+  ruleId: number
+  sourceName: string
+  status: BackfillStatus
+  candidateCode?: string | null
+  candidateName?: string | null
+  alternatives?: string[] | null
+}
+
+export interface BackfillResult {
+  dryRun: boolean
+  matchedCount: number
+  ambiguousCount: number
+  notFoundCount: number
+  skippedCount: number
+  items: BackfillItem[]
+}
+
+/** 買掛仕入MF 補助行（EXPENSE/SUMMARY/DIRECT_PURCHASE）1 件。 */
+export interface PaymentMfAuxRow {
+  auxRowId: number
+  transactionMonth: string          // yyyy-MM-dd
+  transferDate: string              // yyyy-MM-dd
+  ruleKind: 'EXPENSE' | 'SUMMARY' | 'DIRECT_PURCHASE'
+  sequenceNo: number
+  sourceName: string
+  paymentSupplierCode: string | null
+  amount: number
+  debitAccount: string
+  debitSubAccount: string | null
+  debitDepartment: string | null
+  debitTax: string
+  creditAccount: string
+  creditSubAccount: string | null
+  creditDepartment: string | null
+  creditTax: string
+  summary: string | null
+  tag: string | null
+  sourceFilename: string | null
+  [key: string]: unknown
+}
+
+export type AuxRuleKind = PaymentMfAuxRow['ruleKind']
+
+/** 検証済みCSV出力ダイアログのプレビュー用レスポンス。 */
+export interface VerifiedExportPreview {
+  transactionMonth: string
+  payableCount: number
+  payableTotalAmount: number
+  auxBreakdown: {
+    transferDate: string
+    ruleKind: AuxRuleKind
+    count: number
+    totalAmount: number
+  }[]
+  warnings: string[]
+  skippedSuppliers: string[]
 }
 
 export const RULE_KINDS: RuleKind[] = ['PAYABLE', 'EXPENSE', 'DIRECT_PURCHASE']

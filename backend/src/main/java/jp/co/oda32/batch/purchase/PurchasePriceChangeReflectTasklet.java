@@ -83,6 +83,12 @@ public class PurchasePriceChangeReflectTasklet implements Tasklet {
                 // 仕入価格レコード作成
                 MTaxRate mTaxRate = this.commonService.getMTaxRate();
                 MGoods mGoods = goods.getMGoods();
+                if (mGoods == null) {
+                    // 商品マスタがない → 適正な税率・税区分が決定不能なので skip
+                    log.warn("商品マスタ (m_goods) が存在しないため仕入価格レコード作成をスキップします。商品番号:{} 商品コード:{}",
+                            goods.getGoodsNo(), reflectPurchasePricePlan.getGoodsCode());
+                    return;
+                }
                 BigDecimal taxRate = mTaxRate.getTaxRate();
                 if (mGoods.isApplyReducedTaxRate()) {
                     taxRate = mTaxRate.getReducedTaxRate();

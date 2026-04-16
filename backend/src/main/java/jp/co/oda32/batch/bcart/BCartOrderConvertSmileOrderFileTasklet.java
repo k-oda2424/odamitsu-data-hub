@@ -410,7 +410,14 @@ public class BCartOrderConvertSmileOrderFileTasklet implements Tasklet {
         detail.setSetQuantity(unitQuantity);
 
         // バラ単位数量(=セット入数×ケース数)
-        BigDecimal quantity = orderProduct.getSetQuantity().multiply(orderProduct.getOrderProCount());
+        // B-Cart API から null で返ってくるケースに備え、null は 0 扱いで safe に計算
+        BigDecimal setQ = orderProduct.getSetQuantity() != null ? orderProduct.getSetQuantity() : BigDecimal.ZERO;
+        BigDecimal proCount = orderProduct.getOrderProCount() != null ? orderProduct.getOrderProCount() : BigDecimal.ZERO;
+        BigDecimal quantity = setQ.multiply(proCount);
+        if (setQ.signum() == 0 || proCount.signum() == 0) {
+            log.warn("B-Cart 商品の setQuantity または orderProCount が 0/null です。商品ID={}, 商品名={}, setQuantity={}, orderProCount={}",
+                    orderProduct.getProductId(), orderProduct.getProductName(), orderProduct.getSetQuantity(), orderProduct.getOrderProCount());
+        }
         detail.setQuantity(quantity);
 
         // 原価(=仕入価格) の設定
@@ -556,9 +563,21 @@ public class BCartOrderConvertSmileOrderFileTasklet implements Tasklet {
         saveMapping.setRecipientName1(bCartLogistics.getName());
         saveMapping.setPhoneNumber(bCartLogistics.getTel());
 
-        // 4. 既に存在するマッピングがあれば、異なる場合は更新
+        // 4. 既に存在するマッピングがあれば、実データに差分がある場合のみ更新
+        //    Lombok @Data の equals は id も含めて比較してしまう（saveMapping.id=null vs existing.id=設定値）ため、
+        //    常に unequal になり毎回 save が走る。ここではビジネスデータフィールドのみを比較する。
         if (existingMapping != null) {
-            if (!existingMapping.equals(saveMapping)) {
+            boolean dataChanged =
+                    !java.util.Objects.equals(existingMapping.getBCartDestinationCode(), saveMapping.getBCartDestinationCode())
+                    || !java.util.Objects.equals(existingMapping.getDeliveryName(), saveMapping.getDeliveryName())
+                    || !java.util.Objects.equals(existingMapping.getZip(), saveMapping.getZip())
+                    || !java.util.Objects.equals(existingMapping.getAddress1(), saveMapping.getAddress1())
+                    || !java.util.Objects.equals(existingMapping.getAddress2(), saveMapping.getAddress2())
+                    || !java.util.Objects.equals(existingMapping.getAddress3(), saveMapping.getAddress3())
+                    || !java.util.Objects.equals(existingMapping.getPartnerCode(), saveMapping.getPartnerCode())
+                    || !java.util.Objects.equals(existingMapping.getRecipientName1(), saveMapping.getRecipientName1())
+                    || !java.util.Objects.equals(existingMapping.getPhoneNumber(), saveMapping.getPhoneNumber());
+            if (dataChanged) {
                 saveMapping.setId(existingMapping.getId());
                 saveMapping.setSmileDeliveryCode(existingMapping.getSmileDeliveryCode());
                 saveMapping.setSmileCsvOutputted(false);
@@ -568,10 +587,9 @@ public class BCartOrderConvertSmileOrderFileTasklet implements Tasklet {
         }
 
         // 5. 新規登録 (6桁の連番コードを割り振る)
-        String smileDeliveryCode = String.format("%06d", deliveryMappingList.size() + 1);
-        saveMapping.setSmileDeliveryCode(smileDeliveryCode);
-        deliveryMappingService.save(saveMapping);
-        return smileDeliveryCode;
+        // MAX(code)+1 の race condition を吸収するため、衝突時は MAX を引き直して
+        // 次の空き番号にリトライする allocate メソッドを使う。
+        return deliveryMappingService.allocateSmileDeliveryCodeAndSave(saveMapping, bCartCustomerId);
     }
 
     /**

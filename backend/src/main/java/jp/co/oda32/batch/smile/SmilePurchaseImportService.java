@@ -9,6 +9,7 @@ import jp.co.oda32.domain.model.master.MSupplier;
 import jp.co.oda32.domain.model.purchase.TPurchase;
 import jp.co.oda32.domain.model.purchase.TPurchaseDetail;
 import jp.co.oda32.domain.model.smile.WSmilePurchaseOutputFile;
+import jp.co.oda32.util.BigDecimalUtil;
 import jp.co.oda32.util.StringUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -103,7 +104,8 @@ public class SmilePurchaseImportService extends AbstractSmilePurchaseImportServi
                             .companyNo(newPurchaseFile.getCompanyNo())
                             .departmentNo(Integer.valueOf(newPurchaseFile.getShiiresakiEigyoshoCode()))
                             .taxType(newPurchaseFile.getKazeiKubun())
-                            .taxRate(newPurchaseFile.getShouhizeiritsu())
+                            .taxRate(BigDecimalUtil.requireTaxRate(newPurchaseFile.getShouhizeiritsu(),
+                                    String.format("shori_renban=%d, shouhin_code=%s", newPurchaseFile.getShoriRenban(), newPurchaseFile.getShouhinCode())))
                             .purchaseDate(newPurchaseFile.getDenpyouHizuke())
                             .purchaseCode(newPurchaseFile.getDenpyouBangou().toString())
                             .note(newPurchaseFile.getBiko())
@@ -133,7 +135,8 @@ public class SmilePurchaseImportService extends AbstractSmilePurchaseImportServi
                     .goodsPrice(newPurchaseFile.getTanka())
                     .goodsName(newPurchaseFile.getShouhinMei())
                     .purchaseDate(newPurchaseFile.getDenpyouHizuke())
-                    .taxRate(newPurchaseFile.getShouhizeiritsu())
+                    .taxRate(BigDecimalUtil.requireTaxRate(newPurchaseFile.getShouhizeiritsu(),
+                            String.format("shori_renban=%d, gyou=%d, shouhin_code=%s", newPurchaseFile.getShoriRenban(), newPurchaseFile.getGyou(), newPurchaseFile.getShouhinCode())))
                     .taxType(TaxType.TAX_EXCLUDE.getValue())
                     .taxCategory(taxCategory.getCode())
                     .note(newPurchaseFile.getBiko())

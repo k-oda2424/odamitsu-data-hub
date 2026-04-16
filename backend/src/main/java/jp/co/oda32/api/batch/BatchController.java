@@ -16,6 +16,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +56,43 @@ public class BatchController {
             JOB_DEFINITIONS.stream().map(d -> d.get("jobName")).toList()
     );
 
+    /** SMILE支払取込ステップを含むため inputFile パラメータが必要なジョブ。 */
+    private static final Set<String> REQUIRES_INPUT_FILE = Set.of(
+            "smilePaymentImport",
+            "accountsPayableSummary",
+            "accountsPayableVerification"
+    );
+
+    /** targetDate(yyyyMMdd) を必須とする財務系ジョブ。 */
+    private static final Set<String> REQUIRES_TARGET_DATE = Set.of(
+            "accountsPayableAggregation",
+            "accountsPayableVerification",
+            "accountsPayableSummary",
+            "accountsReceivableSummary",
+            "purchaseJournalIntegration",
+            "salesJournalIntegration"
+    );
+
+    private static final DateTimeFormatter YYYY_MM_DD = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * targetDate を yyyyMMdd に正規化。
+     * 受付形式: yyyyMMdd / yyyy-MM-dd / yyyy/MM/dd。null・空は null を返す。
+     */
+    private static String normalizeTargetDate(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty()) return null;
+        String digits = s.replaceAll("[-/]", "");
+        if (digits.length() != 8 || !digits.chars().allMatch(Character::isDigit)) return null;
+        try {
+            LocalDate.parse(digits, YYYY_MM_DD);
+            return digits;
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+    }
+
     @Configuration
     static class BatchExecutorConfig {
         @Bean(name = "batchTaskExecutor", destroyMethod = "shutdown")
@@ -77,10 +118,13 @@ public class BatchController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<Map<String, Object>>> listJobs() {
         List<Map<String, Object>> result = JOB_DEFINITIONS.stream().map(def -> {
-            String beanName = def.get("jobName") + "Job";
+            String jobName = def.get("jobName");
+            String beanName = jobName + "Job";
             boolean available = applicationContext.containsBean(beanName);
             Map<String, Object> job = new LinkedHashMap<>(def);
             job.put("available", available);
+            job.put("requiresInputFile", REQUIRES_INPUT_FILE.contains(jobName));
+            job.put("requiresTargetDate", REQUIRES_TARGET_DATE.contains(jobName));
             return job;
         }).toList();
         return ResponseEntity.ok(result);
@@ -99,9 +143,9 @@ public class BatchController {
         }
         // 最新の実行を取得（createTime降順でソート）
         var latest = executions.stream()
-                .sorted(java.util.Comparator.comparing(
-                        org.springframework.batch.core.JobExecution::getCreateTime,
-                        java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())).reversed())
+                .sorted(Comparator.comparing(
+                        JobExecution::getCreateTime,
+                        Comparator.nullsFirst(Comparator.naturalOrder())).reversed())
                 .findFirst().orElse(executions.get(0));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("jobName", jobName);
@@ -120,7 +164,8 @@ public class BatchController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> execute(
             @PathVariable String jobName,
-            @RequestParam(required = false) Integer shopNo) {
+            @RequestParam(required = false) Integer shopNo,
+            @RequestParam(required = false) String targetDate) {
         if (!ALLOWED_JOBS.contains(jobName)) {
             return ResponseEntity.badRequest()
                     .body(Map.of("message", "許可されていないジョブです"));
@@ -137,9 +182,18 @@ public class BatchController {
             if (shopNo != null) {
                 params.addLong("shopNo", shopNo.longValue());
             }
-            // SMILE支払取込はinputFileパラメータが必要
-            if ("smilePaymentImport".equals(jobName)) {
+            // SMILE支払取込ステップを含むジョブは inputFile パラメータが必要
+            if (REQUIRES_INPUT_FILE.contains(jobName)) {
                 params.addString("inputFile", "input/smile_payment_import.csv");
+            }
+            // 財務系ジョブは targetDate(yyyyMMdd) パラメータが必要
+            if (REQUIRES_TARGET_DATE.contains(jobName)) {
+                String resolved = normalizeTargetDate(targetDate);
+                if (resolved == null) {
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("message", "targetDate パラメータ(yyyyMMdd または yyyy-MM-dd)が必要です"));
+                }
+                params.addString("targetDate", resolved);
             }
             // 非同期で実行（APIは即座にレスポンスを返す）
             var asyncJobParams = params.toJobParameters();

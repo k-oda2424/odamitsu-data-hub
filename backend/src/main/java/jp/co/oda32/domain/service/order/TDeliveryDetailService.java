@@ -143,4 +143,11 @@ public class TDeliveryDetailService extends CustomService {
     public void deletePermanently(TDeliveryDetail deleteEntity) throws Exception {
         this.deletePermanently(this.tDeliveryDetailRepository, deleteEntity);
     }
+
+    /**
+     * 紐づく order_detail が '20' かつ自身が '10'(出荷待ち) の出荷明細を '20'(納品済) に一括遷移。
+     */
+    public int bulkUpdateDeliveryDetailsToDelivered() {
+        return this.tDeliveryDetailRepository.bulkUpdateDeliveryDetailsToDelivered();
+    }
 }

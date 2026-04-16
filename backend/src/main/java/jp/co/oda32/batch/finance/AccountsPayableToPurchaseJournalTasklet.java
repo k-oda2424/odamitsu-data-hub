@@ -22,6 +22,9 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -54,6 +57,12 @@ public class AccountsPayableToPurchaseJournalTasklet implements Tasklet {
     // チェック未完了のデータも出力するかどうかのフラグ（デフォルトはfalse）
     @Value("#{jobParameters['forceExport'] ?: 'false'}")
     private String forceExport;
+
+    /**
+     * CSV 出力先ディレクトリ。未指定時はカレントディレクトリにフォールバック。
+     */
+    @Value("${finance.report.output-dir:.}")
+    private String reportOutputDir;
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
@@ -136,15 +145,15 @@ public class AccountsPayableToPurchaseJournalTasklet implements Tasklet {
     /**
      * データをCSVファイルに書き込みます。
      *
-     * @param summaries        買掛金のサマリーデータ
-     * @param accountMasterMap 検索キーごとのMfAccountMasterのマップ
-     * @param fileName         出力するファイル名
+     * @param exportableSummaries エクスポート対象のサマリーデータ（既に mfExportEnabled 等で絞り込み済み）
+     * @param accountMasterMap    検索キーごとのMfAccountMasterのマップ
+     * @param fileName            出力するファイル名
      */
-    private void writeToFile(List<TAccountsPayableSummary> summaries, Map<String, MfAccountMaster> accountMasterMap, String fileName) throws Exception {
+    private void writeToFile(List<TAccountsPayableSummary> exportableSummaries, Map<String, MfAccountMaster> accountMasterMap, String fileName) throws Exception {
         // CSV出力用にsupplierNoとtaxRateごとに金額を合計する
-        Map<AggregationKey, SummedAmounts> aggregatedData = summaries.stream()
+        Map<AggregationKey, SummedAmounts> aggregatedData = exportableSummaries.stream()
                 .collect(Collectors.groupingBy(
-                        summary -> new AggregationKey(summary.getSupplierNo(), summary.getSupplierCode(), summary.getTaxRate()),
+                        summary -> new AggregationKey(summary.getShopNo(), summary.getSupplierNo(), summary.getSupplierCode(), summary.getTaxRate()),
                         Collectors.mapping(
                                 summary -> {
                                     // nullチェックを追加し、null値の場合はBigDecimal.ZEROを使用
@@ -166,7 +175,11 @@ public class AccountsPayableToPurchaseJournalTasklet implements Tasklet {
         LocalDate transactionDate = LocalDate.parse(targetDate, inputFormatter);
         String formattedTransactionDate = transactionDate.format(outputFormatter);
 
-        try (FileWriter writer = new FileWriter(fileName)) {
+        Path dir = Paths.get(reportOutputDir);
+        Files.createDirectories(dir);
+        Path outputPath = dir.resolve(fileName);
+        log.info("CSV 出力先: {}", outputPath.toAbsolutePath());
+        try (FileWriter writer = new FileWriter(outputPath.toFile())) {
             // ヘッダーを書き込む
             writer.write(MFJournalCsv.CSV_HEADER + "\n");
 
@@ -219,8 +232,8 @@ public class AccountsPayableToPurchaseJournalTasklet implements Tasklet {
                 }
             }
 
-            // 元のサマリー行を個別に更新
-            for (TAccountsPayableSummary summary : summaries) {
+            // エクスポート対象のサマリー行のみを個別に更新（exportableSummaries で絞り込み済み）
+            for (TAccountsPayableSummary summary : exportableSummaries) {
                 // nullチェックを追加し、null値の場合はBigDecimal.ZEROを使用
                 BigDecimal taxIncludedAmount = summary.getTaxIncludedAmountChange() != null ?
                         summary.getTaxIncludedAmountChange() : BigDecimal.ZERO;
@@ -316,6 +329,7 @@ public class AccountsPayableToPurchaseJournalTasklet implements Tasklet {
     @AllArgsConstructor
     @EqualsAndHashCode
     private static class AggregationKey {
+        private final Integer shopNo;
         private final Integer supplierNo;
         private final String supplierCode;
         private final BigDecimal taxRate;

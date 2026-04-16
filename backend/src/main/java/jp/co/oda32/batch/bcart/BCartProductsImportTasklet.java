@@ -20,6 +20,7 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -36,6 +37,8 @@ import java.util.List;
 @StepScope
 public class BCartProductsImportTasklet implements Tasklet {
     private final BCartProductsService bCartProductsService;
+    @Qualifier("bCartHttpClient")
+    private final OkHttpClient httpClient;
     private final int API_LIMIT = 100;
 
     @Override
@@ -44,13 +47,13 @@ public class BCartProductsImportTasklet implements Tasklet {
         while (true) {
             try (Response response = executeBCartProductsAPI(i)) {
                 if (!response.isSuccessful()) {
-                    log.error("API call failed: " + response.code());
-                    return RepeatStatus.CONTINUABLE;
+                    // RepeatStatus.CONTINUABLE は「もう一度 execute を呼べ」の意味で無限ループリスクがある。
+                    // 失敗時は例外を throw してバッチを失敗扱いにする。
+                    throw new RuntimeException("B-Cart 商品 API 呼び出しが失敗しました: code=" + response.code());
                 }
 
                 if (response.body() == null) {
-                    log.error("Response body is null");
-                    return RepeatStatus.CONTINUABLE;
+                    throw new RuntimeException("B-Cart 商品 API のレスポンスボディが null です");
                 }
 
                 log.info(response);
@@ -75,10 +78,8 @@ public class BCartProductsImportTasklet implements Tasklet {
                 for (BCartProducts bCartProducts : bCartProductsList) {
                     bCartProductsService.save(bCartProducts);
                 }
-            } catch (IOException e) {
-                log.error("Failed to execute BCartProductsApi: ", e);
-                return RepeatStatus.CONTINUABLE;
             }
+            // IOException は try-with-resources から自動的に伝播される（catch せずに batch を失敗扱いにする）
             i++;
         }
 
@@ -86,7 +87,7 @@ public class BCartProductsImportTasklet implements Tasklet {
     }
 
     private Response executeBCartProductsAPI(int i) throws IOException {
-        OkHttpClient client = new OkHttpClient().newBuilder().build();
+        OkHttpClient client = this.httpClient;
         int offset = API_LIMIT * i;
         HttpUrl url = new HttpUrl.Builder()
                 .scheme("https")

@@ -126,6 +126,9 @@ public class TAccountsPayableSummaryService {
         applyVerification(summary, verifiedAmount);
         summary.setVerifiedManually(Boolean.TRUE);
         summary.setVerificationNote(note);
+        // 振込明細一括検証と同じ挙動: 一致なら MF出力=ON、不一致なら MF出力=OFF
+        // ユーザーが後で Switch で明示的に上書き可能
+        summary.setMfExportEnabled(Integer.valueOf(1).equals(summary.getVerificationResult()));
         return save(summary);
     }
 
@@ -155,6 +158,9 @@ public class TAccountsPayableSummaryService {
     }
 
     private void applyVerification(TAccountsPayableSummary summary, BigDecimal verifiedAmount) {
+        // 請求額（振込明細 or 手入力）を専用列に保存。tax_included_amount は
+        // MF出力スナップショットとして別管理するため、検証時はここに保存する。
+        summary.setVerifiedAmount(verifiedAmount);
         summary.setTaxIncludedAmount(verifiedAmount);
 
         // 税率は集計時に必ず入っている前提。null の場合はデータ不整合として fail fast し、

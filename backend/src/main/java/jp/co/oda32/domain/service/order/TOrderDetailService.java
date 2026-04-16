@@ -40,6 +40,13 @@ public class TOrderDetailService extends CustomService {
     }
 
     /**
+     * 伝票日付が過去/当日の注文明細を納品済('20')に一括遷移する。native UPDATE なのでメモリ非消費。
+     */
+    public int bulkUpdatePastDetailsToDelivered() {
+        return this.tOrderDetailRepository.bulkUpdatePastDetailsToDelivered();
+    }
+
+    /**
      * 出荷番号リストに関連する注文明細を検索します
      *
      * @param deliveryNos 出荷番号リスト

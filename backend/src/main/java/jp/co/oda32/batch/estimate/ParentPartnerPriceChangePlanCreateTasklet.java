@@ -47,14 +47,13 @@ public class ParentPartnerPriceChangePlanCreateTasklet implements Tasklet {
             (mPartnerGoodsPriceChangePlan, parentPartnerList) -> {
                 CustomParentGoodsPriceChange parentGoodsPriceChange = new CustomParentGoodsPriceChange();
                 BeanUtils.copyProperties(mPartnerGoodsPriceChangePlan, parentGoodsPriceChange);
-                // 得意先番号と得意先コードを親得意先のものにする
-                for (MPartner parentPartner : parentPartnerList) {
-                    if (parentPartner.getPartnerNo().equals(mPartnerGoodsPriceChangePlan.getMPartner().getParentPartnerNo())) {
-                        parentGoodsPriceChange.setCParentPartnerNo(parentPartner.getPartnerNo());
-                        parentGoodsPriceChange.setCParentPartnerCode(parentPartner.getPartnerCode());
-                    }
-                }
-                parentGoodsPriceChange.setCParentPartnerNo(mPartnerGoodsPriceChangePlan.getMPartner().getParentPartnerNo());
+                // 得意先番号と得意先コードを親得意先のものにセットする（PartnerNo と PartnerCode は常にペアで設定）
+                Integer parentPartnerNo = mPartnerGoodsPriceChangePlan.getMPartner().getParentPartnerNo();
+                parentGoodsPriceChange.setCParentPartnerNo(parentPartnerNo);
+                parentPartnerList.stream()
+                        .filter(p -> p.getPartnerNo().equals(parentPartnerNo))
+                        .findFirst()
+                        .ifPresent(p -> parentGoodsPriceChange.setCParentPartnerCode(p.getPartnerCode()));
                 parentGoodsPriceChange.setEstimateCreated(false);
                 parentGoodsPriceChange.setPartnerPriceReflect(false);
                 // 新規登録するためPKをnullにする
@@ -106,10 +105,10 @@ public class ParentPartnerPriceChangePlanCreateTasklet implements Tasklet {
                 insertParentGoodsPriceChangePlanList.add(vParentGoodsPriceChange);
             }
         }
-        // 親得意先商品価格変更予定を新規登録
+        // 親得意先商品価格変更予定を新規登録（removeList に該当する PK は登録対象から除外）
         if (!removeList.isEmpty()) {
             insertParentGoodsPriceChangePlanList = insertParentGoodsPriceChangePlanList.stream()
-                    .filter(insertParentGoodsPriceChangePlan -> removeList.stream().anyMatch(removeNo -> removeNo.equals(insertParentGoodsPriceChangePlan.getPartnerGoodsPriceChangePlanNo())))
+                    .filter(insertParentGoodsPriceChangePlan -> removeList.stream().noneMatch(removeNo -> removeNo.equals(insertParentGoodsPriceChangePlan.getPartnerGoodsPriceChangePlanNo())))
                     .collect(Collectors.toList());
         }
         // 重複を省く

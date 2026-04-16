@@ -52,12 +52,6 @@ public class TDeliveryDetail extends AbstractCompanyEntity implements ICompanyEn
     private Integer goodsNo;
     @Column(name = "goods_code")
     private String goodsCode;
-    @Column(name = "goods_price")
-    private BigDecimal goodsPrice;
-    @Column(name = "tax_type")
-    private String taxType;
-    @Column(name = "tax_price")
-    private BigDecimal taxPrice;
     @Column(name = "unit_no")
     private Integer unitNo;
     @Column(name = "unit_num")
@@ -116,6 +110,23 @@ public class TDeliveryDetail extends AbstractCompanyEntity implements ICompanyEn
     @Override
     public void setGoodsNum(BigDecimal goodsNum) {
         setDeliveryNum(goodsNum);
+    }
+
+    @Override
+    public BigDecimal getGoodsPrice() {
+        // 単価は TOrderDetail 側で管理。tOrderDetail が lazy 未ロード/孤立の場合は早期失敗させる。
+        return java.util.Objects.requireNonNull(this.tOrderDetail,
+                "TDeliveryDetail.tOrderDetail が未ロードまたは孤立しています。JOIN FETCH で事前ロードするか紐付けを確認してください。"
+        ).getGoodsPrice();
+    }
+
+    @Override
+    public void setGoodsPrice(BigDecimal goodsPrice) {
+        // t_delivery_detail.goods_price は廃止済み（2026-04-16）。単価は TOrderDetail 側で管理する。
+        // 呼び出し元に silent no-op であることを気付かせるため明示的に throw する。
+        // BeanUtils.copyProperties 経由の呼び出しは copyProperties(src, dst, "goodsPrice") で除外すること。
+        throw new UnsupportedOperationException(
+                "t_delivery_detail.goods_price は廃止されました。単価は TOrderDetail 側で管理します");
     }
 
     @Override

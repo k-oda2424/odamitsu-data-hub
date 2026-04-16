@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -10,25 +10,23 @@ import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
 import { ErrorMessage } from '@/components/features/common/ErrorMessage'
 import { SearchableSelect } from '@/components/features/common/SearchableSelect'
+import { ConfirmDialog } from '@/components/features/common/ConfirmDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatCurrency } from '@/lib/utils'
 import { emptyPage, type Paginated } from '@/types/paginated'
-import { AlertCircle, RefreshCw, ShieldCheck, Unlock, Upload } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Download, FileDown, Loader2, RefreshCw, ShieldCheck, Upload, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { BulkVerifyDialog } from './BulkVerifyDialog'
+import { PaymentMfAuxRowsTable } from './PaymentMfAuxRowsTable'
+import { VerifyDialog } from './VerifyDialog'
+import { VerifiedCsvExportDialog } from './VerifiedCsvExportDialog'
 import {
   type AccountsPayable,
   type AccountsPayableSummary,
@@ -41,14 +39,37 @@ import {
 
 const PAGE_SIZE = 50
 
+// モジュールスコープ（毎レンダー再生成を防ぎ、useEffect 依存配列から除外可能にする）
+const BATCH_JOBS = {
+  AGGREGATION: 'accountsPayableAggregation',
+  VERIFICATION: 'accountsPayableVerification',
+  PURCHASE_IMPORT: 'purchaseFileImport',
+} as const
+type BatchJobName = (typeof BATCH_JOBS)[keyof typeof BATCH_JOBS]
+const BATCH_JOB_LABELS: Record<BatchJobName, string> = {
+  [BATCH_JOBS.AGGREGATION]: '再集計',
+  [BATCH_JOBS.VERIFICATION]: '再検証(SMILE)',
+  [BATCH_JOBS.PURCHASE_IMPORT]: '仕入明細取込(SMILE)',
+}
+
+type JobStatus = 'COMPLETED' | 'FAILED' | 'STARTED' | 'STARTING' | 'STOPPED' | 'ABANDONED' | 'UNKNOWN'
+interface BatchStatusPayload {
+  status: JobStatus | string
+  startTime?: string
+  exitMessage?: string
+}
+
+const toYyyyMmDd = (isoDate: string) => isoDate.replaceAll('-', '')
+
 /**
  * 20日締め取引月から対応する仕入期間を算出する。
  * transactionMonth=2026-02-20 → fromDate=2026-01-21, toDate=2026-02-20
+ * Date は local TZ で生成し YYYY-MM-DD にフォーマット（UTC 変換は挟まないので TZ 非依存）。
  */
 function purchaseDateRange(transactionMonth: string): { fromDate: string; toDate: string } {
   const [y, m, d] = transactionMonth.split('-').map(Number)
-  const to = new Date(y, m - 1, d)
-  const from = new Date(y, m - 2, d + 1)
+  const to = new Date(y, m - 1, d)       // 当月20日（20日締め）
+  const from = new Date(y, m - 2, d + 1) // 前月21日: m-2 = 1月なら前年12月へ自動繰り下がる
   const fmt = (x: Date) =>
     `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
   return { fromDate: fmt(from), toDate: fmt(to) }
@@ -61,12 +82,52 @@ interface SearchParams {
   verificationFilter: VerificationFilter
 }
 
+/**
+ * バッチ実行ボタン（実行中ローダー＋完了/失敗バッジ付き）。
+ * 親コンポーネントが pollingJobs 配列で進行状態を持つ。
+ */
+function BatchButton({
+  job, label, icon, running, status, onClick,
+}: {
+  job: BatchJobName
+  label: string
+  icon: React.ReactNode
+  running: boolean
+  status: JobStatus | string | undefined
+  onClick: () => void
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <Button variant="outline" size="sm" onClick={onClick} disabled={running}>
+        {running ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : icon}
+        {running ? '実行中...' : label}
+      </Button>
+      {!running && status === 'COMPLETED' && (
+        <span className="flex items-center gap-0.5 text-xs text-emerald-600" title={`${job} 完了`}>
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        </span>
+      )}
+      {!running && status === 'FAILED' && (
+        <span className="flex items-center gap-0.5 text-xs text-destructive" title={`${job} 失敗`}>
+          <XCircle className="h-3.5 w-3.5" />
+        </span>
+      )}
+    </div>
+  )
+}
+
 function VerificationBadge({ row }: { row: AccountsPayable }) {
+  // 「手動」バッジは手入力検証 (verificationSource=MANUAL) の時だけ表示。
+  // 振込明細一括検証 (BULK) は verifiedManually=true だが手動操作ではないため表示しない。
+  // verificationSource=null (移行期旧データ等) で verifiedManually=true の場合は、
+  // 安全側に倒して手動扱い（BULK 以外は手動）とする。
+  const showManualBadge =
+    row.verifiedManually === true && row.verificationSource !== 'BULK'
   if (row.verificationResult === 1) {
     return (
       <div className="flex items-center gap-1">
         <Badge className="bg-green-600 hover:bg-green-700">一致</Badge>
-        {row.verifiedManually && <Badge variant="outline" className="text-xs">手動</Badge>}
+        {showManualBadge && <Badge variant="outline" className="text-xs">手動</Badge>}
       </div>
     )
   }
@@ -74,7 +135,7 @@ function VerificationBadge({ row }: { row: AccountsPayable }) {
     return (
       <div className="flex items-center gap-1">
         <Badge variant="destructive">不一致</Badge>
-        {row.verifiedManually && <Badge variant="outline" className="text-xs">手動</Badge>}
+        {showManualBadge && <Badge variant="outline" className="text-xs">手動</Badge>}
       </div>
     )
   }
@@ -94,11 +155,27 @@ export function AccountsPayablePage() {
   const [page, setPage] = useState(0)
   const [dialogRow, setDialogRow] = useState<AccountsPayable | null>(null)
   const [bulkDialog, setBulkDialog] = useState(false)
+  const [verifiedExportDialog, setVerifiedExportDialog] = useState(false)
+
+  // タブ状態は URL ?tab=payable|aux で永続化
+  const router = useRouter()
+  const urlSearchParams = useSearchParams()
+  const tabParam = urlSearchParams.get('tab')
+  const currentTab: 'payable' | 'aux' = tabParam === 'aux' ? 'aux' : 'payable'
+  const setCurrentTab = (tab: 'payable' | 'aux') => {
+    const sp = new URLSearchParams(urlSearchParams.toString())
+    if (tab === 'payable') sp.delete('tab')
+    else sp.set('tab', tab)
+    const qs = sp.toString()
+    const nextUrl = qs ? `?${qs}` : window.location.pathname
+    router.replace(nextUrl, { scroll: false })
+  }
+  const [auxCount, setAuxCount] = useState<number | null>(null)
 
   const shopsQuery = useShops(isAdmin)
   const paymentSuppliersQuery = usePaymentSuppliers(params.shopNo ?? (isAdmin ? undefined : user?.shopNo))
 
-  const queryString = (() => {
+  const queryString = useMemo(() => {
     const sp = new URLSearchParams()
     sp.set('page', String(page))
     sp.set('size', String(PAGE_SIZE))
@@ -107,7 +184,7 @@ export function AccountsPayablePage() {
     if (params.supplierNo !== undefined) sp.set('supplierNo', String(params.supplierNo))
     if (params.verificationFilter !== 'all') sp.set('verificationFilter', params.verificationFilter)
     return sp.toString()
-  })()
+  }, [page, params.transactionMonth, params.shopNo, params.supplierNo, params.verificationFilter])
 
   const apQuery = useQuery({
     queryKey: ['accounts-payable', queryString],
@@ -124,10 +201,12 @@ export function AccountsPayablePage() {
     },
   })
 
-  const invalidate = () => {
+  const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['accounts-payable'] })
     queryClient.invalidateQueries({ queryKey: ['accounts-payable-summary'] })
-  }
+    queryClient.invalidateQueries({ queryKey: ['payment-mf-aux-rows'] })
+    queryClient.invalidateQueries({ queryKey: ['verified-export-preview'] })
+  }, [queryClient])
 
   const verifyMutation = useMutation({
     mutationFn: async ({ row, verifiedAmount, note }: { row: AccountsPayable; verifiedAmount: number; note: string }) => {
@@ -167,14 +246,79 @@ export function AccountsPayablePage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const [pollingJobs, setPollingJobs] = useState<Set<BatchJobName>>(new Set())
+  // 起動時刻は「古い COMPLETED 誤検知」防止のガードにのみ使うので Ref で十分（再レンダー不要）
+  const launchedAtRef = useRef<Record<string, string>>({})
+  // 購入明細取込のConfirmDialog制御
+  const [confirmPurchaseImport, setConfirmPurchaseImport] = useState(false)
+
+  // 実行中ジョブのステータスを5秒間隔でポーリング
+  // queryKey は Set の挿入順を排除するため sort して安定化
+  const sortedPolling = useMemo(() => Array.from(pollingJobs).sort(), [pollingJobs])
+  const batchStatusQuery = useQuery({
+    queryKey: ['ap-batch-status', sortedPolling.join(',')],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        sortedPolling.map(async (jobName) => {
+          const data = await api.get<BatchStatusPayload>(`/batch/status/${jobName}`)
+          return [jobName, data] as const
+        }),
+      )
+      return Object.fromEntries(entries) as Record<string, BatchStatusPayload>
+    },
+    enabled: sortedPolling.length > 0,
+    refetchInterval: sortedPolling.length > 0 ? 5000 : false,
+    staleTime: 0,
+  })
+
+  useEffect(() => {
+    if (!batchStatusQuery.data) return
+    const finished: BatchJobName[] = []
+    for (const [jobName, status] of Object.entries(batchStatusQuery.data)) {
+      const launched = launchedAtRef.current[jobName]
+      if (launched && status.startTime && new Date(status.startTime).getTime() < new Date(launched).getTime()) continue
+      const label = BATCH_JOB_LABELS[jobName as BatchJobName] ?? jobName
+      if (status.status === 'COMPLETED') {
+        toast.success(`${label} が完了しました`)
+        finished.push(jobName as BatchJobName)
+      } else if (status.status === 'FAILED') {
+        toast.error(`${label} が失敗しました${status.exitMessage ? ': ' + status.exitMessage : ''}`)
+        finished.push(jobName as BatchJobName)
+      }
+    }
+    if (finished.length === 0) return
+    setPollingJobs((prev) => {
+      const next = new Set(prev)
+      finished.forEach((j) => next.delete(j))
+      return next
+    })
+    // 集計/検証ジョブ完了時は一覧を再取得
+    if (finished.some((j) => j !== BATCH_JOBS.PURCHASE_IMPORT)) invalidate()
+  }, [batchStatusQuery.data, invalidate])
+
   const runBatchMutation = useMutation({
-    mutationFn: async (jobName: 'accountsPayableSummary' | 'accountsPayableVerification') => {
-      return api.post<{ message: string }>(`/batch/execute/${jobName}`)
+    mutationFn: async (jobName: BatchJobName) => {
+      const sp = new URLSearchParams()
+      if (jobName !== BATCH_JOBS.PURCHASE_IMPORT) {
+        sp.set('targetDate', toYyyyMmDd(params.transactionMonth))
+      }
+      const qs = sp.toString()
+      return api.post<{ message: string }>(`/batch/execute/${jobName}${qs ? `?${qs}` : ''}`)
     },
-    onSuccess: (res) => {
-      toast.success(res?.message ?? 'バッチを起動しました')
+    onMutate: (jobName) => {
+      launchedAtRef.current[jobName] = new Date().toISOString()
+      // ポーリング対象に即時追加（まだジョブレコード未生成でも status 応答は UNKNOWN として扱われ、launched 時刻以前の古い COMPLETED は ref ガードで無視される）
+      setPollingJobs((prev) => new Set(prev).add(jobName))
     },
-    onError: (e: Error) => {
+    onSuccess: (res, jobName) => {
+      toast.info(res?.message ?? `${BATCH_JOB_LABELS[jobName]} を起動しました`)
+    },
+    onError: (e: Error, jobName) => {
+      setPollingJobs((prev) => {
+        const next = new Set(prev)
+        next.delete(jobName)
+        return next
+      })
       if (e instanceof ApiError && e.status === 429) {
         toast.error('他のバッチが実行中です。しばらく待ってから再実行してください')
       } else {
@@ -182,6 +326,10 @@ export function AccountsPayablePage() {
       }
     },
   })
+
+  const isRunning = (job: BatchJobName) => pollingJobs.has(job) || runBatchMutation.isPending
+  const lastStatus = (job: BatchJobName): JobStatus | string | undefined =>
+    batchStatusQuery.data?.[job]?.status
 
   const columns: Column<AccountsPayable>[] = [
     { key: 'supplierCode', header: '仕入先コード', sortable: true },
@@ -215,9 +363,32 @@ export function AccountsPayablePage() {
     },
     { key: 'taxRate', header: '税率', render: (r) => `${r.taxRate}%` },
     {
+      key: 'taxExcludedAndTaxAmount',
+      header: '税抜 / 消費税',
+      render: (r) => {
+        const inc = r.taxIncludedAmountChange ?? 0
+        const exc = r.taxExcludedAmountChange ?? 0
+        return (
+          <div className="flex flex-col tabular-nums leading-tight">
+            <span>{formatCurrency(exc)}</span>
+            <span className="text-xs text-muted-foreground">{formatCurrency(inc - exc)}</span>
+          </div>
+        )
+      },
+    },
+    {
       key: 'taxIncludedAmountChange',
       header: '買掛金額(税込)',
       render: (r) => <span className="tabular-nums">{formatCurrency(r.taxIncludedAmountChange ?? 0)}</span>,
+    },
+    {
+      key: 'verifiedAmount',
+      header: '振込明細額',
+      render: (r) => (
+        <span className="tabular-nums">
+          {r.verifiedAmount == null ? '-' : formatCurrency(r.verifiedAmount)}
+        </span>
+      ),
     },
     {
       key: 'taxIncludedAmount',
@@ -287,25 +458,41 @@ export function AccountsPayablePage() {
               振込明細で一括検証
             </Button>
             {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setVerifiedExportDialog(true)}
+              >
+                <FileDown className="mr-1 h-4 w-4" />
+                検証済みCSV出力
+              </Button>
+            )}
+            {isAdmin && (
               <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => runBatchMutation.mutate('accountsPayableSummary')}
-                  disabled={runBatchMutation.isPending}
-                >
-                  <RefreshCw className="mr-1 h-4 w-4" />
-                  再集計
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => runBatchMutation.mutate('accountsPayableVerification')}
-                  disabled={runBatchMutation.isPending}
-                >
-                  <ShieldCheck className="mr-1 h-4 w-4" />
-                  再検証(SMILE)
-                </Button>
+                <BatchButton
+                  job={BATCH_JOBS.PURCHASE_IMPORT}
+                  label="仕入明細取込(SMILE)"
+                  icon={<Download className="mr-1 h-4 w-4" />}
+                  running={isRunning(BATCH_JOBS.PURCHASE_IMPORT)}
+                  status={lastStatus(BATCH_JOBS.PURCHASE_IMPORT)}
+                  onClick={() => setConfirmPurchaseImport(true)}
+                />
+                <BatchButton
+                  job={BATCH_JOBS.AGGREGATION}
+                  label="再集計"
+                  icon={<RefreshCw className="mr-1 h-4 w-4" />}
+                  running={isRunning(BATCH_JOBS.AGGREGATION)}
+                  status={lastStatus(BATCH_JOBS.AGGREGATION)}
+                  onClick={() => runBatchMutation.mutate(BATCH_JOBS.AGGREGATION)}
+                />
+                <BatchButton
+                  job={BATCH_JOBS.VERIFICATION}
+                  label="再検証(SMILE)"
+                  icon={<ShieldCheck className="mr-1 h-4 w-4" />}
+                  running={isRunning(BATCH_JOBS.VERIFICATION)}
+                  status={lastStatus(BATCH_JOBS.VERIFICATION)}
+                  onClick={() => runBatchMutation.mutate(BATCH_JOBS.VERIFICATION)}
+                />
               </>
             )}
           </>
@@ -393,19 +580,46 @@ export function AccountsPayablePage() {
         </div>
       )}
 
-      <DataTable
-        data={p.content}
-        columns={columns}
-        serverPagination={{
-          page: p.number,
-          pageSize: p.size,
-          totalElements: p.totalElements,
-          totalPages: p.totalPages,
-          onPageChange: setPage,
-        }}
-      />
+      <Tabs value={currentTab} onValueChange={(v) => setCurrentTab(v as 'payable' | 'aux')}>
+        <TabsList>
+          <TabsTrigger value="payable">
+            買掛金一覧
+            {p.totalElements > 0 && (
+              <span className="ml-2 text-xs text-muted-foreground">({p.totalElements})</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="aux">
+            MF補助行
+            {auxCount !== null && (
+              <span className="ml-2 text-xs text-muted-foreground">({auxCount})</span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="payable" className="mt-3">
+          <DataTable
+            data={p.content}
+            columns={columns}
+            serverPagination={{
+              page: p.number,
+              pageSize: p.size,
+              totalElements: p.totalElements,
+              totalPages: p.totalPages,
+              onPageChange: setPage,
+            }}
+          />
+        </TabsContent>
+        <TabsContent value="aux" className="mt-3">
+          <PaymentMfAuxRowsTable
+            transactionMonth={params.transactionMonth}
+            onCountChange={setAuxCount}
+          />
+        </TabsContent>
+      </Tabs>
 
       <VerifyDialog
+        key={dialogRow
+          ? `${dialogRow.shopNo}-${dialogRow.supplierNo}-${dialogRow.transactionMonth}-${dialogRow.taxRate}`
+          : 'closed'}
         row={dialogRow}
         onClose={() => setDialogRow(null)}
         onSubmit={(verifiedAmount, note) =>
@@ -422,122 +636,21 @@ export function AccountsPayablePage() {
         onOpenChange={setBulkDialog}
         onApplied={invalidate}
       />
+
+      <VerifiedCsvExportDialog
+        open={verifiedExportDialog}
+        onOpenChange={setVerifiedExportDialog}
+        transactionMonth={params.transactionMonth}
+      />
+
+      <ConfirmDialog
+        open={confirmPurchaseImport}
+        onOpenChange={setConfirmPurchaseImport}
+        title="仕入明細取込(SMILE)"
+        description="SMILEから仕入明細を取り込みます。よろしいですか？（取込後は「再集計」で買掛金に反映してください）"
+        confirmLabel="取込実行"
+        onConfirm={() => runBatchMutation.mutate(BATCH_JOBS.PURCHASE_IMPORT)}
+      />
     </div>
-  )
-}
-
-function VerifyDialog({
-  row,
-  onClose,
-  onSubmit,
-  onReleaseManualLock,
-  submitting,
-  releasing,
-  isAdmin,
-}: {
-  row: AccountsPayable | null
-  onClose: () => void
-  onSubmit: (verifiedAmount: number, note: string) => void
-  onReleaseManualLock: () => void
-  submitting: boolean
-  releasing: boolean
-  isAdmin: boolean
-}) {
-  const [amount, setAmount] = useState<string>('')
-  const [note, setNote] = useState<string>('')
-
-  // Reset when a new row is opened
-  const rowKey = row ? `${row.shopNo}-${row.supplierNo}-${row.transactionMonth}-${row.taxRate}` : null
-  const [currentKey, setCurrentKey] = useState<string | null>(null)
-  if (rowKey !== currentKey) {
-    setCurrentKey(rowKey)
-    if (row) {
-      const init = row.taxIncludedAmount ?? row.taxIncludedAmountChange ?? 0
-      setAmount(String(init ?? ''))
-      setNote(row.verificationNote ?? '')
-    }
-  }
-
-  const open = row !== null
-  const handleSubmit = () => {
-    const v = Number(amount)
-    if (!Number.isFinite(v)) {
-      toast.error('金額が不正です')
-      return
-    }
-    onSubmit(v, note)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>買掛金検証</DialogTitle>
-        </DialogHeader>
-        {row && (
-          <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-2 gap-2">
-              <div><span className="text-muted-foreground">仕入先: </span>{row.supplierCode} {row.supplierName ?? ''}</div>
-              <div><span className="text-muted-foreground">税率: </span>{row.taxRate}%</div>
-              <div><span className="text-muted-foreground">取引月: </span>{row.transactionMonth}</div>
-              <div><span className="text-muted-foreground">ショップ: </span>{row.shopNo}</div>
-            </div>
-            <div className="rounded border p-2 space-y-1">
-              <div className="flex justify-between"><span>買掛金額(税込)</span><span className="tabular-nums">{formatCurrency(row.taxIncludedAmountChange ?? 0)}</span></div>
-              <div className="flex justify-between"><span>買掛金額(税抜)</span><span className="tabular-nums">{formatCurrency(row.taxExcludedAmountChange ?? 0)}</span></div>
-              <div className="flex justify-between"><span>SMILE支払額(税込)</span><span className="tabular-nums">{row.taxIncludedAmount == null ? '-' : formatCurrency(row.taxIncludedAmount)}</span></div>
-              <div className="flex justify-between">
-                <span>差額</span>
-                <span className={row.verificationResult === 0 ? 'text-red-600 tabular-nums' : 'tabular-nums'}>
-                  {row.paymentDifference == null ? '-' : formatCurrency(row.paymentDifference)}
-                </span>
-              </div>
-            </div>
-            {row.verifiedManually && (
-              <div className="rounded border border-green-300 bg-green-50 p-2 text-xs text-green-800">
-                このレコードは手動確定済みです。次回 SMILE 再検証バッチで上書きされません。
-              </div>
-            )}
-            <div>
-              <Label htmlFor="verified-amount">検証済み支払額(税込)</Label>
-              <Input
-                id="verified-amount"
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="verification-note">備考（最大500字）</Label>
-              <Textarea
-                id="verification-note"
-                rows={3}
-                maxLength={500}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="例: 請求書No.A-001で確認"
-              />
-            </div>
-          </div>
-        )}
-        <DialogFooter className="gap-2">
-          {row?.verifiedManually && isAdmin && (
-            <Button
-              variant="outline"
-              onClick={onReleaseManualLock}
-              disabled={releasing || submitting}
-              className="mr-auto"
-            >
-              <Unlock className="mr-1 h-4 w-4" />
-              {releasing ? '解除中...' : '手動確定解除'}
-            </Button>
-          )}
-          <Button variant="outline" onClick={onClose}>キャンセル</Button>
-          <Button onClick={handleSubmit} disabled={submitting || !amount}>
-            {submitting ? '更新中...' : '更新'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }

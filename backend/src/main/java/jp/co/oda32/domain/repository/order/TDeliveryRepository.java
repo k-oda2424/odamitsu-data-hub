@@ -32,4 +32,35 @@ public interface TDeliveryRepository extends JpaRepository<TDelivery, Integer>, 
             + " where deliveryNo in :deliveryNoList"
             + " and deliveryDate is null")
     int updateDeliveryDateByDeliveryNoList(@Param("deliveryNoList") List<Integer> deliveryNoList);
+
+    /**
+     * 配下 t_delivery_detail が **すべて** '20'(出荷済) の出荷について、
+     * t_delivery.delivery_status を '20' に一括更新する。
+     */
+    @Modifying
+    @Query(value = "UPDATE t_delivery d " +
+            "   SET delivery_status = '20', modify_date_time = NOW() " +
+            " WHERE d.del_flg = '0' " +
+            "   AND d.delivery_status <> '20' " +
+            "   AND EXISTS (SELECT 1 FROM t_delivery_detail dd WHERE dd.delivery_no = d.delivery_no AND dd.del_flg = '0') " +
+            "   AND NOT EXISTS (" +
+            "         SELECT 1 FROM t_delivery_detail dd " +
+            "          WHERE dd.delivery_no = d.delivery_no AND dd.del_flg = '0' AND dd.delivery_detail_status <> '20'" +
+            "       )",
+            nativeQuery = true)
+    int bulkUpdateParentDeliveryToDelivered();
+
+    /**
+     * 出荷ステータスが '20'(納品済) でかつ delivery_date が未設定の出荷について、
+     * delivery_date = delivery_plan_date を設定する。
+     */
+    @Modifying
+    @Query(value = "UPDATE t_delivery d " +
+            "   SET delivery_date = delivery_plan_date, modify_date_time = NOW() " +
+            " WHERE d.del_flg = '0' " +
+            "   AND d.delivery_status = '20' " +
+            "   AND d.delivery_date IS NULL " +
+            "   AND d.delivery_plan_date IS NOT NULL",
+            nativeQuery = true)
+    int bulkUpdateDeliveryDateForDelivered();
 }

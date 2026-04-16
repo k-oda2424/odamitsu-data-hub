@@ -100,6 +100,20 @@ public class TDeliveryService extends CustomService {
     }
 
     /**
+     * 配下 delivery_detail が **全て** '20'(出荷済) の出荷を '20'(納品済) に一括遷移する。
+     */
+    public int bulkUpdateParentDeliveryToDelivered() {
+        return this.tDeliveryRepository.bulkUpdateParentDeliveryToDelivered();
+    }
+
+    /**
+     * delivery_status='20' かつ delivery_date 未設定の出荷に delivery_plan_date を設定。
+     */
+    public int bulkUpdateDeliveryDateForDelivered() {
+        return this.tDeliveryRepository.bulkUpdateDeliveryDateForDelivered();
+    }
+
+    /**
      * 出荷を更新します。
      *
      * @param tDelivery 出荷Entity

@@ -13,6 +13,7 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -31,6 +32,8 @@ import java.util.Map;
 public class BCartCategoriesUpdateTasklet implements Tasklet {
     private final BCartCategoriesService bCartCategoriesService;
     private final BCartChangeHistoryService changeHistoryService;
+    @Qualifier("bCartHttpClient")
+    private final OkHttpClient httpClient;
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
@@ -70,7 +73,7 @@ public class BCartCategoriesUpdateTasklet implements Tasklet {
     }
 
     private boolean patchCategory(BCartCategories category) throws IOException {
-        OkHttpClient client = new OkHttpClient().newBuilder().build();
+        OkHttpClient client = this.httpClient;
 
         // form-urlencoded形式でリクエストボディを構築
         FormBody.Builder formBuilder = new FormBody.Builder(StandardCharsets.UTF_8);

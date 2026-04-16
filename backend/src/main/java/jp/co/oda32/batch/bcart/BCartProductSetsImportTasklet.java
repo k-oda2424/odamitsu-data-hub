@@ -33,6 +33,7 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -55,6 +56,8 @@ public class BCartProductSetsImportTasklet implements Tasklet {
     private final BCartVolumeDiscountService bCartVolumeDiscountService;
     private final BCartSpecialPriceService bCartSpecialPriceService;
     private final BCartGroupPriceService bCartGroupPriceService;
+    @Qualifier("bCartHttpClient")
+    private final OkHttpClient httpClient;
     private final int API_LIMIT = 100;
 
     @Override
@@ -126,7 +129,7 @@ public class BCartProductSetsImportTasklet implements Tasklet {
     }
 
     private Response executeBCartProductSetsAPI(int i) throws IOException {
-        OkHttpClient client = new OkHttpClient().newBuilder().build();
+        OkHttpClient client = this.httpClient;
         int offset = API_LIMIT * i;
         HttpUrl url = new HttpUrl.Builder().scheme("https").host("api.bcart.jp").addPathSegment("api").addPathSegment("v1").addPathSegment("product_sets").addQueryParameter("limit", String.valueOf(API_LIMIT)).addQueryParameter("offset", String.valueOf(offset)).build();
 

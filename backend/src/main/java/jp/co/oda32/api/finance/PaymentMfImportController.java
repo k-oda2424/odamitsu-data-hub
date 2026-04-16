@@ -4,10 +4,12 @@ import jakarta.validation.Valid;
 import jp.co.oda32.domain.service.data.LoginUser;
 import jp.co.oda32.domain.service.finance.PaymentMfImportService;
 import jp.co.oda32.domain.service.finance.PaymentMfRuleService;
+import jp.co.oda32.dto.finance.paymentmf.PaymentMfAuxRowResponse;
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfHistoryResponse;
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfPreviewResponse;
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfRuleRequest;
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfRuleResponse;
+import jp.co.oda32.dto.finance.paymentmf.VerifiedExportPreviewResponse;
 import jp.co.oda32.domain.repository.finance.TPaymentMfImportHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -94,6 +96,93 @@ public class PaymentMfImportController {
         }
     }
 
+    // ---- 検証済み買掛金から MF CSV 出力（Excel 再アップロード不要）----
+
+    /**
+     * 検証済み(verificationResult=1 & mfExportEnabled=true)の買掛金サマリから
+     * MF仕訳CSVを直接生成する。PAYABLE 行のみが含まれる点に注意。
+     * <p>CSV 取引日列は 小田光締め日 = transactionMonth (前月20日) 固定。
+     * 支払日は MF 側の銀行データ連携で自動付与されるため CSV には含めない。
+     *
+     * @param transactionMonth 対象取引月 (yyyy-MM-dd, 例 2026-01-20)
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/export-verified")
+    public ResponseEntity<?> exportVerified(
+            @RequestParam("transactionMonth") String transactionMonth,
+            @AuthenticationPrincipal LoginUser user) {
+        try {
+            java.time.LocalDate txMonth = java.time.LocalDate.parse(transactionMonth);
+            var result = importService.exportVerifiedCsv(
+                    txMonth, user == null ? null : user.getUser().getLoginUserNo());
+
+            String yyyymmdd = txMonth.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+            String fileName = "買掛仕入MFインポートファイル_" + yyyymmdd + ".csv";
+            String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
+            // X-Skipped-Suppliers: 各 supplier 名を個別に encodeURIComponent し "|" で連結する。
+            // supplier 名に "," が含まれるケースでパース崩れを起こさないよう、区切り文字はカンマ以外にする。
+            // フロント側は split("|") → decodeURIComponent でデコードする。
+            List<String> suppliers = result.getSkippedSuppliers() == null ? List.of()
+                    : result.getSkippedSuppliers();
+            String skippedHeader = suppliers.stream()
+                    .map(s -> URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20"))
+                    .reduce((a, b) -> a + "|" + b)
+                    .orElse("");
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("text/csv; charset=Shift_JIS"))
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename=\"payment_mf.csv\"; filename*=UTF-8''" + encoded)
+                    .header("X-Row-Count", String.valueOf(result.getRowCount()))
+                    .header("X-Total-Amount", String.valueOf(result.getTotalAmount()))
+                    .header("X-Skipped-Count", String.valueOf(suppliers.size()))
+                    .header("X-Skipped-Suppliers", skippedHeader)
+                    .body(result.getCsv());
+        } catch (java.time.format.DateTimeParseException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", "日付形式が不正です (yyyy-MM-dd)"));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.unprocessableEntity().body(Map.of("message", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /**
+     * 検証済みCSV出力のプレビュー。ダイアログで件数確認 + 警告表示用。
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/export-verified/preview")
+    public ResponseEntity<?> exportVerifiedPreview(
+            @RequestParam("transactionMonth") String transactionMonth) {
+        try {
+            java.time.LocalDate txMonth = java.time.LocalDate.parse(transactionMonth);
+            VerifiedExportPreviewResponse preview = importService.buildVerifiedExportPreview(txMonth);
+            return ResponseEntity.ok(preview);
+        } catch (java.time.format.DateTimeParseException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", "日付形式が不正です (yyyy-MM-dd)"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /**
+     * 指定取引月の MF 補助行 (EXPENSE/SUMMARY/DIRECT_PURCHASE) 一覧を返す。
+     * 買掛金一覧の「MF補助行」タブ表示用。
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/aux-rows")
+    public ResponseEntity<?> auxRows(
+            @RequestParam("transactionMonth") String transactionMonth) {
+        try {
+            java.time.LocalDate txMonth = java.time.LocalDate.parse(transactionMonth);
+            List<PaymentMfAuxRowResponse> rows = importService.listAuxRows(txMonth);
+            return ResponseEntity.ok(rows);
+        } catch (java.time.format.DateTimeParseException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", "日付形式が不正です (yyyy-MM-dd)"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
     // ---- 履歴 ----
 
     @GetMapping("/history")
@@ -150,5 +239,19 @@ public class PaymentMfImportController {
                                         @AuthenticationPrincipal LoginUser user) {
         ruleService.delete(id, user == null ? null : user.getUser().getLoginUserNo());
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * PAYABLE ルールの payment_supplier_code を m_payment_supplier から一括補完。
+     * dryRun=true でプレビューのみ、false で実際にDB更新。
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/rules/backfill-codes")
+    public ResponseEntity<?> backfillCodes(
+            @RequestParam(defaultValue = "true") boolean dryRun,
+            @AuthenticationPrincipal LoginUser user) {
+        var result = ruleService.backfillPaymentSupplierCodes(
+                dryRun, user == null ? null : user.getUser().getLoginUserNo());
+        return ResponseEntity.ok(result);
     }
 }

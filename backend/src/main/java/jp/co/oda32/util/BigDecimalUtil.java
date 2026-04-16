@@ -1,7 +1,10 @@
 package jp.co.oda32.util;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.math.RoundingMode;
 import java.text.DecimalFormat;
 
 /**
@@ -10,9 +13,23 @@ import java.text.DecimalFormat;
  * @author k_oda
  * @since 2018/08/10
  */
+@Slf4j
 public class BigDecimalUtil {
     public static final BigDecimal MAX_INT8_DECIMAL4 = new BigDecimal("99999999.9999");
     public static final BigDecimal MAX_INT8_DECIMAL2 = new BigDecimal("99999999.99");
+    public static final BigDecimal DEFAULT_TAX_RATE = new BigDecimal("10.00");
+
+    /**
+     * 消費税率が NULL の場合、デフォルト 10.00 を返し WARN ログを出力する。
+     * SMILE 連携ファイルで税率が空のデータを検知するため。
+     */
+    public static BigDecimal requireTaxRate(BigDecimal value, String context) {
+        if (value == null) {
+            log.warn("消費税率が NULL のため 10.00 で補完します。{}", context);
+            return DEFAULT_TAX_RATE;
+        }
+        return value;
+    }
 
     public static BigDecimal convertNullToZero(BigDecimal value) {
         if (value == null) {
@@ -85,17 +102,17 @@ public class BigDecimalUtil {
 
     public static BigDecimal roundUp(BigDecimal value, int round) {
         value = convertNullToZero(value);
-        return value.setScale(round - 1, BigDecimal.ROUND_UP);
+        return value.setScale(round - 1, RoundingMode.UP);
     }
 
     public static BigDecimal roundDown(BigDecimal value, int round) {
         value = convertNullToZero(value);
-        return value.setScale(round - 1, BigDecimal.ROUND_DOWN);
+        return value.setScale(round - 1, RoundingMode.DOWN);
     }
 
     public static BigDecimal roundHalfUp(BigDecimal value, int round) {
         value = convertNullToZero(value);
-        return value.setScale(round - 1, BigDecimal.ROUND_HALF_UP);
+        return value.setScale(round - 1, RoundingMode.HALF_UP);
     }
 
     public static BigDecimal limitMultiply(BigDecimal underMultiply, BigDecimal givenMultiply, BigDecimal limit) {

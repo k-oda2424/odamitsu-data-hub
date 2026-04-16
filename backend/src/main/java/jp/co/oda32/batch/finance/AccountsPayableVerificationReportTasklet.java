@@ -17,6 +17,9 @@ import org.springframework.stereotype.Component;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -43,6 +46,13 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
 
     @Value("#{jobParameters['forceExecution']}")
     private Boolean forceExecution;
+
+    /**
+     * レポート出力先ディレクトリ。未指定時はカレントディレクトリにフォールバック
+     * （CWD 依存を避けるため、本番は application-*.yml で明示設定を推奨）。
+     */
+    @Value("${finance.report.output-dir:.}")
+    private String reportOutputDir;
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
@@ -120,7 +130,7 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
             for (TAccountsPayableSummary summary : summaries) {
                 if (summary.getPaymentDifference() != null &&
                         (summary.getVerificationResult() == null || summary.getVerificationResult() == 0) &&
-                        summary.getPaymentDifference().abs().compareTo(new BigDecimal(5)) < 0) {
+                        summary.getPaymentDifference().abs().compareTo(jp.co.oda32.constant.FinanceConstants.PAYMENT_VERIFICATION_TOLERANCE) < 0) {
                     summary.setVerificationResult(1); // 一致
                     summary.setMfExportEnabled(true); // マネーフォワードエクスポート可能に設定
                     tAccountsPayableSummaryService.save(summary);
@@ -264,7 +274,11 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
      * レポートを生成します。
      */
     private void generateReport(Map<String, List<TAccountsPayableSummary>> summariesBySupplier, String fileName) throws IOException {
-        try (FileWriter writer = new FileWriter(fileName)) {
+        Path dir = Paths.get(reportOutputDir);
+        Files.createDirectories(dir);
+        Path outputPath = dir.resolve(fileName);
+        log.info("レポート出力先: {}", outputPath.toAbsolutePath());
+        try (FileWriter writer = new FileWriter(outputPath.toFile())) {
             // ヘッダー行
             writer.write("仕入先コード,仕入先名,ショップ番号,税率,買掛金額（税込）,SMILE支払額,差額,検証結果\n");
 
@@ -331,11 +345,9 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
                             taxIncludedAmountChange.setScale(0, java.math.RoundingMode.DOWN) :
                             BigDecimal.ZERO) + ",");
 
-                    // SMILE支払額
-                    BigDecimal smilePaymentAmount = BigDecimal.ZERO;
-                    if (paymentDifference != null && taxIncludedAmountChange != null) {
-                        smilePaymentAmount = taxIncludedAmountChange.add(paymentDifference);
-                    }
+                    // SMILE支払額: SmilePaymentVerifier により taxIncludedAmountChange は既に SMILE 支払額の一部に
+                    // 調整済み（最大行で残差吸収）なので、そのまま表示。合計で supplier の SMILE 支払額に一致する。
+                    BigDecimal smilePaymentAmount = taxIncludedAmountChange != null ? taxIncludedAmountChange : BigDecimal.ZERO;
                     writer.write(smilePaymentAmount.setScale(0, java.math.RoundingMode.DOWN) + ",");
 
                     // 差額 - nullの場合は「0」として表示（警告は既に出力済み）
@@ -360,15 +372,10 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                         .setScale(0, java.math.RoundingMode.DOWN);
 
-                // SMILE支払額の合計（差額を考慮）
+                // SMILE支払額の合計: taxIncludedAmountChange の和（SmilePaymentVerifier 調整後は supplier の SMILE 支払額に一致）
                 BigDecimal totalSmilePayment = summaries.stream()
-                        .map(s -> {
-                            BigDecimal taxIncluded = s.getTaxIncludedAmountChange() != null ?
-                                    s.getTaxIncludedAmountChange() : BigDecimal.ZERO;
-                            BigDecimal diff = s.getPaymentDifference() != null ?
-                                    s.getPaymentDifference() : BigDecimal.ZERO;
-                            return taxIncluded.add(diff);
-                        })
+                        .map(s -> s.getTaxIncludedAmountChange() != null ?
+                                s.getTaxIncludedAmountChange() : BigDecimal.ZERO)
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                         .setScale(0, java.math.RoundingMode.DOWN);
 
@@ -386,7 +393,7 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
                 writer.write(totalDifference + ",");
 
                 // 総合的な検証結果
-                String overallResult = totalDifference.abs().compareTo(BigDecimal.valueOf(100)) <= 0 ? "一致" : "不一致";
+                String overallResult = totalDifference.abs().compareTo(jp.co.oda32.constant.FinanceConstants.PAYMENT_REPORT_MINOR_DIFFERENCE) <= 0 ? "一致" : "不一致";
                 writer.write(overallResult + "\n\n");
             }
 
@@ -426,7 +433,7 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
             writer.write(grandTotalDifference + ",");
 
             // 全体的な検証結果
-            String finalResult = grandTotalDifference.abs().compareTo(BigDecimal.valueOf(1000)) <= 0 ? "一致" : "不一致";
+            String finalResult = grandTotalDifference.abs().compareTo(jp.co.oda32.constant.FinanceConstants.PAYMENT_REPORT_MEDIUM_DIFFERENCE) <= 0 ? "一致" : "不一致";
             writer.write(finalResult + "\n");
 
             // 支払情報が存在しない仕入先コード一覧を追加

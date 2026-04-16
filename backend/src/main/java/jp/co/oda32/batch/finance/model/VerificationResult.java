@@ -55,7 +55,7 @@ public class VerificationResult {
     public boolean isMatched() {
         return (difference != null && difference.compareTo(BigDecimal.ZERO) == 0)
                 || adjustedToSmilePayment
-                || (difference != null && difference.abs().compareTo(new BigDecimal(5)) < 0);
+                || (difference != null && difference.abs().compareTo(jp.co.oda32.constant.FinanceConstants.PAYMENT_VERIFICATION_TOLERANCE) < 0);
     }
 
     /**

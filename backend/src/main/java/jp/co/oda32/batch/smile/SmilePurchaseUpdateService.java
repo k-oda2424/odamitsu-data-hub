@@ -62,7 +62,7 @@ public class SmilePurchaseUpdateService extends AbstractSmilePurchaseImportServi
                 log.info(String.format("ショップ番号が変更されました。shop_no:%d 処理連番:%s 行:%d 変更後shop_no：%d", existTPurchaseDetail.getShopNo(), existPurchase.getExtPurchaseNo(), modifiedPurchaseFile.getGyou(), modifiedPurchaseFile.getShopNo()));
                 existTPurchaseDetail.setShopNo(modifiedPurchaseFile.getShopNo());
             }
-            if (!Objects.equals(existTPurchaseDetail.getGoodsNum(), modifiedPurchaseFile.getSuuryou())) {
+            if (!BigDecimalUtil.isEqual(existTPurchaseDetail.getGoodsNum(), modifiedPurchaseFile.getSuuryou())) {
                 log.info(String.format("仕入数量が変更されました。shop_no:%d 処理連番:%s 行:%d 商品コード:%s 旧数量:%s 変更後数量：%s", existTPurchaseDetail.getShopNo(), existPurchase.getExtPurchaseNo(), modifiedPurchaseFile.getGyou(), existTPurchaseDetail.getGoodsCode(), existTPurchaseDetail.getGoodsNum(), modifiedPurchaseFile.getSuuryou()));
                 existTPurchaseDetail.setGoodsNum(modifiedPurchaseFile.getSuuryou());
             }
@@ -79,9 +79,11 @@ public class SmilePurchaseUpdateService extends AbstractSmilePurchaseImportServi
                 log.info(String.format("商品単価が変更されました。shop_no:%d 処理連番:%s 行:%d 旧単価:%s 変更後単価：%s", existTPurchaseDetail.getShopNo(), existPurchase.getExtPurchaseNo(), modifiedPurchaseFile.getGyou(), existTPurchaseDetail.getGoodsPrice(), modifiedPurchaseFile.getTanka()));
                 existTPurchaseDetail.setGoodsPrice(modifiedPurchaseFile.getTanka());
             }
-            if (!BigDecimalUtil.isEqual(existTPurchaseDetail.getTaxRate(), modifiedPurchaseFile.getShouhizeiritsu())) {
-                log.info(String.format("消費税率が変更されました。shop_no:%d 処理連番:%s 行:%d 旧消費税率:%s 変更後消費税率：%s", existTPurchaseDetail.getShopNo(), existPurchase.getExtPurchaseNo(), modifiedPurchaseFile.getGyou(), existTPurchaseDetail.getTaxRate(), modifiedPurchaseFile.getShouhizeiritsu()));
-                existTPurchaseDetail.setTaxRate(modifiedPurchaseFile.getShouhizeiritsu());
+            BigDecimal newPurchaseTaxRate = BigDecimalUtil.requireTaxRate(modifiedPurchaseFile.getShouhizeiritsu(),
+                    String.format("shori_renban=%d, gyou=%d, shouhin_code=%s", modifiedPurchaseFile.getShoriRenban(), modifiedPurchaseFile.getGyou(), modifiedPurchaseFile.getShouhinCode()));
+            if (!BigDecimalUtil.isEqual(existTPurchaseDetail.getTaxRate(), newPurchaseTaxRate)) {
+                log.info(String.format("消費税率が変更されました。shop_no:%d 処理連番:%s 行:%d 旧消費税率:%s 変更後消費税率：%s", existTPurchaseDetail.getShopNo(), existPurchase.getExtPurchaseNo(), modifiedPurchaseFile.getGyou(), existTPurchaseDetail.getTaxRate(), newPurchaseTaxRate));
+                existTPurchaseDetail.setTaxRate(newPurchaseTaxRate);
             }
             if (!StringUtil.isEqual(existTPurchaseDetail.getTaxType(), modifiedPurchaseFile.getKazeiKubun())) {
                 log.info(String.format("課税区分が変更されました。shop_no:%d 処理連番:%s 行:%d 旧課税区分:%s 変更後課税区分：%s", existTPurchaseDetail.getShopNo(), existPurchase.getExtPurchaseNo(), modifiedPurchaseFile.getGyou(), existTPurchaseDetail.getTaxType(), modifiedPurchaseFile.getKazeiKubun()));

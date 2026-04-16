@@ -22,6 +22,8 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
@@ -60,6 +62,11 @@ public class PriceChangeToEstimateCreateTasklet implements Tasklet {
     @NonNull
     MPartnerService mPartnerService;
 
+    /** 自己注入: createEstimateDetail の @Transactional(REQUIRES_NEW) を AOP 経由で有効化 */
+    @Autowired
+    @Lazy
+    private PriceChangeToEstimateCreateTasklet self;
+
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
         // ショップ毎に実行
@@ -94,7 +101,7 @@ public class PriceChangeToEstimateCreateTasklet implements Tasklet {
                 LocalDate priceChangeDate = DateTimeUtil.stringToLocalDate(priceChangeDateStr);
                 int destinationNo = Integer.parseInt(entry.getKey().split("_")[1]);
                 TEstimate tEstimate = createEstimate(shopNo, mPartner.getCompanyNo(), partnerNo, destinationNo, priceChangeDate);
-                List<TEstimateDetail> tEstimateDetailList = createEstimateDetail(tEstimate, mPartnerGoodsPriceChangePlanList);
+                List<TEstimateDetail> tEstimateDetailList = self.createEstimateDetail(tEstimate, mPartnerGoodsPriceChangePlanList);
                 for (MPartnerGoodsPriceChangePlan updatePartnerPriceChangePlan : mPartnerGoodsPriceChangePlanList) {
                     updatePartnerPriceChangePlan.setEstimateCreated(true);
                     updatePartnerPriceChangePlan.setEstimateNo(tEstimate.getEstimateNo());
@@ -146,10 +153,16 @@ public class PriceChangeToEstimateCreateTasklet implements Tasklet {
         return tEstimate;
     }
 
-    private List<TEstimateDetail> createEstimateDetail(TEstimate tEstimate, List<MPartnerGoodsPriceChangePlan> mPartnerGoodsPriceChangePlanList) throws Exception {
+    /**
+     * 見積明細を再構築する（既存を全削除 → 再登録）。
+     * delete と insert は必ず同一トランザクションで実行して partial commit を防ぐため
+     * {@code @Transactional(REQUIRES_NEW)} を付与する（自己注入 {@code self} 経由で呼び出すこと）。
+     */
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public List<TEstimateDetail> createEstimateDetail(TEstimate tEstimate, List<MPartnerGoodsPriceChangePlan> mPartnerGoodsPriceChangePlanList) throws Exception {
         // 見積明細テーブル
         List<TEstimateDetail> insertDetailList = convertPartnerGoodsPricePlan(tEstimate.getEstimateNo(), mPartnerGoodsPriceChangePlanList);
-        // 一旦明細を削除して入れなおす
+        // 一旦明細を削除して入れなおす（delete/insert は同一 tx でアトミック）
         this.tEstimateDetailService.delete(tEstimate.getEstimateNo());
         return this.tEstimateDetailService.insert(insertDetailList);
     }

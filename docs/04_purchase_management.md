@@ -1040,9 +1040,11 @@ java -jar stock-app.jar --spring.profiles.active=batch,prod --spring.batch.job.n
 **チャンクサイズ**: 500件
 
 **Reader詳細**:
-- 複数ショップ・複数ファイルに対応
-- ファイル名と `m_shop_linked_file` テーブルの `smile_purchase_file_name` を照合してショップ番号を特定
-- 各レコードに `shop_no` をセット
+- 複数ショップ・複数ファイルに対応（shop_no=1 の `purchase_import.csv`、shop_no=2 の `purchase_import2_YYYYMMDD.csv` 等）
+- `setDelegate()` を override し、delegate に `ResourceTrackingDelegate` ラッパーを被せて `setResource()` 呼び出しをフック。現在読込中リソースを追跡
+- 1行ごとに `currentResource.getFilename()` を `m_shop_linked_file.smile_purchase_file_name` と照合して正しい `shop_no` をセット
+- 過去のバグ修正: 旧実装は `resources[]` 先頭から検索していたため複数ファイル取込時に全行が先頭ファイルの shop_no になる問題があった（shop_no=2 の仕入が shop_no=1 にも複製される不具合）
+- shori_renban は shop_no が違えば別系統。shop_no=1 は 330000台、shop_no=2 は 80000台
 
 **入力ファイルフォーマット（PurchaseFile）**: SMILEから出力される仕入明細CSV。主なカラム:
 

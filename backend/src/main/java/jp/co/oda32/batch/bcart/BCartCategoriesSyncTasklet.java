@@ -19,6 +19,7 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -36,6 +37,8 @@ import java.util.Set;
 @StepScope
 public class BCartCategoriesSyncTasklet implements Tasklet {
     private final BCartCategoriesService bCartCategoriesService;
+    @Qualifier("bCartHttpClient")
+    private final OkHttpClient httpClient;
     private final int API_LIMIT = 100;
 
     @Override
@@ -116,7 +119,7 @@ public class BCartCategoriesSyncTasklet implements Tasklet {
     }
 
     private Response executeBCartCategoriesAPI(int i) throws IOException {
-        OkHttpClient client = new OkHttpClient().newBuilder().build();
+        OkHttpClient client = this.httpClient;
         int offset = API_LIMIT * i;
         HttpUrl url = new HttpUrl.Builder()
                 .scheme("https")

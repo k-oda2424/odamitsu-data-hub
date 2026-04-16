@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
@@ -69,10 +70,21 @@ public class TAccountsPayableSummary {
     private Boolean mfExportEnabled; // デフォルトではエクスポート可能
 
     // 手入力保護: trueならSMILE再検証バッチで上書きされない
-    @Column(name = "verified_manually")
-    private Boolean verifiedManually;
+    @Builder.Default
+    @Column(name = "verified_manually", nullable = false)
+    @ColumnDefault("false")
+    private Boolean verifiedManually = false;
 
     // 検証時の備考（請求書番号・確認経緯など）
     @Column(name = "verification_note")
     private String verificationNote;
+
+    /**
+     * 検証時の請求額（振込明細や手入力で提示された税込金額）。
+     * 買掛集計(`tax_included_amount_change`)との比較元となる値で、
+     * MF出力スナップショット `tax_included_amount` とは別管理。
+     * 再集計バッチでは上書きされない（手動/Excel検証の結果を保持するため）。
+     */
+    @Column(name = "verified_amount")
+    private BigDecimal verifiedAmount;
 }

@@ -1,5 +1,6 @@
 package jp.co.oda32.dto.finance;
 
+import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.model.master.MPaymentSupplier;
 import lombok.Builder;
@@ -25,8 +26,27 @@ public class AccountsPayableResponse {
     private Boolean mfExportEnabled;
     private Boolean verifiedManually;
     private String verificationNote;
+    /** 検証時の請求額（振込明細 or 手入力）。 */
+    private BigDecimal verifiedAmount;
+    /**
+     * 検証経路の区分（UIバッジ表示用の計算フィールド。DB には保存されていない）。
+     * <ul>
+     *   <li>{@code BULK}   — 振込明細Excel での一括検証。{@code verification_note} が
+     *       {@link FinanceConstants#VERIFICATION_NOTE_BULK_PREFIX} で始まる行</li>
+     *   <li>{@code MANUAL} — 買掛金一覧の詳細ダイアログで手入力検証された行</li>
+     *   <li>{@code null}   — verifiedManually=false（SMILE自動検証など）</li>
+     * </ul>
+     */
+    private String verificationSource;
 
     public static AccountsPayableResponse from(TAccountsPayableSummary ap, MPaymentSupplier ps) {
+        boolean isManuallyVerified = Boolean.TRUE.equals(ap.getVerifiedManually());
+        String source = null;
+        if (isManuallyVerified) {
+            String note = ap.getVerificationNote();
+            source = (note != null && note.startsWith(FinanceConstants.VERIFICATION_NOTE_BULK_PREFIX))
+                    ? "BULK" : "MANUAL";
+        }
         return AccountsPayableResponse.builder()
                 .shopNo(ap.getShopNo())
                 .supplierNo(ap.getSupplierNo())
@@ -41,8 +61,10 @@ public class AccountsPayableResponse {
                 .paymentDifference(ap.getPaymentDifference())
                 .verificationResult(ap.getVerificationResult())
                 .mfExportEnabled(ap.getMfExportEnabled())
-                .verifiedManually(Boolean.TRUE.equals(ap.getVerifiedManually()))
+                .verifiedManually(isManuallyVerified)
                 .verificationNote(ap.getVerificationNote())
+                .verifiedAmount(ap.getVerifiedAmount())
+                .verificationSource(source)
                 .build();
     }
 

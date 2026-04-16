@@ -646,6 +646,24 @@ ORDER BY wsoof.shop_no, wsoof.shori_renban
 
 CSVフォーマットは`ExtPurchaseFile`クラスで定義されており、フィールド数はSmileOrderFileと同様に多数ある。仕入CSVはSMILEの仕入明細モジュールから出力される。
 
+### 事業部別CSV（重要な運用前提）
+
+SMILE は第1事業部／第2事業部でシステム分離されており、仕入CSVが2本独立に生成される:
+
+| shop_no | ファイル例 | shori_renban 番号帯 | 備考 |
+|---|---|---|---|
+| 1 | `purchase_import.csv` | 330000台 | 第1事業部 SMILE |
+| 2 | `purchase_import2_YYYYMMDD.csv` | 80000台 | 第2事業部 SMILE |
+
+`m_shop_linked_file.smile_purchase_file_name` に登録された全ファイルを `ShopNoAwareItemReader` が
+順次取込。shori_renban は shop_no が違えば衝突しても別伝票扱い（実質ユニークキー =
+`ext_purchase_no + shop_no`）。
+
+**ShopNoAwareItemReader のバグ修正（履歴）**: 旧実装は `resources[]` 配列の先頭から検索していたため、
+複数ファイル取込時に全行が先頭ファイルの shop_no になるバグがあった。現在は `setDelegate()` を
+override して `setResource()` フックで現在リソースを追跡し、1行ごとに正しい shop_no を付与する
+（詳細: `DD_04_仕入管理.md` §6.2）。
+
 ### 5.1 ワークテーブルエンティティ（WSmilePurchaseOutputFile）
 
 **クラス**: `jp.co.oda32.domain.model.smile.WSmilePurchaseOutputFile`
@@ -844,8 +862,28 @@ ON wspof.shori_renban = tpd.ext_purchase_no
 AND wspof.gyou = tpd.purchase_detail_no
 AND tpd.shop_no = wspof.shop_no
 WHERE tpd.ext_purchase_no IS NULL
+AND wspof.shouhin_code NOT IN ('00000021','00000023')
 ORDER BY wspof.shop_no, wspof.shori_renban
 ```
+
+`findModifiedPurchases` も同じ `NOT IN` 条件を持つ。
+
+#### 第2事業部月次集約行の除外（重要）
+
+`goods_code IN ('00000021','00000023')` は SMILE に手入力される事務処理用行で、
+実仕入は shop_no=2 側に別途存在するため本テーブル（`t_purchase` / `t_purchase_detail`）には
+入れずに除外する。
+
+| goods_code | 意味 |
+|---|---|
+| `00000021` | 第2事業部 10%課税商品の月次集約 |
+| `00000023` | 第2事業部 8%課税商品の月次集約 |
+
+**設計思想**: 買掛集計は shop_no=2 の個別仕入（生データ）を源泉とし、経理手入力の集約
+(00000021/00000023) には依存しない。手入力漏れでも集計は自動計算される運用。
+
+ワークテーブル自体は CSV 内容を verbatim で保持する方針のため、除外はこの検索段階で行う。
+定数: `FinanceConstants.DIVISION2_AGGREGATE_GOODS_CODES`。
 
 #### スキップ条件
 

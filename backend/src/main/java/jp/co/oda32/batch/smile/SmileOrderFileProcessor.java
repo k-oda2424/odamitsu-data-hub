@@ -69,7 +69,7 @@ public class SmileOrderFileProcessor implements ItemProcessor<SmileOrderFile, Sm
         }
         if (BigDecimal.ZERO.compareTo(item.get単価()) == 0 && BigDecimal.ZERO.compareTo(item.get金額()) != 0) {
             // 単価が0円で小計金額が入っている場合は数量(絶対値)で割った金額を設定する
-            BigDecimal goodsPrice = item.get金額().divide(item.get数量().abs(), 2, BigDecimal.ROUND_HALF_UP);
+            BigDecimal goodsPrice = item.get金額().divide(item.get数量().abs(), 2, java.math.RoundingMode.HALF_UP);
             item.set単価(goodsPrice);
         }
 

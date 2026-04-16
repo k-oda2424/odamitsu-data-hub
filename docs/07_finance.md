@@ -125,6 +125,10 @@ if (LocalDate.now().getDayOfMonth() < 20) {
 
 **除外対象**:
 - `supplier_no = 303`（小田光在庫表の手打ち商品）は棚卸時の手動入力データのため除外
+- `goods_code IN ('00000021','00000023')`（第2事業部月次集約。通常は SMILE 仕入取込時に
+  ワーク→本テーブルで除外されるが、集計側も防御フィルタを保持）
+- `t_purchase.del_flg='1'` / `m_supplier.del_flg='1'` / `m_payment_supplier.del_flg='1'`（論理削除）
+- `m_supplier.payment_supplier_no IS NULL`（親支払先未設定、突合キーが作れない）
 
 ---
 
@@ -136,7 +140,7 @@ if (LocalDate.now().getDayOfMonth() < 20) {
 
 ```java
 public class SummaryKey {
-    private final Integer shopNo;              // ショップ番号
+    private final Integer shopNo;              // 常に 1（ACCOUNTS_PAYABLE_SHOP_NO）
     private final Integer paymentSupplierNo;   // 支払先番号
     private final String paymentSupplierCode;  // 支払先コード
     private final BigDecimal taxRate;          // 税率
@@ -146,8 +150,10 @@ public class SummaryKey {
 #### 集計手順
 
 1. 指定期間内の仕入明細（`TPurchaseDetail`）を取得
-2. `supplier_no != 303` でフィルタリング
-3. `(shopNo, paymentSupplierNo, paymentSupplierCode, taxRate)` でグループ化
+2. 除外フィルタ（上記 3.3 の除外対象すべて）
+3. `(shopNo=1固定, paymentSupplierNo, paymentSupplierCode, taxRate)` でグループ化
+   - shop_no=2（第2事業部）の仕入も shop_no=1（第1事業部）の買掛として合算する
+   - 定数: `FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO = 1`
 4. 各グループで**税抜金額（subtotal）のみを集計**（消費税は後で一括計算）
 5. 消費税額を一括計算:
    ```
@@ -157,11 +163,20 @@ public class SummaryKey {
 6. 金額がゼロのエントリは除外してエンティティを生成
 7. `transactionMonth` には集計期間の終了日（当月20日）をセット
 
+#### 運用ルール（重要な前提）
+
+- shop_no=1 = 第1事業部、shop_no=2 = 第2事業部
+- 支払処理は第1事業部が一元管理。仕入は両事業部で発生するが、買掛集計は第1事業部に集約
+- SMILE は第1事業部／第2事業部でシステム分離 → 仕入CSVが2本（`purchase_import.csv` と
+  `purchase_import2_*.csv`）
+- 振込明細 Excel は前月20日締め（送金日の月にかかわらず）
+
 #### 注意事項
 
-- 消費税は明細ごとではなく、**仕入先・税率単位で一括計算**する
+- 消費税は明細ごとではなく、**支払先・税率単位で一括計算**する
 - これにより端数の累積誤差を防ぐ
 - デフォルト税率: `taxRate IS NULL` の場合は10%として扱う
+- 除外ログは `LinkedHashSet` で集約し、対象仕入先一覧を WARN 一括出力（大量の重複ログを防止）
 
 ---
 
@@ -172,6 +187,10 @@ public class SummaryKey {
 #### 検証の概要
 
 SMILE基幹システムの支払情報と、集計した買掛金額を**仕入先コード単位の合計で比較**する。
+
+**手入力保護**: `t_accounts_payable_summary.verified_manually = true` の行は突合対象から
+スキップされる。振込明細Excel / 手動検証ダイアログで確定済の行が、SMILE再検証バッチで
+上書きされないようにするため。スキップ件数は INFO ログに出力される。
 
 #### 5円許容差ルール
 
@@ -945,10 +964,14 @@ java -jar app.jar --spring.profiles.active=batch,dev \
 | `verification_result` | `verificationResult` | Integer | 検証結果（1: 一致, 0: 不一致, null: 未検証） |
 | `payment_difference` | `paymentDifference` | BigDecimal | SMILE支払額との差額 |
 | `mf_export_enabled` | `mfExportEnabled` | Boolean | マネーフォワードエクスポート可否フラグ |
+| `verified_manually` | `verifiedManually` | Boolean (NOT NULL, default false) | 手入力保護フラグ。`true` の行は SMILE 再検証バッチで上書きされない |
+| `verification_note` | `verificationNote` | String (VARCHAR 500) | 検証備考（請求書No・経緯など、DB永続化） |
+| `verified_amount` | `verifiedAmount` | BigDecimal | 検証時の税込請求額（振込明細/手入力）。再集計バッチで上書きされない |
 
-**`taxIncludedAmount` と `taxIncludedAmountChange` の違い**:
+**金額カラムの使い分け**:
 - `taxIncludedAmountChange`: バッチ集計・SMILE照合調整後の作業値
-- `taxIncludedAmount`: マネーフォワードCSV出力後に `taxIncludedAmountChange` からコピーされる確定値
+- `taxIncludedAmount`: マネーフォワードCSV出力後に `taxIncludedAmountChange` からコピーされる確定値（MF出力用スナップショット）
+- `verifiedAmount`: 振込明細MFや手動検証で提示された税込請求額。`taxIncludedAmountChange` と比較して100円閾値で一致判定するための値。`tax_included_amount` とは独立
 
 ---
 

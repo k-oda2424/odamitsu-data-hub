@@ -6,6 +6,7 @@ import jp.co.oda32.domain.model.purchase.TPurchaseDetail;
 import jp.co.oda32.domain.model.purchase.TSendOrderDetail;
 import jp.co.oda32.domain.service.purchase.TPurchaseDetailService;
 import jp.co.oda32.domain.service.purchase.TSendOrderDetailService;
+import jp.co.oda32.util.BigDecimalUtil;
 import jp.co.oda32.util.StringUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -54,7 +55,8 @@ public class PurchaseLinkSendOrderTasklet implements Tasklet {
                             .filter(purchaseDetail -> purchaseDetail.getSendOrderNo() == null)
                             .filter(purchaseDetail -> purchaseDetail.getGoodsNo() != null)
                             .filter(purchaseDetail -> purchaseDetail.getGoodsNo().equals(tSendOrderDetail.getGoodsNo()))
-                            .filter(purchaseDetail -> purchaseDetail.getGoodsNum().equals(tSendOrderDetail.getSendOrderNum()))
+                            .filter(purchaseDetail -> tSendOrderDetail.getSendOrderNum() != null
+                                    && BigDecimalUtil.isEqual(purchaseDetail.getGoodsNum(), new java.math.BigDecimal(tSendOrderDetail.getSendOrderNum())))
                             .filter(purchaseDetail -> purchaseDetail.getPurchaseDate().isAfter(tSendOrderDetail.getTSendOrder().getSendOrderDateTime().toLocalDate()))
                             .forEach(purchaseDetail -> {
                                 purchaseDetail.setSendOrderNo(tSendOrderDetail.getSendOrderNo());

@@ -4,7 +4,6 @@ import jp.co.oda32.domain.model.order.TDelivery;
 import jp.co.oda32.domain.model.order.TDeliveryDetail;
 import jp.co.oda32.domain.model.order.TOrder;
 import jp.co.oda32.domain.model.order.TOrderDetail;
-import jp.co.oda32.domain.model.smile.WSmileOrderOutputFile;
 import jp.co.oda32.domain.repository.order.DeletedOrderRepository;
 import jp.co.oda32.domain.service.order.TDeliveryDetailService;
 import jp.co.oda32.domain.service.order.TDeliveryService;
@@ -17,7 +16,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -46,26 +44,6 @@ public class SmileOrderDeletionProcessor extends AbstractSmileOrderImportService
         List<Integer> deliveryNoList = deleteTDeliveryDetailList.stream().map(TDeliveryDetail::getDeliveryNo).collect(Collectors.toList());
         for (TDeliveryDetail tDeliveryDetail : deleteTDeliveryDetailList) {
             log.info(String.format("明細削除 処理連番:%d 行番号:%d", tDeliveryDetail.getProcessingSerialNumber(), tDeliveryDetail.getDeliveryDetailNo()));
-            List<TDeliveryDetail> confirmTDeliveryDetailList = this.tDeliveryDetailService.findByDeliveryNo(tDeliveryDetail.getDeliveryNo());
-            confirmTDeliveryDetailList.sort(Comparator.comparing(TDeliveryDetail::getDeliveryDetailNo));
-            for (TDeliveryDetail confirm : confirmTDeliveryDetailList) {
-                log.info(String.format("t_delivery_detail の処理連番:%d、行番号:%d、商品コード:%s、数量:%s%n"
-                        , confirm.getProcessingSerialNumber()
-                        , confirm.getDeliveryDetailNo()
-                        , confirm.getGoodsCode()
-                        , confirm.getDeliveryNum()));
-            }
-
-            List<WSmileOrderOutputFile> confirmWSmileOrderOutputFile = this.wSmileOrderOutputFileService.findByShopNoAndShoriRenban(tDeliveryDetail.getShopNo(), tDeliveryDetail.getProcessingSerialNumber());
-            confirmWSmileOrderOutputFile.sort(Comparator.comparing(WSmileOrderOutputFile::getGyou));
-            for (WSmileOrderOutputFile confirm : confirmWSmileOrderOutputFile) {
-                log.info(String.format("w_smile_order_output_file のshopNo:%d 処理連番:%d、行番号:%d、商品コード:%s、数量:%s%n"
-                        , confirm.getShopNo()
-                        , confirm.getShoriRenban()
-                        , confirm.getGyou()
-                        , confirm.getShouhinCode()
-                        , confirm.getSuuryou()));
-            }
             // 削除前にt_order_detaiも特定しておく
             TOrderDetail deleteOrderDetail = tDeliveryDetail.getTOrderDetail();
             if (!orderNoList.contains(deleteOrderDetail.getOrderNo())) {

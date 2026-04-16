@@ -20,6 +20,7 @@ import org.springframework.batch.core.explore.JobExplorer;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -44,6 +45,8 @@ import java.util.stream.Collectors;
 public class BCartMemberImportTasklet implements Tasklet {
     private final BCartMemberService bCartMemberService;
     private final JobExplorer jobExplorer;
+    @Qualifier("bCartHttpClient")
+    private final OkHttpClient httpClient;
     private final int API_LIMIT = 100;
     @Override
     public RepeatStatus execute(StepContribution stepContribution, ChunkContext chunkContext) throws Exception {
@@ -57,7 +60,7 @@ public class BCartMemberImportTasklet implements Tasklet {
     public void processMembers(String timeParameter) throws IOException {
         String accessToken = BCartApiConfig.getInstance().getAccessToken();
         LocalDateTime lastBatchRunTime = getLastBatchRunTime();
-        OkHttpClient client = new OkHttpClient();
+        OkHttpClient client = this.httpClient;
 
         int offset = 0;
         boolean moreData = true;
@@ -85,8 +88,10 @@ public class BCartMemberImportTasklet implements Tasklet {
                     .addHeader("Authorization", "Bearer " + accessToken)
                     .build();
 
-            Response response = client.newCall(request).execute();
-            String responseBody = response.body().string();
+            String responseBody;
+            try (Response response = client.newCall(request).execute()) {
+                responseBody = response.body() != null ? response.body().string() : "";
+            }
 
             Gson gson = new GsonBuilder()
                     .registerTypeAdapter(LocalDate.class, new JsonDeserializer<LocalDate>() {

@@ -1240,6 +1240,15 @@ export async function mockAllApis(page: Page) {
     },
   )
 
+  // ポーリング用: 呼ばれても NONE を返してステータス判定がハングしないようにする
+  await page.route(
+    (url) => /^\/api\/v1\/batch\/status\//.test(url.pathname),
+    async (route) => {
+      const jobName = route.request().url().split('/').pop() ?? ''
+      await json(route, { status: 'NONE', jobName })
+    },
+  )
+
   // ---- Partner Groups ----
   await page.route(
     (url) => url.pathname === '/api/v1/finance/partner-groups',

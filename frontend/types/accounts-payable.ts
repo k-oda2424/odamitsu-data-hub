@@ -14,6 +14,15 @@ export interface AccountsPayable {
   mfExportEnabled: boolean | null
   verifiedManually: boolean
   verificationNote: string | null
+  /** 検証時の請求額（振込明細 or 手入力の税込）。 */
+  verifiedAmount: number | null
+  /**
+   * 検証経路の区分（backend 計算フィールド）。
+   * - BULK:   振込明細Excelでの一括検証
+   * - MANUAL: 詳細ダイアログでの手入力検証
+   * - null:   SMILE自動検証など（verifiedManually=false）
+   */
+  verificationSource: 'BULK' | 'MANUAL' | null
   [key: string]: unknown
 }
 

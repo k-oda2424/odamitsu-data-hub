@@ -3,6 +3,7 @@ package jp.co.oda32.domain.repository.order;
 import jp.co.oda32.domain.model.order.TDeliveryDetail;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -48,4 +49,21 @@ public interface TDeliveryDetailRepository extends JpaRepository<TDeliveryDetail
     List<TDeliveryDetail> findByDeliveryNoAndOrderDetailNo(
             @Param("deliveryNo") Integer deliveryNo,
             @Param("orderDetailNo") Integer orderDetailNo);
+
+    /**
+     * 紐づく t_order_detail が '20'(納品済) 状態の出荷明細のうち、
+     * 自身が '10'(出荷待ち) のものを '20'(納品済) に一括更新する。
+     */
+    @Modifying
+    @Query(value = "UPDATE t_delivery_detail dd " +
+            "   SET delivery_detail_status = '20', modify_date_time = NOW() " +
+            " WHERE dd.delivery_detail_status = '10' " +
+            "   AND dd.del_flg = '0' " +
+            "   AND EXISTS (" +
+            "         SELECT 1 FROM t_order_detail od " +
+            "          WHERE od.order_no = dd.order_no AND od.order_detail_no = dd.order_detail_no " +
+            "            AND od.del_flg = '0' AND od.order_detail_status = '20'" +
+            "       )",
+            nativeQuery = true)
+    int bulkUpdateDeliveryDetailsToDelivered();
 }

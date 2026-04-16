@@ -64,11 +64,26 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     throw new ApiError(response.status, errorBody || response.statusText)
   }
 
+  // 204 No Content、または Content-Length=0 / ボディ空 のときは undefined を返す。
+  // Spring の ResponseEntity.ok().build() は HTTP 200 + 空ボディを返すため、
+  // 200 かつ空を明示的にハンドルしないと response.json() が parse エラーを throw する。
+  //
+  // 注意: 非 void 型ジェネリクス (例: `api.get<User>('/foo')`) を呼ぶ側は、
+  // 空ボディを受ける可能性がある API では `api.get<User | undefined>(...)` を明示するか、
+  // DELETE 等の空応答を期待する API 用の `api.delete` を使うこと。
+  // 型では undefined を保証できないため、ランタイムで undefined 返却される。
   if (response.status === 204) {
     return undefined as unknown as T
   }
-
-  return response.json()
+  const contentLength = response.headers.get('Content-Length')
+  if (contentLength === '0') {
+    return undefined as unknown as T
+  }
+  const text = await response.text()
+  if (text.length === 0) {
+    return undefined as unknown as T
+  }
+  return JSON.parse(text) as T
 }
 
 async function uploadForm<T>(endpoint: string, formData: FormData): Promise<T> {
@@ -105,7 +120,7 @@ async function uploadForm<T>(endpoint: string, formData: FormData): Promise<T> {
  * バイナリレスポンスを取得する（PDF, Excel 等）。
  * Content-Disposition からファイル名を抽出して { blob, filename } を返す。
  */
-async function downloadBlob(endpoint: string, method: 'GET' | 'POST' = 'GET'): Promise<{ blob: Blob; filename: string | null }> {
+async function downloadBlob(endpoint: string, method: 'GET' | 'POST' = 'GET'): Promise<{ blob: Blob; filename: string | null; headers: Headers }> {
   const token = getToken()
   const headers: Record<string, string> = {}
   if (token) {
@@ -124,7 +139,15 @@ async function downloadBlob(endpoint: string, method: 'GET' | 'POST' = 'GET'): P
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, response.statusText)
+    // JSON エラー本文があれば message を取り出す
+    let message = response.statusText
+    try {
+      const body = await response.clone().json()
+      if (body && typeof body.message === 'string') message = body.message
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, message)
   }
 
   const blob = await response.blob()
@@ -144,7 +167,7 @@ async function downloadBlob(endpoint: string, method: 'GET' | 'POST' = 'GET'): P
     }
   }
 
-  return { blob, filename }
+  return { blob, filename, headers: response.headers }
 }
 
 export const api = {

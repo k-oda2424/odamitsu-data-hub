@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -43,6 +44,9 @@ public class SmileOrderUpdateService extends AbstractSmileOrderImportService {
     }
 
     public void preProcess(List<WSmileOrderOutputFile> modifiedOrderList) {
+        // ページごとに preProcess が呼ばれるため、前回の map を必ずクリアする
+        mPartnerMap.clear();
+
         // shop_no,tokuisaki_codeのListのMapを作成
         Map<Integer, List<String>> partnerMap = modifiedOrderList.stream()
                 .collect(Collectors.groupingBy(
@@ -104,7 +108,7 @@ public class SmileOrderUpdateService extends AbstractSmileOrderImportService {
                 log.info(String.format("ショップ番号が変更されました。shop_no:%d 処理連番:%s 行:%d 変更後shop_no：%d", existTOrderDetail.getShopNo(), existOrder.getProcessingSerialNumber(), modifiedOrderFile.getGyou(), modifiedOrderFile.getShopNo()));
                 existTOrderDetail.setShopNo(modifiedOrderFile.getShopNo());
             }
-            if (!Objects.equals(existTOrderDetail.getOrderNum(), modifiedOrderFile.getSuuryou())) {
+            if (!BigDecimalUtil.isEqual(existTOrderDetail.getOrderNum(), modifiedOrderFile.getSuuryou())) {
                 log.info(String.format("注文数量が変更されました。shop_no:%d 処理連番:%s 行:%d 商品コード:%s 旧数量:%s 変更後数量：%s", existTOrderDetail.getShopNo(), existOrder.getProcessingSerialNumber(), modifiedOrderFile.getGyou(), existTOrderDetail.getGoodsCode(), existTOrderDetail.getOrderNum(), modifiedOrderFile.getSuuryou()));
                 existTOrderDetail.setOrderNum(modifiedOrderFile.getSuuryou());
                 existTDeliveryDetail.setDeliveryNum(modifiedOrderFile.getSuuryou());
@@ -123,17 +127,30 @@ public class SmileOrderUpdateService extends AbstractSmileOrderImportService {
                 log.info(String.format("商品単価が変更されました。shop_no:%d 処理連番:%s 行:%d 旧単価:%s 変更後単価：%s", existTOrderDetail.getShopNo(), existOrder.getProcessingSerialNumber(), modifiedOrderFile.getGyou(), existTOrderDetail.getGoodsPrice(), modifiedOrderFile.getTanka()));
                 existTOrderDetail.setGoodsPrice(modifiedOrderFile.getTanka());
             }
-            if (!BigDecimalUtil.isEqual(existTOrderDetail.getTaxRate(), modifiedOrderFile.getShouhizeiritsu())) {
-                log.info(String.format("消費税率が変更されました。shop_no:%d 処理連番:%s 行:%d 旧消費税率:%s 変更後消費税率：%s", existTOrderDetail.getShopNo(), existOrder.getProcessingSerialNumber(), modifiedOrderFile.getGyou(), existTOrderDetail.getTaxRate(), modifiedOrderFile.getShouhizeiritsu()));
-                existTOrderDetail.setTaxRate(modifiedOrderFile.getShouhizeiritsu());
+            BigDecimal newTaxRate = BigDecimalUtil.requireTaxRate(modifiedOrderFile.getShouhizeiritsu(),
+                    String.format("shori_renban=%d, gyou=%d, shouhin_code=%s", modifiedOrderFile.getShoriRenban(), modifiedOrderFile.getGyou(), modifiedOrderFile.getShouhinCode()));
+            if (!BigDecimalUtil.isEqual(existTOrderDetail.getTaxRate(), newTaxRate)) {
+                log.info(String.format("消費税率が変更されました。shop_no:%d 処理連番:%s 行:%d 旧消費税率:%s 変更後消費税率：%s", existTOrderDetail.getShopNo(), existOrder.getProcessingSerialNumber(), modifiedOrderFile.getGyou(), existTOrderDetail.getTaxRate(), newTaxRate));
+                existTOrderDetail.setTaxRate(newTaxRate);
             }
             if (!StringUtil.isEqual(existTOrderDetail.getTaxType(), modifiedOrderFile.getKazeiKubun())) {
                 log.info(String.format("課税区分が変更されました。shop_no:%d 処理連番:%s 行:%d 旧課税区分:%s 変更後課税区分：%s", existTOrderDetail.getShopNo(), existOrder.getProcessingSerialNumber(), modifiedOrderFile.getGyou(), existTOrderDetail.getTaxType(), modifiedOrderFile.getKazeiKubun()));
                 existTOrderDetail.setTaxType(modifiedOrderFile.getKazeiKubun());
             }
             if (!isDeliveryDateChecked) {
+                // 同一 shori_renban 内で denpyou_hizuke が全行一致しているか確認する。
+                // 一致しない場合は SMILE 側のデータ異常なので slip_date 更新をスキップ（無限ループ防止）。
+                List<WSmileOrderOutputFile> allRowsForRenban = this.wSmileOrderOutputFileService.findByShopNoAndShoriRenban(
+                        modifiedOrderFile.getShopNo(), modifiedOrderFile.getShoriRenban());
+                java.util.Set<java.time.LocalDate> distinctDates = allRowsForRenban.stream()
+                        .map(WSmileOrderOutputFile::getDenpyouHizuke)
+                        .filter(java.util.Objects::nonNull)
+                        .collect(java.util.stream.Collectors.toSet());
                 TDelivery tDelivery = this.tDeliveryService.getByPK(existTOrderDetail.getDeliveryNo());
-                if (!tDelivery.getSlipDate().equals(modifiedOrderFile.getDenpyouHizuke())) {
+                if (distinctDates.size() > 1) {
+                    log.error("【データ異常】同一処理連番の w_smile 行で denpyou_hizuke が不一致です。slip_date 更新をスキップします。shop_no={}, 処理連番={}, 検出された伝票日付={}",
+                            modifiedOrderFile.getShopNo(), modifiedOrderFile.getShoriRenban(), distinctDates);
+                } else if (!tDelivery.getSlipDate().equals(modifiedOrderFile.getDenpyouHizuke())) {
                     log.info(String.format("納品日が変更されました。shop_no:%d 処理連番:%s 旧納品日:%s 変更後納品日：%s", existTOrderDetail.getShopNo(), existOrder.getProcessingSerialNumber(), tDelivery.getSlipDate(), modifiedOrderFile.getDenpyouHizuke()));
                     tDelivery.setSlipDate(modifiedOrderFile.getDenpyouHizuke());
                     tDeliveryService.update(tDelivery);
