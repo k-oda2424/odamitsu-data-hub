@@ -15,6 +15,10 @@ spring:
       enabled: false
     jdbc:
       initialize-schema: always
+  # テストは H2 + Hibernate create-drop で完結。
+  # Flyway の本番 migration は PostgreSQL 固有構文 (IS DISTINCT FROM 等) を含むため H2 では動かない → 無効化。
+  flyway:
+    enabled: false
 
 cors:
   allowed-origins: http://localhost:5173

@@ -18,6 +18,16 @@ spring:
     serialization:
       write-dates-as-timestamps: false
     default-property-inclusion: non_null
+  # Flyway: DB migration 自動適用
+  # - 既存 DB (migration が手動適用済み) は baseline-version=18 で初回 baseline → V001〜V018 はスキップ
+  # - 新規 DB (空) は baseline-on-migrate が無効になり V001〜 を全件適用
+  # - 今後のスキーマ変更は V019__xxx.sql 以降に追加すれば自動適用される
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 18
+    validate-on-migrate: true
 
 server:
   port: 8090
