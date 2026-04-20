@@ -114,16 +114,36 @@ public class AccountsReceivableCutoffReconciler {
                 ClosingDateInfo closing = parseClosingDate(invoiceOpt.get().getClosingDate()).orElse(null);
                 if (closing == null) continue;
 
-                // この月に請求書がある → AR 側が一致する transaction_month を持っているか確認
-                LocalDate expectedTxMonth = closing.transactionMonth;
-                boolean alreadyMatched = partnerSummaries.stream()
-                        .anyMatch(s -> expectedTxMonth.equals(s.getTransactionMonth()));
-                if (alreadyMatched) continue; // 既に正しい締め日で集計されている
+                // Izumi (000231) 四半期特殊: 前月が四半期月 (2/5/8/11) なら集計期間を
+                // 「当月 1日〜15日」に短縮する（前月 16〜末日分は四半期締めで別計上済みのため）。
+                boolean izumiShortPeriod = isIzumiQuarterlyShortPeriod(pk.partnerCode, ym);
+                if (izumiShortPeriod) {
+                    closing = new ClosingDateInfo(
+                            closing.transactionMonth,
+                            closing.cutoffCode,
+                            ym.atDay(1),                // ← 前月16日 ではなく 当月1日
+                            closing.periodEnd);
+                }
 
-                // 旧 AR 行 (この月の別締め日で集計されたもの) を検出
-                List<TAccountsReceivableSummary> stale = partnerSummaries.stream()
-                        .filter(s -> YearMonth.from(s.getTransactionMonth()).equals(ym))
-                        .toList();
+                // この月に請求書がある → AR 側が一致する transaction_month を持っているか確認。
+                // Izumi 四半期は transaction_month が同じでも期間が違う (金額が狂う) ため常に再集計する。
+                LocalDate expectedTxMonth = closing.transactionMonth;
+                if (!izumiShortPeriod) {
+                    boolean alreadyMatched = partnerSummaries.stream()
+                            .anyMatch(s -> expectedTxMonth.equals(s.getTransactionMonth()));
+                    if (alreadyMatched) continue; // 既に正しい締め日で集計されている
+                }
+
+                // 旧 AR 行を検出。
+                // - 非 Izumi: その月に属する全行 (transaction_month の YearMonth が一致)
+                // - Izumi 四半期: 期待 transaction_month と完全一致する行のみ（他月と混ざる可能性は無いがコード上の意図明確化）
+                List<TAccountsReceivableSummary> stale = izumiShortPeriod
+                        ? partnerSummaries.stream()
+                            .filter(s -> expectedTxMonth.equals(s.getTransactionMonth()))
+                            .toList()
+                        : partnerSummaries.stream()
+                            .filter(s -> YearMonth.from(s.getTransactionMonth()).equals(ym))
+                            .toList();
 
                 // 手動確定が 1 件でもあれば、運用者の判断を尊重してスキップ
                 boolean anyManual = stale.stream()
@@ -148,23 +168,37 @@ public class AccountsReceivableCutoffReconciler {
                     deletedRows += stale.size();
                 }
 
-                // 新 AR 集計 & 保存
+                // 新 AR 集計 (まだ保存しない。差分判定のため)
                 List<TAccountsReceivableSummary> newRows = aggregateForPartner(
                         pk.shopNo,
                         resolution,
                         closing,
                         pk.partnerCode);
+
+                // Izumi 四半期: 常に再集計を走らせるため、既存行と同じ金額なら
+                // DELETE+INSERT せずスキップ（無駄な書き込み・reconcile カウント回避）。
+                if (izumiShortPeriod && sameTotals(stale, newRows)) {
+                    continue;
+                }
+
+                // 旧 AR 削除
+                if (!stale.isEmpty()) {
+                    summaryRepository.deleteAllInBatch(stale);
+                    deletedRows += stale.size();
+                }
+
                 if (!newRows.isEmpty()) {
                     summaryRepository.saveAll(newRows);
                     insertedRows += newRows.size();
                 }
 
                 reconciledPartners++;
-                reconciledPartnerCodes.add(pk.partnerCode + " (" + ym + ": "
-                        + closing.asLabel() + ")");
-                log.info("再集計: shop={} partner_code={} month={} 旧{}件→新{}件 (cutoff→{})",
+                String label = izumiShortPeriod ? "Izumi四半期(1日〜15日)" : closing.asLabel();
+                reconciledPartnerCodes.add(pk.partnerCode + " (" + ym + ": " + label + ")");
+                log.info("再集計: shop={} partner_code={} month={} 旧{}件→新{}件 (cutoff→{}{})",
                         pk.shopNo, pk.partnerCode, ym,
-                        stale.size(), newRows.size(), closing.cutoffCode);
+                        stale.size(), newRows.size(), closing.cutoffCode,
+                        izumiShortPeriod ? " [Izumi四半期]" : "");
             }
         }
 
@@ -254,8 +288,24 @@ public class AccountsReceivableCutoffReconciler {
         if (partnerCode == null) return true;
         if (partnerCode.length() >= 7) return true; // 上様系 (長コード)
         return JOSAMA_PARTNER_CODE.equals(partnerCode)
-                || QUARTERLY_BILLING_PARTNER_CODE.equals(partnerCode)
                 || CLEAN_LAB_PARTNER_CODE.equals(partnerCode);
+        // NOTE: Izumi (000231) はここで除外せず、reconcile() 内で四半期判定して特別扱い。
+    }
+
+    /**
+     * Izumi (000231) の四半期特殊処理判定。
+     * 四半期月 (2/5/8/11 月) の末日に締めが走り、その直後の 15日締め請求書は
+     * <b>1日〜15日</b> だけをカバーする。通常の「前月16日〜当月15日」で集計すると
+     * 前月 16〜末日分がダブルカウントになるため、期間を短縮する必要がある。
+     *
+     * @param targetMonth 対象年月（請求書の締め日から導いた transaction_month の年月）
+     * @return {@code true} なら当月 1日 から集計すべき
+     */
+    private static boolean isIzumiQuarterlyShortPeriod(String partnerCode, YearMonth targetMonth) {
+        if (!QUARTERLY_BILLING_PARTNER_CODE.equals(partnerCode)) return false;
+        int prev = targetMonth.getMonthValue() - 1;
+        if (prev == 0) prev = 12;
+        return prev == 2 || prev == 5 || prev == 8 || prev == 11;
     }
 
     // ===========================================================
@@ -327,6 +377,37 @@ public class AccountsReceivableCutoffReconciler {
                     .build());
         }
         return result;
+    }
+
+    /**
+     * 旧 AR 群と新 AR 群が「税率×ゴミ袋フラグ単位」で同一の税込金額を持つかを判定。
+     * Izumi 四半期のように「常に再集計する」パスで、差分がないのに DELETE+INSERT を走らせないようにする。
+     */
+    private static boolean sameTotals(List<TAccountsReceivableSummary> stale,
+                                      List<TAccountsReceivableSummary> fresh) {
+        Map<String, BigDecimal> staleMap = totalsByGroupKey(stale);
+        Map<String, BigDecimal> freshMap = totalsByGroupKey(fresh);
+        if (!staleMap.keySet().equals(freshMap.keySet())) return false;
+        for (Map.Entry<String, BigDecimal> e : staleMap.entrySet()) {
+            BigDecimal a = e.getValue();
+            BigDecimal b = freshMap.get(e.getKey());
+            if (a == null || b == null) return false;
+            if (a.compareTo(b) != 0) return false;
+        }
+        return true;
+    }
+
+    private static Map<String, BigDecimal> totalsByGroupKey(List<TAccountsReceivableSummary> rows) {
+        Map<String, BigDecimal> out = new HashMap<>();
+        for (TAccountsReceivableSummary s : rows) {
+            String key = (s.getTaxRate() != null ? s.getTaxRate().stripTrailingZeros().toPlainString() : "null")
+                    + "|" + s.isOtakeGarbageBag();
+            BigDecimal v = s.getTaxIncludedAmountChange() != null
+                    ? s.getTaxIncludedAmountChange()
+                    : BigDecimal.ZERO;
+            out.merge(key, v, BigDecimal::add);
+        }
+        return out;
     }
 
     private BigDecimal calculateAmountExcludingTax(TOrderDetail detail) {
