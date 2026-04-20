@@ -342,10 +342,7 @@ public class InvoiceVerifier {
         Map<TAccountsReceivableSummary, BigDecimal> allocated = allocateInvoiceByArRatio(group, invoiceAmount);
         for (TAccountsReceivableSummary s : group) {
             s.setVerificationResult(1);
-            // 都度現金 (cutoff_date = -1) の得意先は MF 出力対象外がデフォルト。
-            // 現金取引は現金出納帳 (mf_cashbook) 経由で別途仕訳されるため、売掛→売上高 CSV と
-            // 二重計上になる。ユーザーは UI の MF スイッチで個別に ON 変更可能。
-            s.setMfExportEnabled(!isCashOnDeliveryPartner(s));
+            s.setMfExportEnabled(Boolean.TRUE);
             s.setInvoiceAmount(allocated.get(s));
             // 行ごとの差額 = 行の按分請求書額 - 行の税込売掛 (一致時は 0)
             BigDecimal rowAr = s.getTaxIncludedAmountChange() != null
@@ -356,16 +353,6 @@ public class InvoiceVerifier {
             s.setTaxIncludedAmount(s.getTaxIncludedAmountChange());
             s.setTaxExcludedAmount(s.getTaxExcludedAmountChange());
         }
-    }
-
-    /**
-     * 都度現金払いの得意先かを判定する。
-     * cutoff_date = -1 (CASH_ON_DELIVERY) または 上様 (partner_code=999999 / partner_no=-999999) を対象。
-     */
-    private static boolean isCashOnDeliveryPartner(TAccountsReceivableSummary s) {
-        if (s.getCutoffDate() != null && s.getCutoffDate() == -1) return true;
-        if (JOSAMA_PARTNER_CODE.equals(s.getPartnerCode())) return true;
-        return false;
     }
 
     private void applyMismatch(List<TAccountsReceivableSummary> group,
