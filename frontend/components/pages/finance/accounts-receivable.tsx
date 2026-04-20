@@ -45,6 +45,8 @@ import { AccountsReceivableAggregateDialog } from './AccountsReceivableAggregate
 import { InvoiceImportDialog } from './InvoiceImportDialog'
 
 const PAGE_SIZE = 50
+/** 「全件表示」ON 時のページサイズ上限（実運用の月次売掛は 1000 行超えない想定）。 */
+const ALL_PAGE_SIZE = 10000
 
 interface SearchParams {
   shopNo?: number
@@ -73,6 +75,8 @@ export default function AccountsReceivablePage() {
   // 実際に一覧に適用されている条件（検索ボタン押下時のみ更新）
   const [appliedSearch, setAppliedSearch] = useState<SearchParams>(initialSearch)
   const [page, setPage] = useState(0)
+  // 全件表示モード: ページング無効で一度に ALL_PAGE_SIZE 件取得して合計を検算できるようにする
+  const [showAll, setShowAll] = useState(false)
   const [verifyRow, setVerifyRow] = useState<AccountsReceivable | null>(null)
   const [aggregateOpen, setAggregateOpen] = useState(false)
   const [invoiceImportOpen, setInvoiceImportOpen] = useState(false)
@@ -89,8 +93,10 @@ export default function AccountsReceivablePage() {
   })), [partnersQuery.data])
 
   // クエリは appliedSearch のみに依存する（キーストローク毎に発火しない）
+  const effectivePageSize = showAll ? ALL_PAGE_SIZE : PAGE_SIZE
+  const effectivePage = showAll ? 0 : page
   const listQuery = useQuery({
-    queryKey: ['accounts-receivable', appliedSearch, page],
+    queryKey: ['accounts-receivable', appliedSearch, effectivePage, effectivePageSize],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (appliedSearch.shopNo != null) params.set('shopNo', String(appliedSearch.shopNo))
@@ -98,8 +104,8 @@ export default function AccountsReceivablePage() {
       if (appliedSearch.fromDate) params.set('fromDate', appliedSearch.fromDate)
       if (appliedSearch.toDate) params.set('toDate', appliedSearch.toDate)
       if (appliedSearch.verificationFilter !== 'all') params.set('verificationFilter', appliedSearch.verificationFilter)
-      params.set('page', String(page))
-      params.set('size', String(PAGE_SIZE))
+      params.set('page', String(effectivePage))
+      params.set('size', String(effectivePageSize))
       return api.get<Paginated<AccountsReceivable>>(`/finance/accounts-receivable?${params.toString()}`)
     },
   })
@@ -451,20 +457,32 @@ export default function AccountsReceivablePage() {
         })()
       )}
 
-      {/* テーブル内絞込 + 合計 */}
+      {/* テーブル内絞込 + 合計 + 全件表示 */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
-        <div className="relative min-w-[240px] flex-1 max-w-sm">
+        <div className="flex items-center gap-3 flex-1 min-w-[320px] max-w-2xl">
           <Input
-            placeholder="表示中のページ内で絞込..."
+            placeholder={showAll ? '全件の中から絞込...' : '表示中のページ内で絞込...'}
             value={tableFilter}
             onChange={(e) => setTableFilter(e.target.value)}
-            className="h-9 text-sm"
+            className="h-9 text-sm max-w-sm"
           />
+          <label className="flex items-center gap-2 whitespace-nowrap cursor-pointer select-none">
+            <Switch
+              checked={showAll}
+              onCheckedChange={(v) => { setShowAll(v); setPage(0) }}
+            />
+            <span className="text-xs">全件表示（合計検算用）</span>
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
           <span>
             表示中 <b className="tabular-nums">{filteredRows.length}</b>件
-            {tableFilter && <span className="text-muted-foreground"> / ページ内 {page$.content.length}件</span>}
+            {(tableFilter || !showAll) && (
+              <span className="text-muted-foreground">
+                {' '}/ {showAll ? '全件' : 'ページ内'} {page$.content.length}件
+                {!showAll && <> / 総件数 {page$.totalElements}件</>}
+              </span>
+            )}
           </span>
           <span>税込合計 <b className="tabular-nums">{formatCurrency(tableTotals.inc)}</b></span>
           <span className="text-muted-foreground">税抜 {formatCurrency(tableTotals.exc)}</span>
@@ -479,10 +497,10 @@ export default function AccountsReceivablePage() {
         rowKey={(r) => `${r.shopNo}-${r.partnerNo}-${r.transactionMonth}-${String(r.taxRate)}-${r.isOtakeGarbageBag}`}
         onRowClick={(r) => setVerifyRow(r)}
         serverPagination={{
-          page,
-          pageSize: PAGE_SIZE,
+          page: effectivePage,
+          pageSize: effectivePageSize,
           totalElements: page$.totalElements,
-          totalPages: page$.totalPages,
+          totalPages: showAll ? 1 : page$.totalPages,
           onPageChange: setPage,
         }}
       />
