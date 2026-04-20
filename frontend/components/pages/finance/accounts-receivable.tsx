@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, normalizeForSearch } from '@/lib/utils'
 import { emptyPage, type Paginated } from '@/types/paginated'
 import {
   AlertCircle,
@@ -252,6 +252,29 @@ export default function AccountsReceivablePage() {
   const page$ = listQuery.data ?? emptyPage<AccountsReceivable>()
   const summary = summaryQuery.data
 
+  // テーブル内絞込 (現在のページ 50 行に対して適用)
+  const [tableFilter, setTableFilter] = useState('')
+  const filteredRows = useMemo(() => {
+    if (!tableFilter.trim()) return page$.content
+    const needle = normalizeForSearch(tableFilter.toLowerCase())
+    return page$.content.filter((r) =>
+      Object.values(r).some((v) =>
+        normalizeForSearch(String(v ?? '').toLowerCase()).includes(needle)
+      )
+    )
+  }, [page$.content, tableFilter])
+
+  // 絞込後の税込/税抜/請求書金額の合計
+  const tableTotals = useMemo(() => {
+    let inc = 0, exc = 0, invoice = 0
+    for (const r of filteredRows) {
+      inc += Number(r.taxIncludedAmountChange ?? 0)
+      exc += Number(r.taxExcludedAmountChange ?? 0)
+      invoice += Number(r.invoiceAmount ?? 0)
+    }
+    return { inc, exc, invoice }
+  }, [filteredRows])
+
   const columns: Column<AccountsReceivable>[] = useMemo(() => [
     { key: 'verificationResult', header: '検証', render: (r) => <VerificationBadge row={r} /> },
     { key: 'shopNo', header: '店舗' },
@@ -428,9 +451,30 @@ export default function AccountsReceivablePage() {
         })()
       )}
 
+      {/* テーブル内絞込 + 合計 */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
+        <div className="relative min-w-[240px] flex-1 max-w-sm">
+          <Input
+            placeholder="表示中のページ内で絞込..."
+            value={tableFilter}
+            onChange={(e) => setTableFilter(e.target.value)}
+            className="h-9 text-sm"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          <span>
+            表示中 <b className="tabular-nums">{filteredRows.length}</b>件
+            {tableFilter && <span className="text-muted-foreground"> / ページ内 {page$.content.length}件</span>}
+          </span>
+          <span>税込合計 <b className="tabular-nums">{formatCurrency(tableTotals.inc)}</b></span>
+          <span className="text-muted-foreground">税抜 {formatCurrency(tableTotals.exc)}</span>
+          <span className="text-muted-foreground">請求書 {formatCurrency(tableTotals.invoice)}</span>
+        </div>
+      </div>
+
       {/* テーブル */}
       <DataTable
-        data={page$.content}
+        data={filteredRows}
         columns={columns}
         rowKey={(r) => `${r.shopNo}-${r.partnerNo}-${r.transactionMonth}-${String(r.taxRate)}-${r.isOtakeGarbageBag}`}
         onRowClick={(r) => setVerifyRow(r)}
