@@ -40,3 +40,7 @@ frontend/playwright-report/
 # Claude local files
 .claude/settings.local.json
 frontend/claudedocs/
+
+# Local analysis artifacts and migration backups (not to be committed)
+backup/
+claudedocs/tmp/

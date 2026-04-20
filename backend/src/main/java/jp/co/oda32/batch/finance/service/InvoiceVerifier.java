@@ -383,18 +383,15 @@ public class InvoiceVerifier {
                 .map(s -> s.getTaxIncludedAmountChange() != null ? s.getTaxIncludedAmountChange() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         if (arTotal.compareTo(BigDecimal.ZERO) == 0) {
-            // AR 合計が 0 なら均等割。行数 0 の可能性もゼロなので guard。
-            int n = Math.max(group.size(), 1);
-            BigDecimal equal = invoiceAmount.divide(BigDecimal.valueOf(n), 0, RoundingMode.DOWN);
-            BigDecimal allocated = BigDecimal.ZERO;
-            TAccountsReceivableSummary last = group.isEmpty() ? null : group.get(group.size() - 1);
+            // AR 合計が 0 なのに請求書金額が存在する = データ破損。
+            // 均等割で invoice を分配すると 0 円 AR 行に請求書金額だけ付く歪な状態になり、
+            // 後続の taxIncludedAmount = taxIncludedAmountChange で 0 円のまま保存されるため
+            // 異常として applyMismatch 側で扱うのが正しい (B-W10)。
+            // ここでは全行 0 を返し、呼び出し側の applyMismatch 側で mf_export_enabled=false に落とす。
+            log.error("AR 税込合計が 0 だが請求書金額が存在する異常データ: invoice={} group={}件",
+                    invoiceAmount, group.size());
             for (TAccountsReceivableSummary s : group) {
-                if (s == last) {
-                    out.put(s, invoiceAmount.subtract(allocated));
-                } else {
-                    out.put(s, equal);
-                    allocated = allocated.add(equal);
-                }
+                out.put(s, BigDecimal.ZERO);
             }
             return out;
         }

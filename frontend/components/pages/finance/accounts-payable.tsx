@@ -27,6 +27,7 @@ import { BulkVerifyDialog } from './BulkVerifyDialog'
 import { PaymentMfAuxRowsTable } from './PaymentMfAuxRowsTable'
 import { VerifyDialog } from './VerifyDialog'
 import { VerifiedCsvExportDialog } from './VerifiedCsvExportDialog'
+import { PurchaseJournalCsvExportDialog } from './PurchaseJournalCsvExportDialog'
 import {
   type AccountsPayable,
   type AccountsPayableSummary,
@@ -156,6 +157,7 @@ export function AccountsPayablePage() {
   const [dialogRow, setDialogRow] = useState<AccountsPayable | null>(null)
   const [bulkDialog, setBulkDialog] = useState(false)
   const [verifiedExportDialog, setVerifiedExportDialog] = useState(false)
+  const [purchaseJournalExportDialog, setPurchaseJournalExportDialog] = useState(false)
 
   // タブ状態は URL ?tab=payable|aux で永続化
   const router = useRouter()
@@ -464,7 +466,17 @@ export function AccountsPayablePage() {
                 onClick={() => setVerifiedExportDialog(true)}
               >
                 <FileDown className="mr-1 h-4 w-4" />
-                検証済みCSV出力
+                買掛支払CSV出力（MF）
+              </Button>
+            )}
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPurchaseJournalExportDialog(true)}
+              >
+                <FileDown className="mr-1 h-4 w-4" />
+                仕入仕訳CSV出力（MF）
               </Button>
             )}
             {isAdmin && (
@@ -640,6 +652,12 @@ export function AccountsPayablePage() {
       <VerifiedCsvExportDialog
         open={verifiedExportDialog}
         onOpenChange={setVerifiedExportDialog}
+        transactionMonth={params.transactionMonth}
+      />
+
+      <PurchaseJournalCsvExportDialog
+        open={purchaseJournalExportDialog}
+        onOpenChange={setPurchaseJournalExportDialog}
         transactionMonth={params.transactionMonth}
       />
 

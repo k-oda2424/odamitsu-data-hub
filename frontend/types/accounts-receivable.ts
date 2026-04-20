@@ -23,7 +23,6 @@ export interface AccountsReceivable {
   mfExportEnabled: boolean | null
   verifiedManually: boolean
   verificationNote: string | null
-  [key: string]: unknown
 }
 
 export interface AccountsReceivableSummary {

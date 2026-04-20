@@ -1,5 +1,10 @@
+import { Suspense } from 'react'
 import { AccountsPayablePage } from '@/components/pages/finance/accounts-payable'
 
 export default function AccountsPayable() {
-  return <AccountsPayablePage />
+  return (
+    <Suspense fallback={null}>
+      <AccountsPayablePage />
+    </Suspense>
+  )
 }

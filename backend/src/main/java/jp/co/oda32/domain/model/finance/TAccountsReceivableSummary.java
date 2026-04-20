@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
@@ -61,4 +62,36 @@ public class TAccountsReceivableSummary {
 
     @Column(name = "order_no")
     private Integer orderNo;  // 都度現金払い用の注文番号
+
+    // 検証結果のフラグ（1: 一致、0: 不一致、null: 検証なし）
+    @Column(name = "verification_result")
+    private Integer verificationResult;
+
+    // マネーフォワードエクスポート可否フラグ
+    @Builder.Default
+    @Column(name = "mf_export_enabled", nullable = false)
+    @ColumnDefault("false")
+    private Boolean mfExportEnabled = false;
+
+    // 手動確定フラグ: trueなら再集計・再検証バッチで上書きされない
+    @Builder.Default
+    @Column(name = "verified_manually", nullable = false)
+    @ColumnDefault("false")
+    private Boolean verifiedManually = false;
+
+    // 検証時の備考（手動確定時の理由など）
+    @Column(name = "verification_note")
+    private String verificationNote;
+
+    // 突合した請求書金額（税込, t_invoice.net_sales_including_tax）
+    @Column(name = "invoice_amount")
+    private BigDecimal invoiceAmount;
+
+    // 差額（invoice_amount - tax_included_amount_change）
+    @Column(name = "verification_difference")
+    private BigDecimal verificationDifference;
+
+    // 突合した請求書ID（t_invoice.invoice_id, 監査用）
+    @Column(name = "invoice_no")
+    private Integer invoiceNo;
 }

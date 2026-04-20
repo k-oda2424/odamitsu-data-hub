@@ -20,6 +20,12 @@ spring:
           batch_size: 50
         order_inserts: true
         order_updates: true
+  # prod 環境は V001〜V018 を手動で適用済みの既存 DB を想定し、baseline=18 でスキップする (B-W12)。
+  # 新規環境立ち上げ時は一時的に FLYWAY_BASELINE_ON_MIGRATE=false / FLYWAY_BASELINE_VERSION= にして
+  # 空 DB から V001 を走らせること。
+  flyway:
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
+    baseline-version: ${FLYWAY_BASELINE_VERSION:18}
 
 server:
   port: ${SERVER_PORT:8090}
@@ -34,6 +40,12 @@ cors:
 jwt:
   secret: ${JWT_SECRET}
   expiration-ms: ${JWT_EXPIRATION:86400000}
+
+# MF OAuth トークン等の AES 暗号化鍵。本番は必ず環境変数で注入すること。
+app:
+  crypto:
+    key: ${APP_CRYPTO_KEY}
+    salt: ${APP_CRYPTO_SALT}
 
 logging:
   level:

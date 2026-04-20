@@ -169,6 +169,7 @@ public class AccountsReceivableController {
     // -------- 一括検証 --------
 
     @PostMapping("/bulk-verify")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AccountsReceivableBulkVerifyResponse> bulkVerify(
             @Valid @RequestBody AccountsReceivableBulkVerifyRequest request) {
         Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(request.getShopNo());
@@ -189,10 +190,8 @@ public class AccountsReceivableController {
 
         InvoiceVerificationSummary result = invoiceVerifier.verify(summaries, request.getToDate());
 
-        // 結果を保存
-        for (TAccountsReceivableSummary s : summaries) {
-            summaryService.save(s);
-        }
+        // 1 tx で saveAll し、途中例外で部分コミットにならないようにする (B-2)
+        summaryService.saveAll(summaries);
 
         return ResponseEntity.ok(AccountsReceivableBulkVerifyResponse.builder()
                 .matchedCount(result.getMatchedCount())
@@ -212,6 +211,7 @@ public class AccountsReceivableController {
     // -------- 手動確定 --------
 
     @PutMapping("/{shopNo}/{partnerNo}/{transactionMonth}/{taxRate}/{isOtakeGarbageBag}/verify")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AccountsReceivableResponse> verify(
             @PathVariable Integer shopNo,
             @PathVariable Integer partnerNo,
@@ -245,6 +245,7 @@ public class AccountsReceivableController {
     }
 
     @PatchMapping("/{shopNo}/{partnerNo}/{transactionMonth}/{taxRate}/{isOtakeGarbageBag}/mf-export")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AccountsReceivableResponse> toggleMfExport(
             @PathVariable Integer shopNo,
             @PathVariable Integer partnerNo,
@@ -262,6 +263,7 @@ public class AccountsReceivableController {
     // -------- 検証済みCSV DL --------
 
     @GetMapping("/export-mf-csv")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<InputStreamResource> exportMfCsv(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,

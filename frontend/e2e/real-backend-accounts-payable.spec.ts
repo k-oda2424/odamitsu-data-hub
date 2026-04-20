@@ -29,7 +29,15 @@ async function realLogin(page: Page) {
 }
 
 test.describe('買掛金一覧 / 再集計 (real backend)', () => {
-  test.skip(!ADMIN_ID || !ADMIN_PW, 'E2E_ADMIN_ID / E2E_ADMIN_PW 未設定のためスキップ')
+  // F-W13: CI で silent skip を防ぐため、CI=true かつ env 未設定のときは失敗させる。
+  // 開発者のローカル実行では CI 未設定なら従来通り skip で迷惑をかけない。
+  if (process.env.CI === 'true' && (!ADMIN_ID || !ADMIN_PW)) {
+    test('E2E admin credentials required on CI', () => {
+      throw new Error('CI 実行では E2E_ADMIN_ID / E2E_ADMIN_PW の設定が必須です (silent skip 防止)')
+    })
+    return
+  }
+  test.skip(!ADMIN_ID || !ADMIN_PW, 'E2E_ADMIN_ID / E2E_ADMIN_PW 未設定のためスキップ (ローカル実行のみ)')
 
   test('admin で前月分の再集計が成功する', async ({ page }) => {
     const { yyyyMm, yyyyMmDd } = computeTargetMonth()

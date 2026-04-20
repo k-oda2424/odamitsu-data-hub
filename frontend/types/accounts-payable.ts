@@ -23,7 +23,6 @@ export interface AccountsPayable {
    * - null:   SMILE自動検証など（verifiedManually=false）
    */
   verificationSource: 'BULK' | 'MANUAL' | null
-  [key: string]: unknown
 }
 
 export interface AccountsPayableSummary {

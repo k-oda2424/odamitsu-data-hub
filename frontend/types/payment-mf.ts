@@ -169,7 +169,6 @@ export interface PaymentMfAuxRow {
   summary: string | null
   tag: string | null
   sourceFilename: string | null
-  [key: string]: unknown
 }
 
 export type AuxRuleKind = PaymentMfAuxRow['ruleKind']

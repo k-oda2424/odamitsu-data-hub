@@ -47,6 +47,15 @@ public class TAccountsReceivableSummaryService {
     }
 
     /**
+     * 複数の AR サマリを 1 トランザクションで一括保存する。
+     * {@code bulkVerify} の最終保存で使用し、途中例外時の部分コミット破綻を防ぐ。
+     */
+    @Transactional
+    public List<TAccountsReceivableSummary> saveAll(List<TAccountsReceivableSummary> summaries) {
+        return repository.saveAll(summaries);
+    }
+
+    /**
      * ページング検索。画面一覧のフィルタで使用。
      *
      * @param shopNo             店舗番号（nullなら全店舗）

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -74,6 +74,16 @@ export default function AccountsReceivablePage() {
   const [search, setSearch] = useState<SearchParams>(initialSearch)
   // 実際に一覧に適用されている条件（検索ボタン押下時のみ更新）
   const [appliedSearch, setAppliedSearch] = useState<SearchParams>(initialSearch)
+
+  // user は非同期に localStorage から復元されるため、初回マウント時は null → undefined shopNo で
+  // 固まるバグがあった (F-1)。user が復元されたら非adminの shopNo を後追いで注入する。
+  useEffect(() => {
+    if (user && user.shopNo !== 0) {
+      setSearch((prev) => prev.shopNo === undefined ? { ...prev, shopNo: user.shopNo } : prev)
+      setAppliedSearch((prev) => prev.shopNo === undefined ? { ...prev, shopNo: user.shopNo } : prev)
+    }
+  }, [user])
+
   const [page, setPage] = useState(0)
   // 全件表示モード: ページング無効で一度に ALL_PAGE_SIZE 件取得して合計を検算できるようにする
   const [showAll, setShowAll] = useState(false)
@@ -164,6 +174,8 @@ export default function AccountsReceivablePage() {
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
   })
+  // F-W10: columns の useMemo 依存には mutation オブジェクト全体ではなく mutate 関数だけを置く。
+  const mfExportToggleMutate = mfExportToggleMutation.mutate
 
   const aggregateMutation = useMutation({
     mutationFn: async (args: { targetDate: string; cutoffType: CutoffType }) => {
@@ -218,34 +230,25 @@ export default function AccountsReceivablePage() {
   }, [queryClient])
 
   const handleExportCsv = useCallback(() => {
-    const params = new URLSearchParams()
-    params.set('fromDate', appliedSearch.fromDate)
-    params.set('toDate', appliedSearch.toDate)
-    // ブラウザのネイティブDL動作
-    const url = `/api/v1/finance/accounts-receivable/export-mf-csv?${params.toString()}`
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-    // fetch + blob 経由で Authorization ヘッダを付与してDL
+    // F-W4: api.download で統一 (localStorage 直読 + fetch 直書きを除去)
     ;(async () => {
       try {
-        const resp = await fetch(url, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-        if (!resp.ok) {
-          const text = await resp.text()
-          throw new Error(text || `HTTP ${resp.status}`)
-        }
-        const blob = await resp.blob()
-        const cd = resp.headers.get('Content-Disposition') ?? ''
-        const filenameMatch = /filename="([^"]+)"/.exec(cd)
-        const filename = filenameMatch?.[1] ?? 'accounts_receivable_to_sales_journal.csv'
-        const downloadUrl = URL.createObjectURL(blob)
+        const params = new URLSearchParams()
+        params.set('fromDate', appliedSearch.fromDate)
+        params.set('toDate', appliedSearch.toDate)
+        const { blob, filename } = await api.download(
+          `/finance/accounts-receivable/export-mf-csv?${params.toString()}`,
+        )
+        const suggest = filename ?? 'accounts_receivable_to_sales_journal.csv'
         const a = document.createElement('a')
-        a.href = downloadUrl
-        a.download = filename
+        const url = URL.createObjectURL(blob)
+        a.href = url
+        a.download = suggest
         document.body.appendChild(a)
         a.click()
         a.remove()
-        URL.revokeObjectURL(downloadUrl)
+        // revoke は非同期ダウンロード完了を待つ
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
         toast.success('MF CSV をダウンロードしました')
         setConfirmExport(false)
         invalidate()
@@ -325,7 +328,7 @@ export default function AccountsReceivablePage() {
         <Switch
           checked={r.mfExportEnabled ?? false}
           onCheckedChange={(checked) => {
-            mfExportToggleMutation.mutate({ row: r, enabled: checked })
+            mfExportToggleMutate({ row: r, enabled: checked })
           }}
           onClick={(e) => e.stopPropagation()}
         />
@@ -339,7 +342,9 @@ export default function AccountsReceivablePage() {
       ) : '-',
     },
     { key: 'invoiceNo', header: '請求書No', render: (r) => r.invoiceNo ?? '-' },
-  ], [mfExportToggleMutation])
+    // mutation の関数参照は安定 (TanStack Query の仕様)。mutation オブジェクトに依存すると
+    // isPending 等が変わるたび columns が再生成されるため、mutate 関数のみに依存させる (F-W10)。
+  ], [mfExportToggleMutate])
 
   if (listQuery.isLoading && !listQuery.data) {
     return <LoadingSpinner />
@@ -379,7 +384,7 @@ export default function AccountsReceivablePage() {
               <SearchableSelect
                 options={(shopsData ?? []).map((s) => ({ value: String(s.shopNo), label: `${s.shopNo}: ${s.shopName}` }))}
                 value={search.shopNo != null ? String(search.shopNo) : ''}
-                onValueChange={(v) => setSearch({ ...search, shopNo: v ? Number(v) : undefined, partnerNo: undefined })}
+                onValueChange={(v) => setSearch((prev) => ({ ...prev, shopNo: v ? Number(v) : undefined, partnerNo: undefined }))}
                 placeholder="すべて"
                 clearable
               />
@@ -391,7 +396,7 @@ export default function AccountsReceivablePage() {
               id="from-date"
               type="date"
               value={search.fromDate}
-              onChange={(e) => setSearch({ ...search, fromDate: e.target.value })}
+              onChange={(e) => setSearch((prev) => ({ ...prev, fromDate: e.target.value }))}
             />
           </div>
           <div>
@@ -400,14 +405,14 @@ export default function AccountsReceivablePage() {
               id="to-date"
               type="date"
               value={search.toDate}
-              onChange={(e) => setSearch({ ...search, toDate: e.target.value })}
+              onChange={(e) => setSearch((prev) => ({ ...prev, toDate: e.target.value }))}
             />
           </div>
           <div>
             <Label>得意先</Label>
             <SearchableSelect
               value={search.partnerNo != null ? String(search.partnerNo) : ''}
-              onValueChange={(v) => setSearch({ ...search, partnerNo: v ? Number(v) : undefined })}
+              onValueChange={(v) => setSearch((prev) => ({ ...prev, partnerNo: v ? Number(v) : undefined }))}
               options={partnerOptions}
               placeholder={search.shopNo == null && isAdmin ? '店舗を先に選択' : 'すべて'}
               clearable
@@ -418,7 +423,7 @@ export default function AccountsReceivablePage() {
             <Label htmlFor="verification-filter">検証</Label>
             <Select
               value={search.verificationFilter}
-              onValueChange={(v) => setSearch({ ...search, verificationFilter: v as VerificationFilter })}
+              onValueChange={(v) => setSearch((prev) => ({ ...prev, verificationFilter: v as VerificationFilter }))}
             >
               <SelectTrigger id="verification-filter">
                 <SelectValue />

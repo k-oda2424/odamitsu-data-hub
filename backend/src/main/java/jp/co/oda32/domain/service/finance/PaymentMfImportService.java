@@ -90,6 +90,12 @@ public class PaymentMfImportService {
     // Excel 読み取り（selectSheet / parseSheet / メタ行判定 など）は
     // {@link PaymentMfExcelParser} に分離。ParsedEntry / ParsedWorkbook も同クラスに移動。
 
+    /**
+     * アップロード済み Excel のパース結果をインメモリ保持する。
+     * <p><b>node-local</b>: 複数 JVM 起動（HA 構成）では preview と convert/applyVerification が
+     * 別インスタンスに到達すると 404 になる。本アプリは single-instance 前提の設計
+     * （{@code MfOauthStateStore} と同じスコープ）。マルチ化するときは Redis 等に寄せること (B-W9)。
+     */
     private final Map<String, CachedUpload> cache = new ConcurrentHashMap<>();
 
     public PaymentMfImportService(MPaymentMfRuleRepository ruleRepository,
@@ -671,7 +677,7 @@ public class PaymentMfImportService {
      * 例外は握り潰さず呼び元へ伝播し、呼び元でログ＋ユーザ警告に変換する。
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    protected void saveVerifiedExportHistory(LocalDate transactionMonth,
+    public void saveVerifiedExportHistory(LocalDate transactionMonth,
                                              int rowCount, long totalAmount, byte[] csv, Integer userNo) {
         String yyyymmdd = transactionMonth.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String csvFile = "買掛仕入MFインポートファイル_" + yyyymmdd + ".csv";
@@ -712,6 +718,32 @@ public class PaymentMfImportService {
 
         LocalDate txMonth = cached.getTransferDate() == null ? null
                 : deriveTransactionMonth(cached.getTransferDate());
+
+        // N+1 解消 (B-W11): エントリ全走査より先に reconcileCode を集め、対象月の payable を一括ロード。
+        // 以前は reconcile() 呼び出しの度に findByShopNoAndSupplierCodeAndTransactionMonth が走っていた。
+        Map<String, List<TAccountsPayableSummary>> payablesByCode = java.util.Collections.emptyMap();
+        if (txMonth != null) {
+            Set<String> reconcileCodes = new java.util.LinkedHashSet<>();
+            for (PaymentMfExcelParser.ParsedEntry e : cached.getEntries()) {
+                MPaymentMfRule rule = null;
+                if (e.supplierCode != null) rule = byCode.get(e.supplierCode);
+                if (rule == null) rule = bySource.get(normalize(e.sourceName));
+                if (rule == null) continue;
+                if (e.afterTotal && "PAYABLE".equals(rule.getRuleKind())) continue; // DIRECT_PURCHASE 扱い
+                if (!"PAYABLE".equals(rule.getRuleKind())) continue;
+                String code = e.supplierCode != null ? e.supplierCode
+                        : (rule.getPaymentSupplierCode() != null && !rule.getPaymentSupplierCode().isBlank()
+                                ? rule.getPaymentSupplierCode() : null);
+                if (code != null) reconcileCodes.add(code);
+            }
+            if (!reconcileCodes.isEmpty()) {
+                payablesByCode = payableRepository
+                        .findByShopNoAndSupplierCodeInAndTransactionMonth(
+                                FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO, reconcileCodes, txMonth)
+                        .stream()
+                        .collect(Collectors.groupingBy(TAccountsPayableSummary::getSupplierCode));
+            }
+        }
 
         List<PaymentMfPreviewRow> rows = new ArrayList<>();
         Set<String> unregistered = new java.util.LinkedHashSet<>();
@@ -794,7 +826,9 @@ public class PaymentMfImportService {
                 rulesMissingCode.add(code + " " + e.sourceName);
             }
             if ("PAYABLE".equals(rule.getRuleKind()) && txMonth != null && reconcileCode != null) {
-                ReconcileResult rr = reconcile(reconcileCode, txMonth, e.amount);
+                // 事前取得済みの payablesByCode から参照 (B-W11 N+1 解消)。
+                ReconcileResult rr = reconcileFromPayables(
+                        payablesByCode.get(reconcileCode), e.amount);
                 b.matchStatus(rr.status).payableAmount(rr.payableAmount)
                         .payableDiff(rr.diff).supplierNo(rr.supplierNo);
                 if ("MATCHED".equals(rr.status)) matched++;
@@ -952,11 +986,13 @@ public class PaymentMfImportService {
         String status; Long payableAmount; Long diff; Integer supplierNo;
     }
 
-    private ReconcileResult reconcile(String supplierCode, LocalDate txMonth, Long invoiceAmount) {
+    /**
+     * 事前取得した payable リストから突合判定する (N+1 解消版)。
+     * list が null/空なら UNMATCHED。
+     */
+    private ReconcileResult reconcileFromPayables(List<TAccountsPayableSummary> list, Long invoiceAmount) {
         ReconcileResult r = new ReconcileResult();
-        List<TAccountsPayableSummary> list = payableRepository
-                .findByShopNoAndSupplierCodeAndTransactionMonth(FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO, supplierCode, txMonth);
-        if (list.isEmpty()) {
+        if (list == null || list.isEmpty()) {
             r.status = "UNMATCHED";
             return r;
         }

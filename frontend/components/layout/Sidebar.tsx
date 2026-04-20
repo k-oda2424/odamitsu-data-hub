@@ -39,6 +39,7 @@ import {
   Users,
   ArrowLeftRight,
   BookOpen,
+  Link2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
@@ -86,6 +87,8 @@ const menuGroups: MenuGroup[] = [
       { title: '買掛仕入MF変換', icon: BookOpen, href: '/finance/payment-mf-import' },
       { title: '請求書', icon: Receipt, href: '/finance/invoices' },
       { title: '買掛金', icon: BarChart3, href: '/finance/accounts-payable' },
+      { title: '売掛金', icon: BarChart3, href: '/finance/accounts-receivable' },
+      { title: 'MF連携状況', icon: Link2, href: '/finance/mf-integration', adminOnly: true },
     ],
   },
   {

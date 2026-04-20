@@ -303,7 +303,7 @@ export default function PaymentMfImportPage() {
               </thead>
               <tbody>
                 {preview.rows.map((r, i) => (
-                  <tr key={i} className={rowBgClass(r)}>
+                  <tr key={`${r.excelRowIndex ?? 'x'}-${r.paymentSupplierCode ?? 'x'}-${i}`} className={rowBgClass(r)}>
                     <td className="p-1 text-center">{r.excelRowIndex || ''}</td>
                     <td className="p-1 text-center">{r.paymentSupplierCode ?? ''}</td>
                     <td className="p-1">{r.sourceName ?? ''}</td>

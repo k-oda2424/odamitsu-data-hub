@@ -162,12 +162,6 @@ public class AccountsReceivableCutoffReconciler {
                     continue;
                 }
 
-                // 旧 AR 削除
-                if (!stale.isEmpty()) {
-                    summaryRepository.deleteAllInBatch(stale);
-                    deletedRows += stale.size();
-                }
-
                 // 新 AR 集計 (まだ保存しない。差分判定のため)
                 List<TAccountsReceivableSummary> newRows = aggregateForPartner(
                         pk.shopNo,
@@ -177,6 +171,8 @@ public class AccountsReceivableCutoffReconciler {
 
                 // Izumi 四半期: 常に再集計を走らせるため、既存行と同じ金額なら
                 // DELETE+INSERT せずスキップ（無駄な書き込み・reconcile カウント回避）。
+                // NOTE: 以前は delete を先に実行していたが、sameTotals=true の分岐が後段にあり
+                // 「削除のみ実行して insert しない」データ消失バグがあった (B-1)。差分判定→delete→insert の順に統一。
                 if (izumiShortPeriod && sameTotals(stale, newRows)) {
                     continue;
                 }
