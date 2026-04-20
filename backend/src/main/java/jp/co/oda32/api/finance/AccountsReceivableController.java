@@ -84,13 +84,14 @@ public class AccountsReceivableController {
     public ResponseEntity<Page<AccountsReceivableResponse>> list(
             @RequestParam(required = false) Integer shopNo,
             @RequestParam(required = false) Integer partnerNo,
+            @RequestParam(required = false) String partnerCode,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
             @RequestParam(required = false) String verificationFilter,
             @PageableDefault(size = 50, sort = "transactionMonth", direction = Sort.Direction.DESC) Pageable pageable) {
         Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         Page<TAccountsReceivableSummary> page = summaryService.findPaged(
-                effectiveShopNo, partnerNo, fromDate, toDate, verificationFilter, pageable);
+                effectiveShopNo, partnerNo, partnerCode, fromDate, toDate, verificationFilter, pageable);
 
         Set<Integer> partnerNos = page.getContent().stream()
                 .map(TAccountsReceivableSummary::getPartnerNo)
@@ -107,10 +108,11 @@ public class AccountsReceivableController {
     @GetMapping("/summary")
     public ResponseEntity<AccountsReceivableSummaryResponse> summary(
             @RequestParam(required = false) Integer shopNo,
+            @RequestParam(required = false) String partnerCode,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
         Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
-        return ResponseEntity.ok(summaryService.summary(effectiveShopNo, fromDate, toDate));
+        return ResponseEntity.ok(summaryService.summary(effectiveShopNo, partnerCode, fromDate, toDate));
     }
 
     // -------- 再集計 --------

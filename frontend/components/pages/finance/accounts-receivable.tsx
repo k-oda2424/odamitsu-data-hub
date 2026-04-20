@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
-import { useShops } from '@/hooks/use-master-data'
+import { useShops, usePartners } from '@/hooks/use-master-data'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
@@ -48,7 +48,7 @@ const PAGE_SIZE = 50
 
 interface SearchParams {
   shopNo?: number
-  partnerCode?: string
+  partnerNo?: number
   fromDate: string
   toDate: string
   verificationFilter: VerificationFilter
@@ -62,7 +62,7 @@ export default function AccountsReceivablePage() {
   const defaults = useMemo(() => defaultDateRange(), [])
   const initialSearch: SearchParams = useMemo(() => ({
     shopNo: user?.shopNo && user.shopNo !== 0 ? user.shopNo : undefined,
-    partnerCode: undefined,
+    partnerNo: undefined,
     fromDate: defaults.fromDate,
     toDate: defaults.toDate,
     verificationFilter: 'all',
@@ -80,6 +80,13 @@ export default function AccountsReceivablePage() {
   const [confirmExport, setConfirmExport] = useState(false)
 
   const { data: shopsData } = useShops(isAdmin)
+  // 得意先絞り込み用。shop 未選択 (admin が「すべて」) の場合は partners API が使えないため
+  // SearchableSelect を disabled にする。
+  const partnersQuery = usePartners(search.shopNo ?? (isAdmin ? undefined : user?.shopNo))
+  const partnerOptions = useMemo(() => (partnersQuery.data ?? []).map((p) => ({
+    value: String(p.partnerNo),
+    label: `${p.partnerCode} ${p.partnerName}`,
+  })), [partnersQuery.data])
 
   // クエリは appliedSearch のみに依存する（キーストローク毎に発火しない）
   const listQuery = useQuery({
@@ -87,7 +94,7 @@ export default function AccountsReceivablePage() {
     queryFn: async () => {
       const params = new URLSearchParams()
       if (appliedSearch.shopNo != null) params.set('shopNo', String(appliedSearch.shopNo))
-      if (appliedSearch.partnerCode) params.set('partnerCode', appliedSearch.partnerCode)
+      if (appliedSearch.partnerNo != null) params.set('partnerNo', String(appliedSearch.partnerNo))
       if (appliedSearch.fromDate) params.set('fromDate', appliedSearch.fromDate)
       if (appliedSearch.toDate) params.set('toDate', appliedSearch.toDate)
       if (appliedSearch.verificationFilter !== 'all') params.set('verificationFilter', appliedSearch.verificationFilter)
@@ -98,10 +105,11 @@ export default function AccountsReceivablePage() {
   })
 
   const summaryQuery = useQuery({
-    queryKey: ['accounts-receivable-summary', appliedSearch.shopNo, appliedSearch.fromDate, appliedSearch.toDate],
+    queryKey: ['accounts-receivable-summary', appliedSearch.shopNo, appliedSearch.partnerNo, appliedSearch.fromDate, appliedSearch.toDate],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (appliedSearch.shopNo != null) params.set('shopNo', String(appliedSearch.shopNo))
+      if (appliedSearch.partnerNo != null) params.set('partnerNo', String(appliedSearch.partnerNo))
       if (appliedSearch.fromDate) params.set('fromDate', appliedSearch.fromDate)
       if (appliedSearch.toDate) params.set('toDate', appliedSearch.toDate)
       return api.get<AccountsReceivableSummary>(`/finance/accounts-receivable/summary?${params.toString()}`)
@@ -342,7 +350,7 @@ export default function AccountsReceivablePage() {
               <SearchableSelect
                 options={(shopsData ?? []).map((s) => ({ value: String(s.shopNo), label: `${s.shopNo}: ${s.shopName}` }))}
                 value={search.shopNo != null ? String(search.shopNo) : ''}
-                onValueChange={(v) => setSearch({ ...search, shopNo: v ? Number(v) : undefined })}
+                onValueChange={(v) => setSearch({ ...search, shopNo: v ? Number(v) : undefined, partnerNo: undefined })}
                 placeholder="すべて"
                 clearable
               />
@@ -367,11 +375,14 @@ export default function AccountsReceivablePage() {
             />
           </div>
           <div>
-            <Label htmlFor="partner-code">得意先コード</Label>
-            <Input
-              id="partner-code"
-              value={search.partnerCode ?? ''}
-              onChange={(e) => setSearch({ ...search, partnerCode: e.target.value || undefined })}
+            <Label>得意先</Label>
+            <SearchableSelect
+              value={search.partnerNo != null ? String(search.partnerNo) : ''}
+              onValueChange={(v) => setSearch({ ...search, partnerNo: v ? Number(v) : undefined })}
+              options={partnerOptions}
+              placeholder={search.shopNo == null && isAdmin ? '店舗を先に選択' : 'すべて'}
+              clearable
+              disabled={search.shopNo == null && isAdmin}
             />
           </div>
           <div>

@@ -60,11 +60,12 @@ public class TAccountsReceivableSummaryService {
     public Page<TAccountsReceivableSummary> findPaged(
             Integer shopNo,
             Integer partnerNo,
+            String partnerCode,
             LocalDate fromDate,
             LocalDate toDate,
             String verificationFilter,
             Pageable pageable) {
-        Specification<TAccountsReceivableSummary> spec = buildSpec(shopNo, partnerNo, fromDate, toDate, verificationFilter);
+        Specification<TAccountsReceivableSummary> spec = buildSpec(shopNo, partnerNo, partnerCode, fromDate, toDate, verificationFilter);
         return repository.findAll(spec, pageable);
     }
 
@@ -72,8 +73,8 @@ public class TAccountsReceivableSummaryService {
      * 画面表示用のサマリカウント（未検証/不一致/一致 件数と差額合計）。
      */
     @SkipShopCheck
-    public AccountsReceivableSummaryResponse summary(Integer shopNo, LocalDate fromDate, LocalDate toDate) {
-        Specification<TAccountsReceivableSummary> spec = buildSpec(shopNo, null, fromDate, toDate, "all");
+    public AccountsReceivableSummaryResponse summary(Integer shopNo, String partnerCode, LocalDate fromDate, LocalDate toDate) {
+        Specification<TAccountsReceivableSummary> spec = buildSpec(shopNo, null, partnerCode, fromDate, toDate, "all");
         List<TAccountsReceivableSummary> list = repository.findAll(spec);
         long total = list.size();
         long unverified = list.stream().filter(s -> s.getVerificationResult() == null).count();
@@ -95,7 +96,7 @@ public class TAccountsReceivableSummaryService {
     }
 
     private Specification<TAccountsReceivableSummary> buildSpec(
-            Integer shopNo, Integer partnerNo,
+            Integer shopNo, Integer partnerNo, String partnerCode,
             LocalDate fromDate, LocalDate toDate,
             String verificationFilter) {
         return (root, query, cb) -> {
@@ -105,6 +106,10 @@ public class TAccountsReceivableSummaryService {
             }
             if (partnerNo != null) {
                 preds.add(cb.equal(root.get("partnerNo"), partnerNo));
+            }
+            if (partnerCode != null && !partnerCode.isBlank()) {
+                // 部分一致でも絞り込める方が使いやすい (前方一致)。
+                preds.add(cb.like(root.get("partnerCode"), partnerCode.trim() + "%"));
             }
             if (fromDate != null) {
                 preds.add(cb.greaterThanOrEqualTo(root.get("transactionMonth"), fromDate));
