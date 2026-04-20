@@ -60,13 +60,18 @@ export default function AccountsReceivablePage() {
   const isAdmin = user?.shopNo === 0
 
   const defaults = useMemo(() => defaultDateRange(), [])
-  const [search, setSearch] = useState<SearchParams>({
+  const initialSearch: SearchParams = useMemo(() => ({
     shopNo: user?.shopNo && user.shopNo !== 0 ? user.shopNo : undefined,
     partnerCode: undefined,
     fromDate: defaults.fromDate,
     toDate: defaults.toDate,
     verificationFilter: 'all',
-  })
+  }), [user?.shopNo, defaults.fromDate, defaults.toDate])
+
+  // フォームへの入力状態（一文字ずつ反映）
+  const [search, setSearch] = useState<SearchParams>(initialSearch)
+  // 実際に一覧に適用されている条件（検索ボタン押下時のみ更新）
+  const [appliedSearch, setAppliedSearch] = useState<SearchParams>(initialSearch)
   const [page, setPage] = useState(0)
   const [verifyRow, setVerifyRow] = useState<AccountsReceivable | null>(null)
   const [aggregateOpen, setAggregateOpen] = useState(false)
@@ -76,15 +81,16 @@ export default function AccountsReceivablePage() {
 
   const { data: shopsData } = useShops(isAdmin)
 
+  // クエリは appliedSearch のみに依存する（キーストローク毎に発火しない）
   const listQuery = useQuery({
-    queryKey: ['accounts-receivable', search, page],
+    queryKey: ['accounts-receivable', appliedSearch, page],
     queryFn: async () => {
       const params = new URLSearchParams()
-      if (search.shopNo != null) params.set('shopNo', String(search.shopNo))
-      if (search.partnerCode) params.set('partnerCode', search.partnerCode)
-      if (search.fromDate) params.set('fromDate', search.fromDate)
-      if (search.toDate) params.set('toDate', search.toDate)
-      if (search.verificationFilter !== 'all') params.set('verificationFilter', search.verificationFilter)
+      if (appliedSearch.shopNo != null) params.set('shopNo', String(appliedSearch.shopNo))
+      if (appliedSearch.partnerCode) params.set('partnerCode', appliedSearch.partnerCode)
+      if (appliedSearch.fromDate) params.set('fromDate', appliedSearch.fromDate)
+      if (appliedSearch.toDate) params.set('toDate', appliedSearch.toDate)
+      if (appliedSearch.verificationFilter !== 'all') params.set('verificationFilter', appliedSearch.verificationFilter)
       params.set('page', String(page))
       params.set('size', String(PAGE_SIZE))
       return api.get<Paginated<AccountsReceivable>>(`/finance/accounts-receivable?${params.toString()}`)
@@ -92,12 +98,12 @@ export default function AccountsReceivablePage() {
   })
 
   const summaryQuery = useQuery({
-    queryKey: ['accounts-receivable-summary', search.shopNo, search.fromDate, search.toDate],
+    queryKey: ['accounts-receivable-summary', appliedSearch.shopNo, appliedSearch.fromDate, appliedSearch.toDate],
     queryFn: async () => {
       const params = new URLSearchParams()
-      if (search.shopNo != null) params.set('shopNo', String(search.shopNo))
-      if (search.fromDate) params.set('fromDate', search.fromDate)
-      if (search.toDate) params.set('toDate', search.toDate)
+      if (appliedSearch.shopNo != null) params.set('shopNo', String(appliedSearch.shopNo))
+      if (appliedSearch.fromDate) params.set('fromDate', appliedSearch.fromDate)
+      if (appliedSearch.toDate) params.set('toDate', appliedSearch.toDate)
       return api.get<AccountsReceivableSummary>(`/finance/accounts-receivable/summary?${params.toString()}`)
     },
   })
@@ -165,9 +171,9 @@ export default function AccountsReceivablePage() {
   const bulkVerifyMutation = useMutation({
     mutationFn: async () => {
       return api.post<BulkVerifyResponse>('/finance/accounts-receivable/bulk-verify', {
-        shopNo: search.shopNo ?? null,
-        fromDate: search.fromDate,
-        toDate: search.toDate,
+        shopNo: appliedSearch.shopNo ?? null,
+        fromDate: appliedSearch.fromDate,
+        toDate: appliedSearch.toDate,
       })
     },
     onSuccess: (r) => {
@@ -199,8 +205,8 @@ export default function AccountsReceivablePage() {
 
   const handleExportCsv = useCallback(() => {
     const params = new URLSearchParams()
-    params.set('fromDate', search.fromDate)
-    params.set('toDate', search.toDate)
+    params.set('fromDate', appliedSearch.fromDate)
+    params.set('toDate', appliedSearch.toDate)
     // ブラウザのネイティブDL動作
     const url = `/api/v1/finance/accounts-receivable/export-mf-csv?${params.toString()}`
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
@@ -233,7 +239,7 @@ export default function AccountsReceivablePage() {
         toast.error((e as Error).message || 'CSVダウンロードに失敗しました')
       }
     })()
-  }, [search.fromDate, search.toDate, invalidate])
+  }, [appliedSearch.fromDate, appliedSearch.toDate, invalidate])
 
   const page$ = listQuery.data ?? emptyPage<AccountsReceivable>()
   const summary = summaryQuery.data
@@ -386,7 +392,7 @@ export default function AccountsReceivablePage() {
           </div>
         </div>
         <div className="flex justify-end">
-          <Button size="sm" onClick={() => { setPage(0); listQuery.refetch() }}>検索</Button>
+          <Button size="sm" onClick={() => { setPage(0); setAppliedSearch(search) }}>検索</Button>
         </div>
       </div>
 
