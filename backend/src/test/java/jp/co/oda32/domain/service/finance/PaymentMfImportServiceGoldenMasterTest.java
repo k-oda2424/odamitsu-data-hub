@@ -47,7 +47,7 @@ class PaymentMfImportServiceGoldenMasterTest {
     @InjectMocks PaymentMfImportService service;
 
     private static final Path FIXTURE_DIR = Paths.get("src/test/resources/paymentmf");
-    private static final Path SEED_SQL = Paths.get("src/main/resources/sql/create_payment_mf_tables.sql");
+    private static final Path SEED_SQL = Paths.get("src/main/resources/db/migration/V011__create_payment_mf_tables.sql");
     private static final Charset CP932 = Charset.forName("MS932");
 
     private List<MPaymentMfRule> rules;

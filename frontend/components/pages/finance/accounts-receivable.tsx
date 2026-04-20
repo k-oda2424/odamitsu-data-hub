@@ -175,6 +175,17 @@ export default function AccountsReceivablePage() {
         `一括検証完了: 一致 ${r.matchedCount} / 不一致 ${r.mismatchCount} / 請求書なし ${r.notFoundCount}`
         + (r.skippedManualCount > 0 ? ` / 手動スキップ ${r.skippedManualCount}` : ''),
       )
+      if (r.reconciledPartners > 0) {
+        const details = r.reconciledDetails?.length ? `\n${r.reconciledDetails.slice(0, 5).join(', ')}` +
+          (r.reconciledDetails.length > 5 ? ` ...他 ${r.reconciledDetails.length - 5}件` : '') : ''
+        toast.info(
+          `請求書の締め日に合わせて ${r.reconciledPartners} 得意先を自動再集計しました` +
+          ` (旧${r.reconciledDeletedRows}件→新${r.reconciledInsertedRows}件)` +
+          (r.reconciledSkippedManualPartners > 0 ? ` / 手動確定スキップ ${r.reconciledSkippedManualPartners}件` : '') +
+          details,
+          { duration: 10000 },
+        )
+      }
       setConfirmBulkVerify(false)
       invalidate()
     },

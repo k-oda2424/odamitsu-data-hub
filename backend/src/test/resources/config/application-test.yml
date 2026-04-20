@@ -33,6 +33,12 @@ bcart:
   api:
     access-token: test-dummy-bcart-token
 
+# MF OAuth トークン等を DB 保存する際の AES 暗号鍵（テスト用ダミー）。
+app:
+  crypto:
+    key: test-crypto-key-odamitsu-data-hub-2026-16chars-min
+    salt: 0123456789abcdef0123456789abcdef
+
 logging:
   level:
     jp.co.oda32: DEBUG

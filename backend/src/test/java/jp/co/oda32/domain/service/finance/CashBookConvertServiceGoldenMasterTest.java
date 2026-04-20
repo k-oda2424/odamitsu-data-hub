@@ -42,7 +42,7 @@ class CashBookConvertServiceGoldenMasterTest {
     @InjectMocks CashBookConvertService service;
 
     private static final Path FIXTURE_DIR = Paths.get("src/test/resources/cashbook");
-    private static final Path SEED_SQL = Paths.get("src/main/resources/sql/create_mf_cashbook_tables.sql");
+    private static final Path SEED_SQL = Paths.get("src/main/resources/db/migration/V008__create_mf_cashbook_tables.sql");
 
     private List<MMfJournalRule> rules;
     private List<MMfClientMapping> mappings;
