@@ -337,11 +337,17 @@ public class InvoiceVerifier {
 
     private void applyMatched(List<TAccountsReceivableSummary> group,
                               BigDecimal invoiceAmount, BigDecimal diff, Integer invoiceId) {
+        // 一致時は AR が請求書合算に按分済みなので、行の invoice_amount は行の taxIncludedAmountChange と一致する。
+        // UI 表示で「請求書金額(税込)」列が行ごとに税率別で出るようにするため、行単位で設定する。
+        Map<TAccountsReceivableSummary, BigDecimal> allocated = allocateInvoiceByArRatio(group, invoiceAmount);
         for (TAccountsReceivableSummary s : group) {
             s.setVerificationResult(1);
             s.setMfExportEnabled(Boolean.TRUE);
-            s.setInvoiceAmount(invoiceAmount);
-            s.setVerificationDifference(diff);
+            s.setInvoiceAmount(allocated.get(s));
+            // 行ごとの差額 = 行の按分請求書額 - 行の税込売掛 (一致時は 0)
+            BigDecimal rowAr = s.getTaxIncludedAmountChange() != null
+                    ? s.getTaxIncludedAmountChange() : BigDecimal.ZERO;
+            s.setVerificationDifference(allocated.get(s).subtract(rowAr));
             s.setInvoiceNo(invoiceId);
             // 一致時のみ、按分後の金額を確定値としても反映（CSV出力はこちらを使用）
             s.setTaxIncludedAmount(s.getTaxIncludedAmountChange());
@@ -351,14 +357,67 @@ public class InvoiceVerifier {
 
     private void applyMismatch(List<TAccountsReceivableSummary> group,
                                BigDecimal invoiceAmount, BigDecimal diff, Integer invoiceId) {
+        // 不一致時も行単位に按分して表示する（ユーザーが税率別に原因を追えるように）。
+        Map<TAccountsReceivableSummary, BigDecimal> allocated = allocateInvoiceByArRatio(group, invoiceAmount);
         for (TAccountsReceivableSummary s : group) {
             s.setVerificationResult(0);
             s.setMfExportEnabled(Boolean.FALSE);
-            s.setInvoiceAmount(invoiceAmount);
-            s.setVerificationDifference(diff);
+            s.setInvoiceAmount(allocated.get(s));
+            BigDecimal rowAr = s.getTaxIncludedAmountChange() != null
+                    ? s.getTaxIncludedAmountChange() : BigDecimal.ZERO;
+            s.setVerificationDifference(allocated.get(s).subtract(rowAr));
             s.setInvoiceNo(invoiceId);
             // 不一致時は確定金額を更新しない（手動確定が来るまで待つ）
         }
+    }
+
+    /**
+     * 請求書合計額 ({@code invoiceAmount}) を各行の {@code taxIncludedAmountChange} 比率で按分する。
+     * 端数は最大行で吸収して SUM が合計と一致することを保証する。
+     * <p>一致時は group の taxIncludedAmountChange が既に按分済みのため、各行の按分額 = taxIncludedAmountChange になる。
+     */
+    private Map<TAccountsReceivableSummary, BigDecimal> allocateInvoiceByArRatio(
+            List<TAccountsReceivableSummary> group, BigDecimal invoiceAmount) {
+        Map<TAccountsReceivableSummary, BigDecimal> out = new java.util.LinkedHashMap<>();
+        BigDecimal arTotal = group.stream()
+                .map(s -> s.getTaxIncludedAmountChange() != null ? s.getTaxIncludedAmountChange() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (arTotal.compareTo(BigDecimal.ZERO) == 0) {
+            // AR 合計が 0 なら均等割。行数 0 の可能性もゼロなので guard。
+            int n = Math.max(group.size(), 1);
+            BigDecimal equal = invoiceAmount.divide(BigDecimal.valueOf(n), 0, RoundingMode.DOWN);
+            BigDecimal allocated = BigDecimal.ZERO;
+            TAccountsReceivableSummary last = group.isEmpty() ? null : group.get(group.size() - 1);
+            for (TAccountsReceivableSummary s : group) {
+                if (s == last) {
+                    out.put(s, invoiceAmount.subtract(allocated));
+                } else {
+                    out.put(s, equal);
+                    allocated = allocated.add(equal);
+                }
+            }
+            return out;
+        }
+
+        // 按分（税込 AR 比率）。残差は最大行で吸収。
+        TAccountsReceivableSummary largest = group.stream()
+                .max(Comparator.comparing(s -> s.getTaxIncludedAmountChange() != null
+                        ? s.getTaxIncludedAmountChange() : BigDecimal.ZERO))
+                .orElse(null);
+        BigDecimal allocated = BigDecimal.ZERO;
+        for (TAccountsReceivableSummary s : group) {
+            if (s == largest) continue;
+            BigDecimal rowAr = s.getTaxIncludedAmountChange() != null
+                    ? s.getTaxIncludedAmountChange() : BigDecimal.ZERO;
+            BigDecimal share = rowAr.multiply(invoiceAmount)
+                    .divide(arTotal, 0, RoundingMode.DOWN);
+            out.put(s, share);
+            allocated = allocated.add(share);
+        }
+        if (largest != null) {
+            out.put(largest, invoiceAmount.subtract(allocated));
+        }
+        return out;
     }
 
     private void applyNotFound(List<TAccountsReceivableSummary> group) {
