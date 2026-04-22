@@ -93,32 +93,48 @@ public class MfSupplierLedgerService {
 
         // 自社 fromMonth (20日締め月) の bucket には「前月 21日 〜 当月 20日」の仕入が含まれる。
         // MF 仕訳を bucket 化するには前月 21日 から取得が理想だが、MF fiscal year 境界で
-        // "Given date is not matching any accounting periods" 400 が返るケースがある
-        // (例: fiscal year 2025 = 2025-06-21〜2026-06-20 なら start_date=2025-05-21 は前期で拒絶)。
-        // 2 段階 fallback: まず前月 21日、失敗したら当月 21日 (= fromMonth+1 日) で再試行。
-        LocalDate preferred = fromMonth.minusMonths(1).plusDays(1);
-        LocalDate fallback = fromMonth.plusDays(1);
-        String endDate = toMonth.format(DateTimeFormatter.ISO_LOCAL_DATE);
-
-        List<MfJournal> allJournals;
-        LocalDate actualStart;
-        try {
-            allJournals = fetchAllJournals(client, accessToken, preferred, toMonth);
-            actualStart = preferred;
-        } catch (org.springframework.web.client.HttpClientErrorException e) {
-            if (e.getStatusCode().value() == 400
-                    && e.getResponseBodyAsString() != null
-                    && e.getResponseBodyAsString().contains("accounting periods")) {
-                log.info("[mf-ledger] MF fiscal year 境界で 400、start_date={} にフォールバック",
-                        fallback);
-                allJournals = fetchAllJournals(client, accessToken, fallback, toMonth);
-                actualStart = fallback;
-            } else {
+        // "Given date is not matching any accounting periods" 400 が返るケースがある。
+        // 複数候補を段階的に試して最初に成功した start_date を採用する:
+        //   1) 前月 21日 (前 fiscal year 内であれば OK)
+        //   2) fromMonth + 1 日 (fiscal year 2025 開始日と想定)
+        //   3) fromMonth + 11 日 (中旬、fiscal year 中盤にはかかる想定)
+        //   4) fromMonth の翌月 1 日
+        //   5) fromMonth の翌月 21日 (最後の砦、当月 bucket は空になる)
+        List<LocalDate> candidates = List.of(
+                fromMonth.minusMonths(1).plusDays(1), // 1
+                fromMonth.plusDays(1),                // 2
+                fromMonth.plusDays(11),               // 3
+                fromMonth.plusDays(1).withDayOfMonth(1).plusMonths(1), // 4
+                fromMonth.plusMonths(1).plusDays(1)   // 5
+        );
+        List<MfJournal> allJournals = null;
+        LocalDate actualStart = null;
+        Exception lastError = null;
+        for (LocalDate candidate : candidates) {
+            if (candidate.isAfter(toMonth)) continue;
+            try {
+                allJournals = fetchAllJournals(client, accessToken, candidate, toMonth);
+                actualStart = candidate;
+                break;
+            } catch (org.springframework.web.client.HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 400
+                        && e.getResponseBodyAsString() != null
+                        && e.getResponseBodyAsString().contains("accounting periods")) {
+                    log.info("[mf-ledger] MF accounting periods 範囲外: start_date={} → 次候補へ", candidate);
+                    lastError = e;
+                    continue;
+                }
                 throw e;
             }
         }
+        if (allJournals == null) {
+            throw new IllegalStateException(
+                    "MF fiscal year 境界エラー: どの start_date 候補でも journals を取得できませんでした。"
+                            + " 取引月の期間を見直すか、MF 事業年度設定を確認してください。"
+                            + (lastError != null ? " 最終エラー: " + lastError.getMessage() : ""));
+        }
         log.info("[mf-ledger] supplierNo={}, 期間 {}〜{}, 取得 journals {} 件, sub候補 {}",
-                supplierNo, actualStart, endDate, allJournals.size(), resolved.matched);
+                supplierNo, actualStart, toMonth, allJournals.size(), resolved.matched);
 
         // --- 月次 bucket (20日締め月基準) ---
         TreeMap<LocalDate, MonthBucket> buckets = new TreeMap<>();

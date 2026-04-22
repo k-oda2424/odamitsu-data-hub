@@ -234,11 +234,16 @@ export function AccountsPayableLedgerPage() {
                   {data.supplier.supplierCode} {data.supplier.supplierName}
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-5 tabular-nums">
+              <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-6 tabular-nums">
+                <InfoTile
+                  label={`期間開始 opening (${data.fromMonth})`}
+                  value={data.rows[0]?.openingBalanceTaxIncluded ?? 0}
+                  hint="期首残 (DB backfill で算出)"
+                />
                 <InfoTile label="期間累計 仕入" value={data.summary.totalChangeTaxIncluded} />
                 <InfoTile label="期間累計 検証" value={data.summary.totalVerified} />
                 <InfoTile label="期間累計 支払反映" value={data.summary.totalPaymentSettled} />
-                <InfoTile label="最終残" value={data.summary.finalClosing} emphasize />
+                <InfoTile label="最終残 (closing)" value={data.summary.finalClosing} emphasize />
                 <div className="flex flex-col gap-0.5">
                   <span className="text-xs text-muted-foreground">警告</span>
                   <span className="text-xs">
@@ -393,10 +398,19 @@ export function AccountsPayableLedgerPage() {
           </Card>
 
           <p className="text-xs text-muted-foreground">
-            closing = opening + effectiveChange − payment_settled の T 勘定定義 (Phase B')。
+            <b>closing</b> = opening + effectiveChange − payment_settled の T 勘定定義 (Phase B')。
             手動確定月は effectiveChange = verified_amount、それ以外は taxIncludedAmountChange を使用。
             検証額は振込明細 Excel 取込 or 手動確定で記録された金額。
             支払反映は「前月 supplier の検証額を当月 change 比で按分」したもの (Phase B')。
+          </p>
+          <p className="text-xs text-muted-foreground">
+            <b>期首残</b>: 期間開始 opening は DB backfill で 2025-06-20 以前のデータから累積計算された値。
+            2025-05 以前にデータがない supplier は opening=0 から始まるため、本来の MF 期首残とは差が出る。
+          </p>
+          <p className="text-xs text-muted-foreground">
+            <b>MF 比較</b>: 月次 delta (= credit − debit) で比較する方式。
+            自社 delta (= change − payment_settled) との月次差が MFX バッジ発火 (閾値 ¥10,000)。
+            MF 側は期間内 journals の累積のみで、期間開始時点の supplier 別 MF 残は取得対象外 (sub_account 粒度の期首残取得は将来の Phase で対応予定)。
           </p>
         </>
       )}
@@ -404,10 +418,10 @@ export function AccountsPayableLedgerPage() {
   )
 }
 
-function InfoTile({ label, value, emphasize }: { label: string; value: number; emphasize?: boolean }) {
+function InfoTile({ label, value, emphasize, hint }: { label: string; value: number; emphasize?: boolean; hint?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground" title={hint}>{label}</span>
       <span className={`tabular-nums ${emphasize ? 'font-semibold' : ''} ${value < 0 ? 'text-amber-700' : ''}`}>
         {formatCurrency(value)}
       </span>
