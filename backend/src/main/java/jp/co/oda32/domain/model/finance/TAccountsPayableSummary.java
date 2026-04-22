@@ -114,4 +114,33 @@ public class TAccountsPayableSummary {
     @Column(name = "opening_balance_tax_excluded", nullable = false)
     @ColumnDefault("0")
     private BigDecimal openingBalanceTaxExcluded = BigDecimal.ZERO;
+
+    /**
+     * 当月完了した支払額 (税込)。
+     * supplier 単位支払を税率別 change 比で按分。
+     * 設計書: claudedocs/design-phase-b-prime-payment-settled.md §2.2
+     * Phase B': closing = opening + change - payment_settled の算出要素。
+     */
+    @Builder.Default
+    @Column(name = "payment_amount_settled_tax_included", nullable = false)
+    @ColumnDefault("0")
+    private BigDecimal paymentAmountSettledTaxIncluded = BigDecimal.ZERO;
+
+    /**
+     * 当月完了した支払額 (税抜)。change_excl 比で按分。
+     */
+    @Builder.Default
+    @Column(name = "payment_amount_settled_tax_excluded", nullable = false)
+    @ColumnDefault("0")
+    private BigDecimal paymentAmountSettledTaxExcluded = BigDecimal.ZERO;
+
+    /**
+     * payment-only 行フラグ。
+     * 当月 change=0 だが前月支払があった supplier のために生成された行で、
+     * stale-delete 対象から除外するための目印。
+     */
+    @Builder.Default
+    @Column(name = "is_payment_only", nullable = false)
+    @ColumnDefault("false")
+    private Boolean isPaymentOnly = false;
 }

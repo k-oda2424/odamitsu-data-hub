@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Link2, Link2Off, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
@@ -19,6 +20,10 @@ import type {
   MfTokenStatus,
 } from '@/types/mf-integration'
 import { MF_DEFAULT_CONFIG } from '@/types/mf-integration'
+import { MfEnumTranslationTab } from './MfEnumTranslationTab'
+import { MfAccountSyncTab } from './MfAccountSyncTab'
+import { MfReconcileTab } from './MfReconcileTab'
+import { MfBalanceReconcileTab } from './MfBalanceReconcileTab'
 
 export function MfIntegrationPage() {
   const { user } = useAuth()
@@ -154,6 +159,24 @@ export function MfIntegrationPage() {
     <div className="space-y-4">
       <PageHeader title="MF 連携状況" description="マネーフォワードクラウド会計 API 連携設定" />
 
+      <Tabs defaultValue="connection">
+        <TabsList>
+          <TabsTrigger value="connection">接続</TabsTrigger>
+          <TabsTrigger value="translations" disabled={!status?.connected}>
+            enum 翻訳辞書
+          </TabsTrigger>
+          <TabsTrigger value="account-sync" disabled={!status?.connected}>
+            勘定科目同期
+          </TabsTrigger>
+          <TabsTrigger value="reconcile" disabled={!status?.connected}>
+            仕訳突合
+          </TabsTrigger>
+          <TabsTrigger value="balance-reconcile" disabled={!status?.connected}>
+            残高突合
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="connection" className="mt-3 space-y-4">
       {/* 接続ステータスカード */}
       <Card>
         <CardHeader className="pb-2">
@@ -325,6 +348,127 @@ export function MfIntegrationPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* 診断（dev のみ）: MF API の生レスポンスを取得して shape 確認 */}
+      {status?.connected && <MfDiagnosticsCard />}
+        </TabsContent>
+
+        <TabsContent value="translations" className="mt-3">
+          <MfEnumTranslationTab />
+        </TabsContent>
+
+        <TabsContent value="account-sync" className="mt-3">
+          <MfAccountSyncTab />
+        </TabsContent>
+
+        <TabsContent value="reconcile" className="mt-3">
+          <MfReconcileTab />
+        </TabsContent>
+
+        <TabsContent value="balance-reconcile" className="mt-3">
+          <MfBalanceReconcileTab />
+        </TabsContent>
+      </Tabs>
     </div>
+  )
+}
+
+function MfDiagnosticsCard() {
+  const [result, setResult] = useState<{ label: string; json: unknown } | null>(null)
+  const [loading, setLoading] = useState<'accounts' | 'taxes' | 'journals' | null>(null)
+  // journals 用の取引月。デフォルトは前月 20 日（20 日締めの典型値）。
+  const [journalDate, setJournalDate] = useState<string>(() => {
+    const now = new Date()
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 20)
+    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`
+  })
+
+  const fetch = async (kind: 'accounts' | 'taxes' | 'journals') => {
+    setLoading(kind)
+    setResult(null)
+    try {
+      let path: string
+      if (kind === 'accounts') path = 'accounts-raw'
+      else if (kind === 'taxes') path = 'taxes-raw'
+      else path = `journals-raw?transactionMonth=${journalDate}`
+      const json = await api.get<unknown>(`/finance/mf-integration/debug/${path}`)
+      setResult({ label: kind, json })
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : (e as Error).message
+      toast.error(`${kind} 取得失敗: ${msg}`)
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  const copyToClipboard = async () => {
+    if (!result) return
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(result.json, null, 2))
+      toast.success('JSON をクリップボードにコピーしました')
+    } catch {
+      toast.error('コピー失敗')
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">診断（MF API 生レスポンス確認）</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          勘定科目同期機能の設計用に、MF API の生レスポンス shape を確認します。dev プロファイルのみ動作。
+        </p>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => fetch('accounts')}
+            disabled={loading !== null}
+          >
+            {loading === 'accounts' ? '取得中...' : 'accounts 取得（3件）'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => fetch('taxes')}
+            disabled={loading !== null}
+          >
+            {loading === 'taxes' ? '取得中...' : 'taxes 取得（5件）'}
+          </Button>
+          {result && (
+            <Button size="sm" variant="ghost" onClick={copyToClipboard}>
+              JSON コピー
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="journal-date" className="text-xs">
+            取引日:
+          </Label>
+          <Input
+            id="journal-date"
+            type="date"
+            className="h-8 w-40 text-xs"
+            value={journalDate}
+            onChange={(e) => setJournalDate(e.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => fetch('journals')}
+            disabled={loading !== null}
+          >
+            {loading === 'journals' ? '取得中...' : 'journals 取得（3件）'}
+          </Button>
+        </div>
+        {result && (
+          <pre className="max-h-96 overflow-auto rounded bg-muted p-3 text-[11px] font-mono">
+            {JSON.stringify(result.json, null, 2)}
+          </pre>
+        )}
+      </CardContent>
+    </Card>
   )
 }

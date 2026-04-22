@@ -3,6 +3,7 @@ package jp.co.oda32.dto.finance;
 import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.model.master.MPaymentSupplier;
+import jp.co.oda32.domain.service.finance.PayableBalanceCalculator;
 import lombok.Builder;
 import lombok.Data;
 import java.math.BigDecimal;
@@ -43,6 +44,7 @@ public class AccountsPayableResponse {
 
     // ---- 累積残関連 (include=balance 時のみ set。それ以外は null) ----
     // 設計書: claudedocs/design-supplier-partner-ledger-balance.md §4.6
+    //         claudedocs/design-phase-b-prime-payment-settled.md §5 (Phase B')
 
     /** 前月末時点の累積残 (税込・符号あり)。include=balance 指定時のみ。 */
     private BigDecimal openingBalanceTaxIncluded;
@@ -50,8 +52,14 @@ public class AccountsPayableResponse {
     /** 前月末時点の累積残 (税抜・符号あり)。include=balance 指定時のみ。 */
     private BigDecimal openingBalanceTaxExcluded;
 
+    /** 当月完了した支払額 (税込、supplier 単位を change 比で按分)。Phase B'。include=balance 指定時のみ。 */
+    private BigDecimal paymentSettledTaxIncluded;
+
+    /** 当月完了した支払額 (税抜)。Phase B'。include=balance 指定時のみ。 */
+    private BigDecimal paymentSettledTaxExcluded;
+
     /**
-     * 当月末時点の累積残 (税込・符号あり)。closing = opening + effectiveChange。
+     * 当月末時点の累積残 (税込・符号あり)。Phase B': closing = opening + effectiveChange - payment_settled。
      * effectiveChange は verifiedManually=true なら verifiedAmount、それ以外は taxIncludedAmountChange。
      * include=balance 指定時のみ。
      */
@@ -59,6 +67,9 @@ public class AccountsPayableResponse {
 
     /** 当月末時点の累積残 (税抜・符号あり)。include=balance 指定時のみ。 */
     private BigDecimal closingBalanceTaxExcluded;
+
+    /** payment-only 行フラグ (当月仕入無し、前月支払あり supplier の支払計上行)。UI バッジ表示用。 */
+    private Boolean isPaymentOnly;
 
     public static AccountsPayableResponse from(TAccountsPayableSummary ap, MPaymentSupplier ps) {
         return from(ap, ps, false);
@@ -102,16 +113,14 @@ public class AccountsPayableResponse {
                 .mfTransferDate(ap.getMfTransferDate());
 
         if (includeBalance) {
-            BigDecimal openIncl = nz(ap.getOpeningBalanceTaxIncluded());
-            BigDecimal openExcl = nz(ap.getOpeningBalanceTaxExcluded());
-            BigDecimal effectiveChangeIncl = isManuallyVerified && ap.getVerifiedAmount() != null
-                    ? ap.getVerifiedAmount()
-                    : nz(ap.getTaxIncludedAmountChange());
-            BigDecimal effectiveChangeExcl = nz(ap.getTaxExcludedAmountChange());
-            b.openingBalanceTaxIncluded(openIncl)
-                    .openingBalanceTaxExcluded(openExcl)
-                    .closingBalanceTaxIncluded(openIncl.add(effectiveChangeIncl))
-                    .closingBalanceTaxExcluded(openExcl.add(effectiveChangeExcl));
+            // Phase B': PayableBalanceCalculator で closing = opening + effectiveChange - payment_settled
+            b.openingBalanceTaxIncluded(nz(ap.getOpeningBalanceTaxIncluded()))
+                    .openingBalanceTaxExcluded(nz(ap.getOpeningBalanceTaxExcluded()))
+                    .paymentSettledTaxIncluded(nz(ap.getPaymentAmountSettledTaxIncluded()))
+                    .paymentSettledTaxExcluded(nz(ap.getPaymentAmountSettledTaxExcluded()))
+                    .closingBalanceTaxIncluded(PayableBalanceCalculator.closingTaxIncluded(ap))
+                    .closingBalanceTaxExcluded(PayableBalanceCalculator.closingTaxExcluded(ap))
+                    .isPaymentOnly(Boolean.TRUE.equals(ap.getIsPaymentOnly()));
         }
         return b.build();
     }

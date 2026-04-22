@@ -30,16 +30,23 @@ export interface AccountsPayable {
 /**
  * 累積残関連フィールド。API に `include=balance` を指定した時のみ set される。
  * 設計書: claudedocs/design-supplier-partner-ledger-balance.md §4.6
+ *         claudedocs/design-phase-b-prime-payment-settled.md §5 (Phase B')
  */
 export interface AccountsPayableBalance {
   /** 前月末時点の累積残 (税込・符号あり)。 */
   openingBalanceTaxIncluded: number
   /** 前月末時点の累積残 (税抜・符号あり)。 */
   openingBalanceTaxExcluded: number
-  /** 当月末時点の累積残 (税込・符号あり)。closing = opening + effectiveChange (DTO層で算出)。 */
+  /** 当月完了した支払額 (税込、supplier 単位を change 比で按分)。Phase B'。 */
+  paymentSettledTaxIncluded: number
+  /** 当月完了した支払額 (税抜)。Phase B'。 */
+  paymentSettledTaxExcluded: number
+  /** 当月末時点の累積残 (税込・符号あり)。closing = opening + change - payment_settled。 */
   closingBalanceTaxIncluded: number
   /** 当月末時点の累積残 (税抜・符号あり)。 */
   closingBalanceTaxExcluded: number
+  /** payment-only 行 (当月仕入無し、前月支払ありの supplier の支払計上行) か。 */
+  isPaymentOnly: boolean
 }
 
 /** include=balance 指定時の Response 型 (balance フィールドが必須)。 */

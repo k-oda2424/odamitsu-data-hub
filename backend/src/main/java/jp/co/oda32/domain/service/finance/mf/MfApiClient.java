@@ -108,6 +108,100 @@ public class MfApiClient {
     }
 
     /**
+     * GET /api/v3/journals で指定期間の仕訳一覧を取得。
+     * @param startDate 開始日 (yyyy-MM-dd)
+     * @param endDate   終了日 (yyyy-MM-dd)
+     */
+    public MfJournalsResponse listJournals(MMfOauthClient client, String accessToken,
+                                            String startDate, String endDate, int page, int perPage) {
+        String url = client.getApiBaseUrl() + "/api/v3/journals"
+                + "?start_date=" + urlEncode(startDate)
+                + "&end_date=" + urlEncode(endDate)
+                + "&page=" + page
+                + "&per_page=" + perPage;
+        try {
+            MfJournalsResponse res = restClientBuilder.build().get()
+                    .uri(url)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                    .retrieve()
+                    .body(MfJournalsResponse.class);
+            return res != null ? res : new MfJournalsResponse(null);
+        } catch (HttpClientErrorException e) {
+            HttpStatusCode status = e.getStatusCode();
+            String body = e.getResponseBodyAsString();
+            log.warn("MF /journals 取得失敗: status={}, body={}", status.value(), body);
+            if (status.value() == 401) {
+                throw new MfReAuthRequiredException("MF API 認証失敗。再認証してください: " + body, e);
+            }
+            throw e;
+        }
+    }
+
+    /** GET /api/v3/taxes で税区分一覧を取得。 */
+    public MfTaxesResponse listTaxes(MMfOauthClient client, String accessToken) {
+        String url = client.getApiBaseUrl() + "/api/v3/taxes";
+        try {
+            MfTaxesResponse res = restClientBuilder.build().get()
+                    .uri(url)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                    .retrieve()
+                    .body(MfTaxesResponse.class);
+            return res != null ? res : new MfTaxesResponse(null);
+        } catch (HttpClientErrorException e) {
+            HttpStatusCode status = e.getStatusCode();
+            String body = e.getResponseBodyAsString();
+            log.warn("MF /taxes 取得失敗: status={}, body={}", status.value(), body);
+            if (status.value() == 401) {
+                throw new MfReAuthRequiredException("MF API 認証失敗。再認証してください: " + body, e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * GET /api/v3/reports/trial_balance_bs で貸借対照表試算表を取得。
+     * <p>
+     * Phase 0 実測 (設計書 §1) で確定した仕様:
+     * <ul>
+     *   <li>query は {@code end_date=YYYY-MM-DD} のみ。period / from / date 等は unsupported</li>
+     *   <li>closing_balance が end_date 時点の累積残を表す</li>
+     *   <li>sub_account 粒度は含まれない (account leaf のみ)</li>
+     * </ul>
+     * scope {@code mfc/accounting/report.read} が必要。不足時は 403 →
+     * {@link MfScopeInsufficientException} に変換。
+     *
+     * @param endDate 月末日 (yyyy-MM-dd)、締め日 20日想定
+     */
+    public MfTrialBalanceBsResponse getTrialBalanceBs(MMfOauthClient client, String accessToken,
+                                                       String endDate) {
+        String url = client.getApiBaseUrl() + "/api/v3/reports/trial_balance_bs"
+                + "?end_date=" + urlEncode(endDate);
+        try {
+            MfTrialBalanceBsResponse res = restClientBuilder.build().get()
+                    .uri(url)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                    .retrieve()
+                    .body(MfTrialBalanceBsResponse.class);
+            return res != null ? res : new MfTrialBalanceBsResponse(null, endDate, null, null);
+        } catch (HttpClientErrorException e) {
+            HttpStatusCode status = e.getStatusCode();
+            String body = e.getResponseBodyAsString();
+            log.warn("MF /trial_balance_bs 取得失敗: status={}, body={}", status.value(), body);
+            if (status.value() == 401) {
+                throw new MfReAuthRequiredException("MF API 認証失敗。再認証してください: " + body, e);
+            }
+            if (status.value() == 403) {
+                throw new MfScopeInsufficientException("mfc/accounting/report.read",
+                        "MF scope 不足です (mfc/accounting/report.read)。クライアント設定に scope を追加 → 再認証してください: " + body, e);
+            }
+            throw e;
+        }
+    }
+
+    /**
      * GET /api/v3/accounts で勘定科目一覧を取得。
      * @param client 有効な MMfOauthClient
      * @param accessToken Bearer token

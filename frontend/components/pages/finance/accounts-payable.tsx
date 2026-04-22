@@ -359,16 +359,35 @@ export function AccountsPayablePage() {
       },
     },
     {
+      key: 'paymentSettledTaxIncluded',
+      header: '当月支払',
+      render: (r) => {
+        if (!hasBalance(r)) return <span className="text-muted-foreground">-</span>
+        const v = r.paymentSettledTaxIncluded
+        if (v === 0) return <span className="text-muted-foreground">—</span>
+        return (
+          <div className="flex items-center gap-1">
+            <span className="tabular-nums">{formatCurrency(v)}</span>
+            {r.isPaymentOnly && (
+              <Badge variant="outline" className="text-slate-600 text-xs">支払のみ</Badge>
+            )}
+          </div>
+        )
+      },
+    },
+    {
       key: 'closingBalanceTaxIncluded',
       header: '累積残',
       render: (r) => {
         if (!hasBalance(r)) return <span className="text-muted-foreground">-</span>
         const v = r.closingBalanceTaxIncluded
         if (v < 0) {
+          // バッジ分岐 (設計書 §6.2): payment-only なら「支払超過」、それ以外は「値引繰越」
+          const label = r.isPaymentOnly ? '支払超過' : '値引繰越'
           return (
             <div className="flex items-center gap-1">
               <span className="text-amber-700 font-medium tabular-nums">{formatCurrency(v)}</span>
-              <Badge variant="outline" className="border-amber-500 text-amber-700 text-xs">値引繰越</Badge>
+              <Badge variant="outline" className="border-amber-500 text-amber-700 text-xs">{label}</Badge>
             </div>
           )
         }
@@ -504,13 +523,14 @@ export function AccountsPayablePage() {
             : r.closingBalanceTaxIncluded >= 0
         })
       : p.content
-  // 現ページ内の負残件数 (banner 用)
+  // 現ページ内の負残件数 (banner 用、payment-only 区別)
   const negativeOnPage = showBalance
     ? p.content.filter((r): r is AccountsPayableWithBalance =>
         hasBalance(r) && r.closingBalanceTaxIncluded < 0,
       )
     : []
   const negativeSum = negativeOnPage.reduce((s, r) => s + r.closingBalanceTaxIncluded, 0)
+  const negativePaymentOnlyCount = negativeOnPage.filter((r) => r.isPaymentOnly).length
 
   const shopOptions = (shopsQuery.data ?? []).map((s) => ({
     value: String(s.shopNo),
@@ -713,7 +733,11 @@ export function AccountsPayablePage() {
         >
           <div className="flex items-center gap-2 font-medium">
             <AlertCircle className="h-4 w-4" />
-            累積負残: {negativeOnPage.length}件（合計 {formatCurrency(negativeSum)}）※ 値引による繰越負残。現在のページ内集計
+            累積負残: {negativeOnPage.length}件
+            {negativePaymentOnlyCount > 0 && (
+              <span className="text-xs">（うち支払超過 {negativePaymentOnlyCount}件）</span>
+            )}
+            （合計 {formatCurrency(negativeSum)}）※ 値引/支払超過による繰越負残。現在のページ内集計
           </div>
         </div>
       )}
