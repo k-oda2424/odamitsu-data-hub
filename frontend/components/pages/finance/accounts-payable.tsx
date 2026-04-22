@@ -397,14 +397,12 @@ export function AccountsPayablePage() {
   ]
 
   const baseColumns: Column<AccountsPayable>[] = [
-    { key: 'supplierCode', header: '仕入先コード', sortable: true },
     {
-      key: 'supplierName',
-      header: '仕入先名',
+      key: 'supplierCode',
+      header: '仕入先コード',
       sortable: true,
       render: (r) => {
-        // 支払先(m_payment_supplier)は shop_no=1 配下に集約されているため、shop_no=1 固定で遷移
-        // 20日締めの取引月から仕入期間(前月21日〜当月20日)を算出
+        // supplierCode 列: 仕入一覧への遷移 (既存導線を保持)
         const { fromDate, toDate } = purchaseDateRange(r.transactionMonth)
         const sp = new URLSearchParams()
         sp.set('shopNo', '1')
@@ -420,6 +418,28 @@ export function AccountsPayablePage() {
             rel="noreferrer"
             className="text-blue-600 hover:underline"
             title="仕入一覧を新しいタブで開く"
+          >
+            {r.supplierCode ?? '-'}
+          </a>
+        )
+      },
+    },
+    {
+      key: 'supplierName',
+      header: '仕入先名',
+      sortable: true,
+      render: (r) => {
+        // supplierName 列: 買掛帳 (月次推移) への遷移
+        const sp = new URLSearchParams()
+        sp.set('shopNo', String(r.shopNo))
+        sp.set('supplierNo', String(r.supplierNo))
+        return (
+          <a
+            href={`/finance/accounts-payable-ledger?${sp.toString()}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-600 hover:underline"
+            title="買掛帳 (月次推移) を新しいタブで開く"
           >
             {r.supplierName ?? '不明'}
           </a>

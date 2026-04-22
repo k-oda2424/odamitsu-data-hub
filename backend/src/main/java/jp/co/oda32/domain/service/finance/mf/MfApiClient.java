@@ -134,6 +134,10 @@ public class MfApiClient {
             if (status.value() == 401) {
                 throw new MfReAuthRequiredException("MF API 認証失敗。再認証してください: " + body, e);
             }
+            if (status.value() == 403) {
+                throw new MfScopeInsufficientException("mfc/accounting/journal.read",
+                        "MF scope 不足です (mfc/accounting/journal.read 必要)。クライアント設定更新 + 再認証してください: " + body, e);
+            }
             throw e;
         }
     }

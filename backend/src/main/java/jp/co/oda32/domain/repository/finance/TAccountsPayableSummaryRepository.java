@@ -51,4 +51,19 @@ public interface TAccountsPayableSummaryRepository extends JpaRepository<TAccoun
     List<TAccountsPayableSummary> findVerifiedForMfExport(
             @Param("shopNo") Integer shopNo,
             @Param("transactionMonth") LocalDate transactionMonth);
+
+    /**
+     * 買掛帳 API 用: 指定 supplier の期間内 summary を取得 (tax_rate 昇順)。
+     * 設計書: claudedocs/design-accounts-payable-ledger.md §6
+     *
+     * @since 2026-04-22 (買掛帳画面)
+     */
+    List<TAccountsPayableSummary> findByShopNoAndSupplierNoAndTransactionMonthBetweenOrderByTransactionMonthAscTaxRateAsc(
+            Integer shopNo, Integer supplierNo, LocalDate fromMonth, LocalDate toMonth);
+
+    /**
+     * 買掛帳 API の期間外前月 continuity 判定用: 指定月の summary を取得。
+     */
+    List<TAccountsPayableSummary> findByShopNoAndSupplierNoAndTransactionMonth(
+            Integer shopNo, Integer supplierNo, LocalDate transactionMonth);
 }

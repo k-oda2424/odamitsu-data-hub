@@ -5,16 +5,22 @@ import jp.co.oda32.domain.model.finance.MPartnerGroup;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.model.finance.TInvoice;
 import jp.co.oda32.domain.service.finance.AccountingStatusService;
+import jp.co.oda32.domain.service.finance.AccountsPayableLedgerService;
 import jp.co.oda32.domain.service.finance.InvoiceImportService;
 import jp.co.oda32.domain.service.finance.MPartnerGroupService;
 import jp.co.oda32.domain.service.finance.PurchaseJournalCsvService;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
 import jp.co.oda32.domain.service.finance.TInvoiceService;
+import jp.co.oda32.domain.service.finance.mf.MfReAuthRequiredException;
+import jp.co.oda32.domain.service.finance.mf.MfScopeInsufficientException;
+import jp.co.oda32.domain.service.finance.mf.MfSupplierLedgerService;
 import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.domain.model.master.MPaymentSupplier;
 import jp.co.oda32.domain.service.master.MPaymentSupplierService;
+import jp.co.oda32.dto.finance.AccountsPayableLedgerResponse;
 import jp.co.oda32.dto.finance.AccountsPayableResponse;
 import jp.co.oda32.dto.finance.AccountsPayableSummaryResponse;
+import jp.co.oda32.dto.finance.MfSupplierLedgerResponse;
 import jp.co.oda32.dto.finance.AccountsPayableVerifyRequest;
 import jp.co.oda32.dto.finance.BulkPaymentDateRequest;
 import jp.co.oda32.dto.finance.MfExportToggleRequest;
@@ -71,6 +77,8 @@ public class FinanceController {
     private final AccountingStatusService accountingStatusService;
     private final MPaymentSupplierService mPaymentSupplierService;
     private final PurchaseJournalCsvService purchaseJournalCsvService;
+    private final AccountsPayableLedgerService accountsPayableLedgerService;
+    private final MfSupplierLedgerService mfSupplierLedgerService;
 
     @GetMapping("/accounts-payable")
     public ResponseEntity<Page<AccountsPayableResponse>> listAccountsPayable(
@@ -154,6 +162,53 @@ public class FinanceController {
         Integer effective = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         if (effective != null && !effective.equals(shopNo)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "他ショップのデータにはアクセスできません");
+        }
+    }
+
+    // -------- 買掛帳 (1 仕入先の月次推移) --------
+
+    /**
+     * 1 仕入先について指定期間 (最大 24 ヶ月) の月次 ledger を返す。
+     * 設計書: claudedocs/design-accounts-payable-ledger.md §4.1
+     *
+     * @since 2026-04-22 (買掛帳画面)
+     */
+    @GetMapping("/accounts-payable/ledger")
+    public ResponseEntity<AccountsPayableLedgerResponse> getAccountsPayableLedger(
+            @RequestParam("shopNo") Integer shopNo,
+            @RequestParam("supplierNo") Integer supplierNo,
+            @RequestParam("fromMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromMonth,
+            @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth) {
+        assertShopAccess(shopNo);
+        AccountsPayableLedgerResponse res = accountsPayableLedgerService.getLedger(shopNo, supplierNo, fromMonth, toMonth);
+        return ResponseEntity.ok(res);
+    }
+
+    /**
+     * 1 仕入先について MF /journals を期間累積で取得し、月次 credit/debit delta を返す。
+     * 買掛帳の「MF と比較」ボタンから明示的に呼ばれる想定。
+     * 設計書: claudedocs/design-accounts-payable-ledger.md §4.2
+     *
+     * @since 2026-04-22 (買掛帳画面)
+     */
+    @GetMapping("/accounts-payable/ledger/mf")
+    public ResponseEntity<?> getMfSupplierLedger(
+            @RequestParam("shopNo") Integer shopNo,
+            @RequestParam("supplierNo") Integer supplierNo,
+            @RequestParam("fromMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromMonth,
+            @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth) {
+        assertShopAccess(shopNo);
+        try {
+            MfSupplierLedgerResponse res = mfSupplierLedgerService.getSupplierLedger(shopNo, supplierNo, fromMonth, toMonth);
+            return ResponseEntity.ok(res);
+        } catch (MfReAuthRequiredException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
+        } catch (MfScopeInsufficientException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "message", e.getMessage(),
+                    "requiredScope", e.getRequiredScope()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("message", e.getMessage()));
         }
     }
 
