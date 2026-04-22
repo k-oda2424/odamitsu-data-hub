@@ -94,19 +94,9 @@ public class MfSupplierLedgerService {
         // 自社 fromMonth (20日締め月) の bucket には「前月 21日 〜 当月 20日」の仕入が含まれる。
         // MF 仕訳を bucket 化するには前月 21日 から取得が理想だが、MF fiscal year 境界で
         // "Given date is not matching any accounting periods" 400 が返るケースがある。
-        // 複数候補を段階的に試して最初に成功した start_date を採用する:
-        //   1) 前月 21日 (前 fiscal year 内であれば OK)
-        //   2) fromMonth + 1 日 (fiscal year 2025 開始日と想定)
-        //   3) fromMonth + 11 日 (中旬、fiscal year 中盤にはかかる想定)
-        //   4) fromMonth の翌月 1 日
-        //   5) fromMonth の翌月 21日 (最後の砦、当月 bucket は空になる)
-        List<LocalDate> candidates = List.of(
-                fromMonth.minusMonths(1).plusDays(1), // 1
-                fromMonth.plusDays(1),                // 2
-                fromMonth.plusDays(11),               // 3
-                fromMonth.plusDays(1).withDayOfMonth(1).plusMonths(1), // 4
-                fromMonth.plusMonths(1).plusDays(1)   // 5
-        );
+        // fiscal year 設定は会社により異なるため、広範囲の候補を段階的に試行する
+        // (buildStartDateCandidates 参照)。
+        List<LocalDate> candidates = buildStartDateCandidates(fromMonth, toMonth);
         List<MfJournal> allJournals = null;
         LocalDate actualStart = null;
         Exception lastError = null;
@@ -201,6 +191,32 @@ public class MfSupplierLedgerService {
 
     /** MF API のレート制限 (Operations per second) 回避のため、リクエスト間に挿入する遅延 (ms)。 */
     private static final long RATE_LIMIT_SLEEP_MS = 350;
+
+    /**
+     * fiscal year 境界で 400 になるケースを回避するため、start_date 候補を広範囲で列挙する。
+     * 候補は「理想的な前月 21日」から始まり、fromMonth 以降を数ヶ月先まで滑らせる。
+     * 各月の 1日 / 21日 両方を試行することで、3月決算 (4/1 開始) / 6月決算 (6/21 開始) 等
+     * 多様な fiscal year 開始日パターンに対応。
+     */
+    static List<LocalDate> buildStartDateCandidates(LocalDate fromMonth, LocalDate toMonth) {
+        java.util.LinkedHashSet<LocalDate> set = new java.util.LinkedHashSet<>();
+        // 1) 前月 21日: 自社 bucket と整合する理想形 (前 fiscal year 内なら成功)
+        set.add(fromMonth.minusMonths(1).plusDays(1));
+        // 2) fromMonth 自身 (Phase 0 実測で end_date は通ったが start_date はだめだった)
+        set.add(fromMonth);
+        // 3) fromMonth + 1日
+        set.add(fromMonth.plusDays(1));
+        // 4-11) fromMonth から toMonth まで、各月の 1日 / 21日 を列挙
+        LocalDate cursor = fromMonth;
+        while (!cursor.isAfter(toMonth)) {
+            java.time.YearMonth ym = java.time.YearMonth.from(cursor);
+            set.add(ym.atDay(1));
+            set.add(ym.atDay(21));
+            cursor = ym.plusMonths(1).atDay(1);
+            if (set.size() > 30) break; // 安全上限
+        }
+        return new java.util.ArrayList<>(set);
+    }
 
     /**
      * MF /journals をページング全件取得。
