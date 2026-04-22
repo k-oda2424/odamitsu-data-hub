@@ -110,8 +110,12 @@ public class MfSupplierLedgerService {
         List<MfJournal> allJournals = null;
         LocalDate actualStart = null;
         Exception lastError = null;
+        boolean firstAttempt = true;
         for (LocalDate candidate : candidates) {
             if (candidate.isAfter(toMonth)) continue;
+            // 候補試行間もレート制限回避
+            if (!firstAttempt) sleepQuietly(RATE_LIMIT_SLEEP_MS);
+            firstAttempt = false;
             try {
                 allJournals = fetchAllJournals(client, accessToken, candidate, toMonth);
                 actualStart = candidate;
@@ -195,8 +199,13 @@ public class MfSupplierLedgerService {
                 .build();
     }
 
+    /** MF API のレート制限 (Operations per second) 回避のため、リクエスト間に挿入する遅延 (ms)。 */
+    private static final long RATE_LIMIT_SLEEP_MS = 350;
+
     /**
      * MF /journals をページング全件取得。
+     * レート制限 (429) 対策: 各ページ間に {@value #RATE_LIMIT_SLEEP_MS} ms sleep、
+     * 429 を受けたら指数バックオフで最大 3 回 retry。
      */
     private List<MfJournal> fetchAllJournals(MMfOauthClient client, String accessToken,
                                                LocalDate startDate, LocalDate endDate) {
@@ -205,7 +214,7 @@ public class MfSupplierLedgerService {
         String ed = endDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
         int page = 1;
         while (true) {
-            MfJournalsResponse res = mfApiClient.listJournals(client, accessToken, sd, ed, page, PER_PAGE);
+            MfJournalsResponse res = callListJournalsWithRetry(client, accessToken, sd, ed, page);
             List<MfJournal> items = res.items();
             all.addAll(items);
             if (items.size() < PER_PAGE) break;
@@ -213,8 +222,40 @@ public class MfSupplierLedgerService {
             if (page > MAX_PAGES) {
                 throw new IllegalStateException("MF journals ページング safeguard を超過しました (50 pages)");
             }
+            sleepQuietly(RATE_LIMIT_SLEEP_MS);
         }
         return all;
+    }
+
+    /**
+     * /journals を呼び出し、429 (too_many_requests) を受けたら指数バックオフで最大 3 回 retry。
+     */
+    private MfJournalsResponse callListJournalsWithRetry(MMfOauthClient client, String accessToken,
+                                                          String sd, String ed, int page) {
+        long[] backoffs = {1000L, 2000L, 4000L};
+        int attempt = 0;
+        while (true) {
+            try {
+                return mfApiClient.listJournals(client, accessToken, sd, ed, page, PER_PAGE);
+            } catch (org.springframework.web.client.HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 429 && attempt < backoffs.length) {
+                    long wait = backoffs[attempt];
+                    log.warn("[mf-ledger] MF rate limit 429, {}ms sleep して retry ({}回目)", wait, attempt + 1);
+                    sleepQuietly(wait);
+                    attempt++;
+                    continue;
+                }
+                throw e;
+            }
+        }
+    }
+
+    private static void sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
