@@ -14,6 +14,8 @@ import jp.co.oda32.domain.service.finance.mf.MfOauthService;
 import jp.co.oda32.domain.service.finance.mf.MfReAuthRequiredException;
 import jp.co.oda32.domain.service.finance.mf.MfScopeInsufficientException;
 import jp.co.oda32.domain.service.finance.mf.MfTokenStatus;
+import jp.co.oda32.domain.service.smile.TSmilePaymentService;
+import jp.co.oda32.domain.model.smile.TSmilePayment;
 import org.springframework.core.env.Environment;
 import jp.co.oda32.dto.finance.MfEnumTranslationRequest;
 import jp.co.oda32.dto.finance.MfEnumTranslationResponse;
@@ -51,6 +53,7 @@ public class MfIntegrationController {
     private final MfAccountSyncService accountSyncService;
     private final MfJournalReconcileService reconcileService;
     private final MfBalanceReconcileService balanceReconcileService;
+    private final jp.co.oda32.domain.repository.smile.TSmilePaymentRepository tSmilePaymentRepository;
 
     // ---- クライアント設定 (admin 登録用) ----
 
@@ -265,6 +268,51 @@ public class MfIntegrationController {
     public ResponseEntity<?> debugAccountsRaw() {
         if (!isDevProfile()) return notFound();
         return fetchRawWithFirstN("/api/v3/accounts", 3);
+    }
+
+    /**
+     * t_smile_payment を voucher_date 範囲で集計する診断 endpoint (Phase B'' 遡及充填の前準備)。
+     * 月×仕入先コード単位で payment_amount を合計して返す。
+     * dev プロファイルのみ。
+     */
+    @GetMapping("/debug/smile-payment-monthly")
+    public ResponseEntity<?> debugSmilePaymentMonthly(
+            @RequestParam("fromDate")
+            @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE)
+            java.time.LocalDate fromDate,
+            @RequestParam("toDate")
+            @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE)
+            java.time.LocalDate toDate) {
+        if (!isDevProfile()) return notFound();
+        List<TSmilePayment> list = tSmilePaymentRepository.findByVoucherDateBetween(fromDate, toDate);
+        // 月ごとに集計 (yyyy-MM) + supplier_code 単位
+        java.util.Map<String, java.math.BigDecimal> byMonthTotal = new java.util.TreeMap<>();
+        java.util.Map<String, Integer> byMonthCount = new java.util.TreeMap<>();
+        java.util.Map<String, java.util.Map<String, java.math.BigDecimal>> byMonthSupplier = new java.util.TreeMap<>();
+        for (TSmilePayment p : list) {
+            if (p.getVoucherDate() == null) continue;
+            String ym = p.getVoucherDate().toString().substring(0, 7);
+            byMonthTotal.merge(ym,
+                    p.getPaymentAmount() != null ? p.getPaymentAmount() : java.math.BigDecimal.ZERO,
+                    java.math.BigDecimal::add);
+            byMonthCount.merge(ym, 1, Integer::sum);
+            byMonthSupplier.computeIfAbsent(ym, k -> new java.util.HashMap<>())
+                    .merge(p.getSupplierCode() != null ? p.getSupplierCode() : "",
+                            p.getPaymentAmount() != null ? p.getPaymentAmount() : java.math.BigDecimal.ZERO,
+                            java.math.BigDecimal::add);
+        }
+        java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("totalRows", list.size());
+        result.put("byMonth", byMonthTotal.entrySet().stream()
+                .map(e -> {
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("month", e.getKey());
+                    m.put("count", byMonthCount.get(e.getKey()));
+                    m.put("totalAmount", e.getValue());
+                    m.put("supplierCount", byMonthSupplier.get(e.getKey()).size());
+                    return m;
+                }).toList());
+        return ResponseEntity.ok(result);
     }
 
     /**

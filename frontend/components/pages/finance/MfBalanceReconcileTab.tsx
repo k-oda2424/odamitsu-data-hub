@@ -30,10 +30,13 @@ export function MfBalanceReconcileTab() {
       api.get<MfBalanceReconcileReport>(`/finance/mf-integration/balance-reconcile?period=${d}`),
     onSuccess: (res) => {
       setReport(res)
-      if (res.payable.diffForMf === 0) {
-        toast.success('残高が完全一致しました。')
+      const adjusted = res.payable.diffForMfAdjusted
+      if (adjusted === 0) {
+        toast.success('残高が完全一致しました（期首残調整後）。')
+      } else if (Math.abs(adjusted) < 100000) {
+        toast.success(`期首残調整後の差分 ¥${fmt(adjusted)} (許容範囲内)。`)
       } else {
-        toast.warning(`残高差分 ¥${fmt(res.payable.diffForMf)} あり。詳細を確認してください。`)
+        toast.warning(`期首残調整後の差分 ¥${fmt(adjusted)} あり。詳細を確認してください。`)
       }
     },
     onError: (e: Error) => {
@@ -89,13 +92,17 @@ export function MfBalanceReconcileTab() {
           <CardContent className="pt-4 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">買掛金 残高突合 ({report.mfEndDate} 時点)</h3>
-              {report.payable.diffForMf === 0 ? (
+              {report.payable.diffForMfAdjusted === 0 ? (
                 <span className="flex items-center gap-1 text-emerald-600 text-sm">
-                  <CheckCircle2 className="h-4 w-4" /> 一致
+                  <CheckCircle2 className="h-4 w-4" /> 期首残調整後 一致
+                </span>
+              ) : Math.abs(report.payable.diffForMfAdjusted) < 100000 ? (
+                <span className="flex items-center gap-1 text-emerald-600 text-sm">
+                  <CheckCircle2 className="h-4 w-4" /> 期首残調整後 ≈一致 (±10万円以内)
                 </span>
               ) : (
                 <span className="flex items-center gap-1 text-amber-700 text-sm">
-                  <AlertCircle className="h-4 w-4" /> 差分あり
+                  <AlertCircle className="h-4 w-4" /> 期首残調整後も差分あり
                 </span>
               )}
             </div>
@@ -120,17 +127,43 @@ export function MfBalanceReconcileTab() {
                   <td className="py-2 text-right">¥{fmt(report.payable.mfClosing)}</td>
                   <td className="py-2 text-right text-muted-foreground">—</td>
                 </tr>
+                <tr className="border-b text-muted-foreground">
+                  <td className="py-2">
+                    <span className="mr-1">−</span>MF 期首残 ({report.payable.openingReferenceDate})
+                  </td>
+                  <td className="py-2 text-right">¥{fmt(report.payable.mfOpeningBalance)}</td>
+                  <td className="py-2 text-right">—</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="py-2">MF 期間累積 (期首残控除後)</td>
+                  <td className="py-2 text-right">¥{fmt(report.payable.mfClosing - report.payable.mfOpeningBalance)}</td>
+                  <td className="py-2 text-right text-muted-foreground">—</td>
+                </tr>
                 <tr className="border-b">
                   <td className="py-2">自社 累積残 (MF 突合対象のみ)</td>
                   <td className="py-2 text-right">¥{fmt(report.payable.selfClosingForMf)}</td>
                   <td className="py-2 text-right">{report.payable.selfMfTargetRowCount}</td>
                 </tr>
                 <tr className="border-b bg-muted/30 font-medium">
-                  <td className="py-2">差分 (MF − 自社 MF対象)</td>
-                  <td className={`py-2 text-right ${report.payable.diffForMf === 0 ? 'text-emerald-600' : 'text-amber-700'}`}>
-                    ¥{fmt(report.payable.diffForMf)}
+                  <td className="py-2">
+                    差分 (期首残調整後)
+                    <span className="ml-2 text-xs text-muted-foreground font-normal">
+                      = MF 期間累積 − 自社累積残
+                    </span>
+                  </td>
+                  <td className={`py-2 text-right ${
+                    report.payable.diffForMfAdjusted === 0 ? 'text-emerald-600'
+                    : Math.abs(report.payable.diffForMfAdjusted) < 100000 ? 'text-emerald-600'
+                    : 'text-amber-700'
+                  }`}>
+                    ¥{fmt(report.payable.diffForMfAdjusted)}
                   </td>
                   <td className="py-2 text-right text-muted-foreground">—</td>
+                </tr>
+                <tr className="border-b text-muted-foreground">
+                  <td className="py-2">差分 (生値: MF − 自社 MF 対象)</td>
+                  <td className="py-2 text-right">¥{fmt(report.payable.diffForMf)}</td>
+                  <td className="py-2 text-right">—</td>
                 </tr>
                 <tr className="border-b text-muted-foreground">
                   <td className="py-2">自社 累積残 (全 row)</td>
@@ -154,8 +187,14 @@ export function MfBalanceReconcileTab() {
             </p>
             <p className="text-xs text-muted-foreground">
               Phase B' 適用後の closing は <code>opening + change − payment_settled</code> の T 勘定定義。
-              自社 DB に期首残高 (2025-06-20 より前の累積) が入っていないため、
-              <b>約 ¥14,700,000 (MF 2025-05-20 時点買掛金残)</b> 程度の差が残る想定。これは Phase B'' (期首残注入) スコープ。
+              自社 DB は 2025-06-20 から累積を始めるため、MF 期首残 (
+              <code>{report.payable.openingReferenceDate}</code> 時点 ¥{fmt(report.payable.mfOpeningBalance)}
+              ) は常に既知差として残る。メイン突合指標は <b>差分 (期首残調整後)</b>。
+            </p>
+            <p className="text-xs text-muted-foreground">
+              調整後もまだ差が残る場合、主因は 2025-06〜2025-12 の <code>verified_amount</code> 欠落
+              (振込明細 Excel 取込機能は 2026-04-14 実装以降)。
+              本質解決は過去振込明細 Excel を遡及取込するか、別途 Phase B''' で t_smile_payment 連携を追加すること。
             </p>
             <p className="text-xs text-muted-foreground">
               仕入先別ドリルダウンは本 Phase 未対応。

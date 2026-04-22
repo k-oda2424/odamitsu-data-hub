@@ -138,16 +138,26 @@ export interface MfPayableBalance {
   mfClosing: number
   /** 自社 summary 全 row の closing 合計 (mf_export_enabled 問わず)。 */
   selfClosingAll: number
-  /** MF 突合対象 row のみ (mfExportEnabled=true OR verifiedManually=true) の closing 合計。 */
+  /** MF 突合対象 row のみ (mfExportEnabled=true OR verifiedManually=true OR isPaymentOnly=true) の closing 合計。 */
   selfClosingForMf: number
   /** mfClosing - selfClosingAll。 */
   diffAll: number
-  /** mfClosing - selfClosingForMf (メイン突合指標)。 */
+  /** mfClosing - selfClosingForMf (メイン突合指標、期首残込み)。 */
   diffForMf: number
   selfRowCount: number
   selfMfTargetRowCount: number
   /** MF 試算表に「買掛金」account が見つかったか。 */
   mfAccountFound: boolean
+  /** MF 期首残 = 自社 backfill 起点の前月末時点の MF 買掛金 closing (Phase B'' 追加)。 */
+  mfOpeningBalance: number
+  /** mfOpeningBalance を取得した MF 基準日 (yyyy-MM-dd)。 */
+  openingReferenceDate: string
+  /**
+   * 期首残調整後の差分 = mfClosing - mfOpeningBalance - selfClosingForMf。
+   * 2025-06-20 以降の累積のみで比較した純粋な乖離。
+   * 残差は 2025-06〜2025-12 の verified_amount 欠落 (過去振込明細未取込) が主因。
+   */
+  diffForMfAdjusted: number
 }
 
 export interface MfBalanceReconcileReport {

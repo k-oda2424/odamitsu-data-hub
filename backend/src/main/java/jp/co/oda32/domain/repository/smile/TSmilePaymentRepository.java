@@ -64,4 +64,12 @@ public interface TSmilePaymentRepository extends JpaRepository<TSmilePayment, TS
     int deleteByVoucherDateAndProcessingSerialNumberNotIn(
             @Param("voucherDate") LocalDate voucherDate,
             @Param("processingSerialNumbers") Set<Long> processingSerialNumbers);
+
+    /**
+     * 指定期間の支払を伝票日付で絞り込んで取得 (Phase B'' 遡及充填で利用)。
+     */
+    @Query("SELECT t FROM TSmilePayment t WHERE t.voucherDate >= :fromDate AND t.voucherDate <= :toDate")
+    List<TSmilePayment> findByVoucherDateBetween(
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate);
 }
