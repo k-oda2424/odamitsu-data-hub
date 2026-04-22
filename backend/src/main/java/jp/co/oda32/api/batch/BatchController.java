@@ -46,6 +46,7 @@ public class BatchController {
             Map.of("jobName", "accountsPayableAggregation", "category", "買掛金", "description", "買掛金集計", "requiresShopNo", "false"),
             Map.of("jobName", "accountsPayableVerification", "category", "買掛金", "description", "買掛金検証", "requiresShopNo", "false"),
             Map.of("jobName", "accountsPayableSummary", "category", "買掛金", "description", "買掛金サマリ", "requiresShopNo", "false"),
+            Map.of("jobName", "accountsPayableBackfill", "category", "買掛金", "description", "買掛金累積残再集計", "requiresShopNo", "false"),
             Map.of("jobName", "accountsReceivableSummary", "category", "売掛金", "description", "売掛金サマリ", "requiresShopNo", "false"),
             Map.of("jobName", "purchaseJournalIntegration", "category", "仕訳連携", "description", "買掛仕入CSV出力（マネーフォワード連携）", "requiresShopNo", "false"),
             Map.of("jobName", "salesJournalIntegration", "category", "仕訳連携", "description", "売掛売上CSV出力（マネーフォワード連携）", "requiresShopNo", "false"),
@@ -74,6 +75,13 @@ public class BatchController {
     );
 
     private static final DateTimeFormatter YYYY_MM_DD = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /** fromMonth/toMonth (yyyy-MM-dd) を必須とする月範囲ジョブ。 */
+    private static final Set<String> REQUIRES_MONTH_RANGE = Set.of(
+            "accountsPayableBackfill"
+    );
+
+    private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
 
     /**
      * targetDate を yyyyMMdd に正規化。
@@ -125,6 +133,7 @@ public class BatchController {
             job.put("available", available);
             job.put("requiresInputFile", REQUIRES_INPUT_FILE.contains(jobName));
             job.put("requiresTargetDate", REQUIRES_TARGET_DATE.contains(jobName));
+            job.put("requiresMonthRange", REQUIRES_MONTH_RANGE.contains(jobName));
             return job;
         }).toList();
         return ResponseEntity.ok(result);
@@ -165,7 +174,9 @@ public class BatchController {
     public ResponseEntity<Map<String, String>> execute(
             @PathVariable String jobName,
             @RequestParam(required = false) Integer shopNo,
-            @RequestParam(required = false) String targetDate) {
+            @RequestParam(required = false) String targetDate,
+            @RequestParam(required = false) String fromMonth,
+            @RequestParam(required = false) String toMonth) {
         if (!ALLOWED_JOBS.contains(jobName)) {
             return ResponseEntity.badRequest()
                     .body(Map.of("message", "許可されていないジョブです"));
@@ -194,6 +205,26 @@ public class BatchController {
                             .body(Map.of("message", "targetDate パラメータ(yyyyMMdd または yyyy-MM-dd)が必要です"));
                 }
                 params.addString("targetDate", resolved);
+            }
+            // 月範囲ジョブ (backfill 系) は fromMonth/toMonth(yyyy-MM-dd) が必要
+            if (REQUIRES_MONTH_RANGE.contains(jobName)) {
+                if (fromMonth == null || fromMonth.isBlank() || toMonth == null || toMonth.isBlank()) {
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("message", "fromMonth / toMonth パラメータ(yyyy-MM-dd, 月末日)が必要です"));
+                }
+                try {
+                    LocalDate from = LocalDate.parse(fromMonth, ISO_DATE);
+                    LocalDate to = LocalDate.parse(toMonth, ISO_DATE);
+                    if (from.isAfter(to)) {
+                        return ResponseEntity.badRequest()
+                                .body(Map.of("message", "fromMonth は toMonth 以前である必要があります"));
+                    }
+                } catch (DateTimeParseException ex) {
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("message", "fromMonth / toMonth は yyyy-MM-dd 形式で指定してください"));
+                }
+                params.addString("fromMonth", fromMonth);
+                params.addString("toMonth", toMonth);
             }
             // 非同期で実行（APIは即座にレスポンスを返す）
             var asyncJobParams = params.toJobParameters();

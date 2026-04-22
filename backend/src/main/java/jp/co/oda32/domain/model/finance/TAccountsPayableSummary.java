@@ -87,4 +87,31 @@ public class TAccountsPayableSummary {
      */
     @Column(name = "verified_amount")
     private BigDecimal verifiedAmount;
+
+    /**
+     * MF CSV 出力時の送金日 (CSV 取引日列に使う)。
+     * Excel 振込明細取込 (applyVerification) で、行が属するセクションの送金日を記録する。
+     * 5日払いセクション hit → 当月 5日。NULL 時は transactionMonth (締め日) にフォールバック。
+     */
+    @Column(name = "mf_transfer_date")
+    private LocalDate mfTransferDate;
+
+    /**
+     * 前月末時点の累積残 (税込・符号あり)。
+     * closing_balance = opening + effectiveChange は Entity には持たず DTO 層で算出。
+     * 手動確定行でも常にバッチで上書きされる (change 列は保護、opening 列は繰越が絶対条件のため)。
+     * 設計書: claudedocs/design-supplier-partner-ledger-balance.md §4.2
+     */
+    @Builder.Default
+    @Column(name = "opening_balance_tax_included", nullable = false)
+    @ColumnDefault("0")
+    private BigDecimal openingBalanceTaxIncluded = BigDecimal.ZERO;
+
+    /**
+     * 前月末時点の累積残 (税抜・符号あり)。
+     */
+    @Builder.Default
+    @Column(name = "opening_balance_tax_excluded", nullable = false)
+    @ColumnDefault("0")
+    private BigDecimal openingBalanceTaxExcluded = BigDecimal.ZERO;
 }

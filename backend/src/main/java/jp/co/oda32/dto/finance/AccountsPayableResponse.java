@@ -28,6 +28,8 @@ public class AccountsPayableResponse {
     private String verificationNote;
     /** 検証時の請求額（振込明細 or 手入力）。 */
     private BigDecimal verifiedAmount;
+    /** MF CSV 出力時の送金日 (支払予定日)。Excel 取込時に set される。 */
+    private LocalDate mfTransferDate;
     /**
      * 検証経路の区分（UIバッジ表示用の計算フィールド。DB には保存されていない）。
      * <ul>
@@ -39,7 +41,39 @@ public class AccountsPayableResponse {
      */
     private String verificationSource;
 
+    // ---- 累積残関連 (include=balance 時のみ set。それ以外は null) ----
+    // 設計書: claudedocs/design-supplier-partner-ledger-balance.md §4.6
+
+    /** 前月末時点の累積残 (税込・符号あり)。include=balance 指定時のみ。 */
+    private BigDecimal openingBalanceTaxIncluded;
+
+    /** 前月末時点の累積残 (税抜・符号あり)。include=balance 指定時のみ。 */
+    private BigDecimal openingBalanceTaxExcluded;
+
+    /**
+     * 当月末時点の累積残 (税込・符号あり)。closing = opening + effectiveChange。
+     * effectiveChange は verifiedManually=true なら verifiedAmount、それ以外は taxIncludedAmountChange。
+     * include=balance 指定時のみ。
+     */
+    private BigDecimal closingBalanceTaxIncluded;
+
+    /** 当月末時点の累積残 (税抜・符号あり)。include=balance 指定時のみ。 */
+    private BigDecimal closingBalanceTaxExcluded;
+
     public static AccountsPayableResponse from(TAccountsPayableSummary ap, MPaymentSupplier ps) {
+        return from(ap, ps, false);
+    }
+
+    public static AccountsPayableResponse from(TAccountsPayableSummary ap) {
+        return from(ap, null, false);
+    }
+
+    /**
+     * include=balance 時に opening/closing を含めた Response を生成する。
+     * @param includeBalance true の時のみ 4 つの balance フィールドを set
+     */
+    public static AccountsPayableResponse from(TAccountsPayableSummary ap, MPaymentSupplier ps,
+                                                 boolean includeBalance) {
         boolean isManuallyVerified = Boolean.TRUE.equals(ap.getVerifiedManually());
         String source = null;
         if (isManuallyVerified) {
@@ -47,7 +81,7 @@ public class AccountsPayableResponse {
             source = (note != null && note.startsWith(FinanceConstants.VERIFICATION_NOTE_BULK_PREFIX))
                     ? "BULK" : "MANUAL";
         }
-        return AccountsPayableResponse.builder()
+        AccountsPayableResponseBuilder b = AccountsPayableResponse.builder()
                 .shopNo(ap.getShopNo())
                 .supplierNo(ap.getSupplierNo())
                 .supplierCode(ps != null ? ps.getPaymentSupplierCode() : ap.getSupplierCode())
@@ -65,10 +99,24 @@ public class AccountsPayableResponse {
                 .verificationNote(ap.getVerificationNote())
                 .verifiedAmount(ap.getVerifiedAmount())
                 .verificationSource(source)
-                .build();
+                .mfTransferDate(ap.getMfTransferDate());
+
+        if (includeBalance) {
+            BigDecimal openIncl = nz(ap.getOpeningBalanceTaxIncluded());
+            BigDecimal openExcl = nz(ap.getOpeningBalanceTaxExcluded());
+            BigDecimal effectiveChangeIncl = isManuallyVerified && ap.getVerifiedAmount() != null
+                    ? ap.getVerifiedAmount()
+                    : nz(ap.getTaxIncludedAmountChange());
+            BigDecimal effectiveChangeExcl = nz(ap.getTaxExcludedAmountChange());
+            b.openingBalanceTaxIncluded(openIncl)
+                    .openingBalanceTaxExcluded(openExcl)
+                    .closingBalanceTaxIncluded(openIncl.add(effectiveChangeIncl))
+                    .closingBalanceTaxExcluded(openExcl.add(effectiveChangeExcl));
+        }
+        return b.build();
     }
 
-    public static AccountsPayableResponse from(TAccountsPayableSummary ap) {
-        return from(ap, null);
+    private static BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
     }
 }

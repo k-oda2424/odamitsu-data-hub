@@ -31,10 +31,14 @@ import { PurchaseJournalCsvExportDialog } from './PurchaseJournalCsvExportDialog
 import {
   type AccountsPayable,
   type AccountsPayableSummary,
+  type AccountsPayableWithBalance,
+  type BalanceFilter,
   type VerificationFilter,
+  BALANCE_FILTER_LABELS,
   VERIFICATION_FILTER_LABELS,
   defaultTransactionMonth,
   fromMonthInput,
+  hasBalance,
   toMonthInput,
 } from '@/types/accounts-payable'
 
@@ -81,6 +85,8 @@ interface SearchParams {
   supplierNo?: number
   transactionMonth: string // yyyy-MM-dd
   verificationFilter: VerificationFilter
+  /** 累積残の符号フィルタ (showBalance=true の時のみ反映)。クライアント側フィルタ。 */
+  balanceFilter: BalanceFilter
 }
 
 /**
@@ -152,7 +158,14 @@ export function AccountsPayablePage() {
     shopNo: isAdmin ? undefined : user?.shopNo,
     transactionMonth: defaultTransactionMonth(),
     verificationFilter: 'all',
+    balanceFilter: 'all',
   }))
+  /**
+   * 累積残 (opening/closing) を表示するかどうか。OFF 時は API に include=balance を付けず
+   * ペイロードを抑える。日常運用は OFF、月次突合時のみ ON にする想定。
+   * 設計書: design-supplier-partner-ledger-balance.md §4.5
+   */
+  const [showBalance, setShowBalance] = useState(false)
   const [page, setPage] = useState(0)
   const [dialogRow, setDialogRow] = useState<AccountsPayable | null>(null)
   const [bulkDialog, setBulkDialog] = useState(false)
@@ -185,8 +198,9 @@ export function AccountsPayablePage() {
     if (params.shopNo !== undefined) sp.set('shopNo', String(params.shopNo))
     if (params.supplierNo !== undefined) sp.set('supplierNo', String(params.supplierNo))
     if (params.verificationFilter !== 'all') sp.set('verificationFilter', params.verificationFilter)
+    if (showBalance) sp.set('include', 'balance')
     return sp.toString()
-  }, [page, params.transactionMonth, params.shopNo, params.supplierNo, params.verificationFilter])
+  }, [page, params.transactionMonth, params.shopNo, params.supplierNo, params.verificationFilter, showBalance])
 
   const apQuery = useQuery({
     queryKey: ['accounts-payable', queryString],
@@ -333,7 +347,37 @@ export function AccountsPayablePage() {
   const lastStatus = (job: BatchJobName): JobStatus | string | undefined =>
     batchStatusQuery.data?.[job]?.status
 
-  const columns: Column<AccountsPayable>[] = [
+  const balanceColumns: Column<AccountsPayable>[] = [
+    {
+      key: 'openingBalanceTaxIncluded',
+      header: '前月繰越',
+      render: (r) => {
+        if (!hasBalance(r)) return <span className="text-muted-foreground">-</span>
+        const v = r.openingBalanceTaxIncluded
+        const cls = v < 0 ? 'text-amber-700 tabular-nums' : 'tabular-nums'
+        return <span className={cls}>{formatCurrency(v)}</span>
+      },
+    },
+    {
+      key: 'closingBalanceTaxIncluded',
+      header: '累積残',
+      render: (r) => {
+        if (!hasBalance(r)) return <span className="text-muted-foreground">-</span>
+        const v = r.closingBalanceTaxIncluded
+        if (v < 0) {
+          return (
+            <div className="flex items-center gap-1">
+              <span className="text-amber-700 font-medium tabular-nums">{formatCurrency(v)}</span>
+              <Badge variant="outline" className="border-amber-500 text-amber-700 text-xs">値引繰越</Badge>
+            </div>
+          )
+        }
+        return <span className="tabular-nums">{formatCurrency(v)}</span>
+      },
+    },
+  ]
+
+  const baseColumns: Column<AccountsPayable>[] = [
     { key: 'supplierCode', header: '仕入先コード', sortable: true },
     {
       key: 'supplierName',
@@ -393,11 +437,6 @@ export function AccountsPayablePage() {
       ),
     },
     {
-      key: 'taxIncludedAmount',
-      header: 'SMILE支払額',
-      render: (r) => <span className="tabular-nums">{r.taxIncludedAmount == null ? '-' : formatCurrency(r.taxIncludedAmount)}</span>,
-    },
-    {
       key: 'paymentDifference',
       header: '差額',
       render: (r) => {
@@ -407,6 +446,15 @@ export function AccountsPayablePage() {
       },
     },
     { key: 'verificationResult', header: '検証状態', render: (r) => <VerificationBadge row={r} /> },
+    {
+      key: 'mfTransferDate',
+      header: '支払予定日',
+      render: (r) => (
+        <span className="tabular-nums text-xs">
+          {r.mfTransferDate ?? '-'}
+        </span>
+      ),
+    },
     {
       key: 'mfExportEnabled',
       header: 'MF出力',
@@ -430,11 +478,39 @@ export function AccountsPayablePage() {
     },
   ]
 
+  // 残高表示 ON 時は「支払予定日」の前に opening/closing 列を挿入 (支払予定日と操作は右端維持)
+  const columns: Column<AccountsPayable>[] = showBalance
+    ? (() => {
+        const insertAt = baseColumns.findIndex((c) => c.key === 'mfTransferDate')
+        return insertAt < 0
+          ? [...baseColumns, ...balanceColumns]
+          : [...baseColumns.slice(0, insertAt), ...balanceColumns, ...baseColumns.slice(insertAt)]
+      })()
+    : baseColumns
+
   if (apQuery.isLoading && !apQuery.data) return <LoadingSpinner />
   if (apQuery.isError) return <ErrorMessage onRetry={() => apQuery.refetch()} />
 
   const p = apQuery.data ?? emptyPage<AccountsPayable>(PAGE_SIZE)
   const summary = summaryQuery.data
+
+  // 累積残フィルタ (クライアント側、現ページ内のみ)。balanceFilter=all or showBalance=false の時は素通し
+  const filteredContent: AccountsPayable[] =
+    showBalance && params.balanceFilter !== 'all'
+      ? p.content.filter((r) => {
+          if (!hasBalance(r)) return false
+          return params.balanceFilter === 'negative'
+            ? r.closingBalanceTaxIncluded < 0
+            : r.closingBalanceTaxIncluded >= 0
+        })
+      : p.content
+  // 現ページ内の負残件数 (banner 用)
+  const negativeOnPage = showBalance
+    ? p.content.filter((r): r is AccountsPayableWithBalance =>
+        hasBalance(r) && r.closingBalanceTaxIncluded < 0,
+      )
+    : []
+  const negativeSum = negativeOnPage.reduce((s, r) => s + r.closingBalanceTaxIncluded, 0)
 
   const shopOptions = (shopsQuery.data ?? []).map((s) => ({
     value: String(s.shopNo),
@@ -575,6 +651,44 @@ export function AccountsPayablePage() {
             </Select>
           </div>
         </div>
+        <div className="flex items-center gap-4 pt-1">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="ap-show-balance"
+              checked={showBalance}
+              onCheckedChange={(checked) => {
+                setShowBalance(checked)
+                // OFF → 残高フィルタも自動 all へ戻す
+                if (!checked) {
+                  setParams((prev) => ({ ...prev, balanceFilter: 'all' }))
+                }
+              }}
+            />
+            <Label htmlFor="ap-show-balance" className="cursor-pointer">累積残を表示</Label>
+          </div>
+          {showBalance && (
+            <div className="flex items-center gap-2">
+              <Label className="text-muted-foreground text-xs">累積残フィルタ</Label>
+              <Select
+                value={params.balanceFilter}
+                onValueChange={(v) => {
+                  setParams((prev) => ({ ...prev, balanceFilter: v as BalanceFilter }))
+                }}
+              >
+                <SelectTrigger className="h-8 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(BALANCE_FILTER_LABELS) as BalanceFilter[]).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {BALANCE_FILTER_LABELS[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
       </div>
 
       {summary && (summary.unverifiedCount > 0 || summary.unmatchedCount > 0) && (
@@ -588,6 +702,18 @@ export function AccountsPayablePage() {
             {summary.unmatchedCount > 0 && (
               <span>（差額合計 {formatCurrency(summary.unmatchedDifferenceSum)}）</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {showBalance && negativeOnPage.length > 0 && (
+        <div
+          role="alert"
+          className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800"
+        >
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="h-4 w-4" />
+            累積負残: {negativeOnPage.length}件（合計 {formatCurrency(negativeSum)}）※ 値引による繰越負残。現在のページ内集計
           </div>
         </div>
       )}
@@ -609,7 +735,7 @@ export function AccountsPayablePage() {
         </TabsList>
         <TabsContent value="payable" className="mt-3">
           <DataTable
-            data={p.content}
+            data={filteredContent}
             columns={columns}
             serverPagination={{
               page: p.number,

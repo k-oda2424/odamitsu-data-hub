@@ -78,8 +78,13 @@ public class FinanceController {
             @RequestParam(required = false) Integer supplierNo,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth,
             @RequestParam(required = false) String verificationFilter,
+            @RequestParam(required = false) String include,
             @PageableDefault(size = 50, sort = "supplierCode", direction = Sort.Direction.ASC) Pageable pageable) {
         Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
+        boolean includeBalance = include != null
+                && java.util.Arrays.stream(include.split(","))
+                        .map(String::trim)
+                        .anyMatch("balance"::equalsIgnoreCase);
         Page<TAccountsPayableSummary> page = accountsPayableSummaryService.findPaged(
                 effectiveShopNo, supplierNo, transactionMonth, verificationFilter, pageable);
 
@@ -90,7 +95,8 @@ public class FinanceController {
         Map<Integer, MPaymentSupplier> psMap = mPaymentSupplierService.findAllByPaymentSupplierNos(supplierNos).stream()
                 .collect(Collectors.toMap(MPaymentSupplier::getPaymentSupplierNo, p -> p, (a, b) -> a));
 
-        return ResponseEntity.ok(page.map(ap -> AccountsPayableResponse.from(ap, psMap.get(ap.getSupplierNo()))));
+        return ResponseEntity.ok(page.map(ap -> AccountsPayableResponse.from(
+                ap, psMap.get(ap.getSupplierNo()), includeBalance)));
     }
 
     @GetMapping("/accounts-payable/summary")

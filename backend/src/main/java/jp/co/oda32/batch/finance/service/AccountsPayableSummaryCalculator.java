@@ -162,9 +162,12 @@ public class AccountsPayableSummaryCalculator {
             log.warn("tax_rate 未設定のため集計対象外とした仕入明細: {}", missingTaxRate);
         }
 
-        // 集計結果を元に、TAccountsPayableSummaryエンティティを生成する
+        // 集計結果を元に、TAccountsPayableSummaryエンティティを生成する。
+        // 負値 (値引 > 仕入) は「値引超過」として累積残管理 (opening_balance) の月跨ぎ繰越に
+        // 必要なため保持する。設計書: design-supplier-partner-ledger-balance.md §1。
+        // 0 のみ除外する (row を作る意味がない)。
         return summaryMap.entrySet().stream()
-                .filter(entry -> entry.getValue().getBaseAmount().compareTo(BigDecimal.ZERO) > 0) // 買掛の無い仕入先を除外
+                .filter(entry -> entry.getValue().getBaseAmount().compareTo(BigDecimal.ZERO) != 0)
                 .map(entry -> {
                     SummaryKey key = entry.getKey();
                     TaxAggregationResult agg = entry.getValue();
