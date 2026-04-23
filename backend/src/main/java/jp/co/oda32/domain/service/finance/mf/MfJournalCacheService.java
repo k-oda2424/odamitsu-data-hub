@@ -84,6 +84,28 @@ public class MfJournalCacheService {
         log.info("[mf-cache] shopNo={} 全キャッシュ破棄", shopNo);
     }
 
+    /**
+     * 軸 E ヘルスチェック用: shop 単位の cache 状態を snapshot で取得。
+     * 非同期 (non-synchronized) でも ConcurrentHashMap の iteration は安全。
+     */
+    public List<ShopStats> getStats() {
+        List<ShopStats> list = new ArrayList<>();
+        for (Map.Entry<Integer, MonthlyCache> e : cachesByShop.entrySet()) {
+            MonthlyCache c = e.getValue();
+            Instant oldest = null;
+            Instant newest = null;
+            for (Instant f : c.fetchedAtByMonth.values()) {
+                if (oldest == null || f.isBefore(oldest)) oldest = f;
+                if (newest == null || f.isAfter(newest)) newest = f;
+            }
+            list.add(new ShopStats(e.getKey(), c.fetchedMonths.size(), oldest, newest));
+        }
+        return list;
+    }
+
+    /** shop × 月数 × fetchedAt (最古/最新) のスナップショット。 */
+    public record ShopStats(Integer shopNo, int monthsCount, Instant oldestFetchedAt, Instant newestFetchedAt) {}
+
     private void invalidatePeriod(MonthlyCache cache, LocalDate fromMonth, LocalDate toMonth) {
         LocalDate cursor = fromMonth;
         while (!cursor.isAfter(toMonth)) {

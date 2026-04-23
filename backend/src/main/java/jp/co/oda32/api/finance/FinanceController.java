@@ -9,9 +9,12 @@ import jp.co.oda32.domain.service.finance.AccountsPayableIntegrityService;
 import jp.co.oda32.domain.service.finance.AccountsPayableLedgerService;
 import jp.co.oda32.domain.service.finance.InvoiceImportService;
 import jp.co.oda32.domain.service.finance.MPartnerGroupService;
+import jp.co.oda32.domain.service.finance.MfHealthCheckService;
 import jp.co.oda32.domain.service.finance.PurchaseJournalCsvService;
+import jp.co.oda32.domain.service.finance.SupplierBalancesService;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
 import jp.co.oda32.domain.service.finance.TInvoiceService;
+import jp.co.oda32.domain.service.finance.mf.MfJournalCacheService;
 import jp.co.oda32.domain.service.finance.mf.MfReAuthRequiredException;
 import jp.co.oda32.domain.service.finance.mf.MfScopeInsufficientException;
 import jp.co.oda32.domain.service.finance.mf.MfSupplierLedgerService;
@@ -22,7 +25,9 @@ import jp.co.oda32.dto.finance.AccountsPayableLedgerResponse;
 import jp.co.oda32.dto.finance.AccountsPayableResponse;
 import jp.co.oda32.dto.finance.AccountsPayableSummaryResponse;
 import jp.co.oda32.dto.finance.IntegrityReportResponse;
+import jp.co.oda32.dto.finance.MfHealthResponse;
 import jp.co.oda32.dto.finance.MfSupplierLedgerResponse;
+import jp.co.oda32.dto.finance.SupplierBalancesResponse;
 import jp.co.oda32.dto.finance.AccountsPayableVerifyRequest;
 import jp.co.oda32.dto.finance.BulkPaymentDateRequest;
 import jp.co.oda32.dto.finance.MfExportToggleRequest;
@@ -82,6 +87,9 @@ public class FinanceController {
     private final AccountsPayableLedgerService accountsPayableLedgerService;
     private final MfSupplierLedgerService mfSupplierLedgerService;
     private final AccountsPayableIntegrityService accountsPayableIntegrityService;
+    private final SupplierBalancesService supplierBalancesService;
+    private final MfHealthCheckService mfHealthCheckService;
+    private final MfJournalCacheService mfJournalCacheService;
 
     @GetMapping("/accounts-payable")
     public ResponseEntity<Page<AccountsPayableResponse>> listAccountsPayable(
@@ -219,6 +227,57 @@ public class FinanceController {
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("message", e.getMessage()));
         }
+    }
+
+    /**
+     * 軸 D: supplier 累積残一覧。
+     * 期首 (2025-05-20) 〜 asOfMonth の全 supplier 累積残を自社 / MF で突合し、
+     * MATCH / MINOR / MAJOR / MF_MISSING / SELF_MISSING で分類。
+     *
+     * @param shopNo     ショップ番号 (必須)
+     * @param asOfMonth  基準月 (20日締め、省略時は最新月)
+     * @param refresh    true で対象期間の MF journals キャッシュを discard → 再取得
+     * @since 2026-04-23
+     */
+    @GetMapping("/accounts-payable/supplier-balances")
+    public ResponseEntity<?> getSupplierBalances(
+            @RequestParam("shopNo") Integer shopNo,
+            @RequestParam(value = "asOfMonth", required = false)
+                @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOfMonth,
+            @RequestParam(value = "refresh", defaultValue = "false") boolean refresh) {
+        assertShopAccess(shopNo);
+        try {
+            SupplierBalancesResponse res = supplierBalancesService.generate(shopNo, asOfMonth, refresh);
+            return ResponseEntity.ok(res);
+        } catch (MfReAuthRequiredException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
+        } catch (MfScopeInsufficientException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "message", e.getMessage(),
+                    "requiredScope", e.getRequiredScope()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /**
+     * 軸 E: MF 連携ヘルスチェック。
+     * MF OAuth 状態 / 買掛金サマリ集計 / anomaly / journals cache を 1 レスポンスで返す。
+     */
+    @GetMapping("/mf-health")
+    public ResponseEntity<MfHealthResponse> getMfHealth(@RequestParam("shopNo") Integer shopNo) {
+        assertShopAccess(shopNo);
+        return ResponseEntity.ok(mfHealthCheckService.check(shopNo));
+    }
+
+    /**
+     * 軸 E: MF journals キャッシュを shop 単位で全破棄。
+     */
+    @PostMapping("/mf-health/cache/invalidate")
+    public ResponseEntity<Void> invalidateMfCache(@RequestParam("shopNo") Integer shopNo) {
+        assertShopAccess(shopNo);
+        mfJournalCacheService.invalidateAll(shopNo);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/accounts-payable/ledger/mf")

@@ -73,4 +73,32 @@ public interface TAccountsPayableSummaryRepository extends JpaRepository<TAccoun
      */
     List<TAccountsPayableSummary> findByShopNoAndTransactionMonthBetweenOrderBySupplierNoAscTransactionMonthAscTaxRateAsc(
             Integer shopNo, LocalDate fromMonth, LocalDate toMonth);
+
+    /**
+     * 軸 D supplier 累積残 / 軸 E ヘルスチェック用: shop の最新 transaction_month を取得。
+     */
+    @Query("SELECT MAX(s.transactionMonth) FROM TAccountsPayableSummary s WHERE s.shopNo = :shopNo")
+    java.util.Optional<LocalDate> findLatestTransactionMonth(@Param("shopNo") Integer shopNo);
+
+    /**
+     * 軸 E ヘルスチェック用: 指定 shop の negative closing 行数。
+     */
+    @Query("SELECT COUNT(s) FROM TAccountsPayableSummary s WHERE s.shopNo = :shopNo " +
+            "AND (COALESCE(s.openingBalanceTaxIncluded, 0) + " +
+            "     CASE WHEN s.verifiedManually = true AND s.verifiedAmount IS NOT NULL " +
+            "          THEN s.verifiedAmount ELSE COALESCE(s.taxIncludedAmountChange, 0) END - " +
+            "     COALESCE(s.paymentAmountSettledTaxIncluded, 0)) < 0")
+    long countNegativeClosings(@Param("shopNo") Integer shopNo);
+
+    /**
+     * 軸 E ヘルスチェック用: 指定 shop × 指定月 の未検証行数。
+     */
+    long countByShopNoAndTransactionMonthAndVerificationResult(Integer shopNo, LocalDate transactionMonth, Integer verificationResult);
+
+    /**
+     * 軸 E ヘルスチェック用: 指定 shop × 指定月 の total / mfExportEnabled 行数。
+     */
+    long countByShopNoAndTransactionMonth(Integer shopNo, LocalDate transactionMonth);
+
+    long countByShopNoAndTransactionMonthAndMfExportEnabled(Integer shopNo, LocalDate transactionMonth, Boolean mfExportEnabled);
 }

@@ -88,8 +88,11 @@ const menuGroups: MenuGroup[] = [
       { title: '請求書', icon: Receipt, href: '/finance/invoices' },
       { title: '買掛金', icon: BarChart3, href: '/finance/accounts-payable' },
       { title: '買掛帳', icon: BookOpen, href: '/finance/accounts-payable-ledger' },
+      { title: '整合性レポート', icon: BookOpen, href: '/finance/accounts-payable-ledger/integrity' },
+      { title: 'supplier 累積残', icon: BookOpen, href: '/finance/accounts-payable-ledger/supplier-balances' },
       { title: '売掛金', icon: BarChart3, href: '/finance/accounts-receivable' },
       { title: 'MF連携状況', icon: Link2, href: '/finance/mf-integration', adminOnly: true },
+      { title: 'MF ヘルスチェック', icon: Link2, href: '/finance/mf-health', adminOnly: true },
     ],
   },
   {
