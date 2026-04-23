@@ -16,6 +16,10 @@ export interface AccountsPayable {
   verificationNote: string | null
   /** 検証時の請求額（振込明細 or 手入力の税込）。 */
   verifiedAmount: number | null
+  /** V026: verified_amount に対応する税抜確定額 (振込明細 Excel 由来)。 */
+  verifiedAmountTaxExcluded?: number | null
+  /** V026: 振込明細取込時の自動調整額 (= verified_amount − tax_included_amount_change)。0 なら調整なし。 */
+  autoAdjustedAmount?: number | null
   /**
    * 検証経路の区分（backend 計算フィールド）。
    * - BULK:   振込明細Excelでの一括検証

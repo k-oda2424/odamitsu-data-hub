@@ -29,6 +29,10 @@ public class AccountsPayableResponse {
     private String verificationNote;
     /** 検証時の請求額（振込明細 or 手入力）。 */
     private BigDecimal verifiedAmount;
+    /** V026: verified_amount に対応する税抜確定額 (振込明細 Excel 由来)。 */
+    private BigDecimal verifiedAmountTaxExcluded;
+    /** V026: 振込明細取込時の自動調整額 (= verified_amount − tax_included_amount_change)。0 なら調整なし。 */
+    private BigDecimal autoAdjustedAmount;
     /** MF CSV 出力時の送金日 (支払予定日)。Excel 取込時に set される。 */
     private LocalDate mfTransferDate;
     /**
@@ -109,6 +113,8 @@ public class AccountsPayableResponse {
                 .verifiedManually(isManuallyVerified)
                 .verificationNote(ap.getVerificationNote())
                 .verifiedAmount(ap.getVerifiedAmount())
+                .verifiedAmountTaxExcluded(ap.getVerifiedAmountTaxExcluded())
+                .autoAdjustedAmount(ap.getAutoAdjustedAmount())
                 .verificationSource(source)
                 .mfTransferDate(ap.getMfTransferDate());
 

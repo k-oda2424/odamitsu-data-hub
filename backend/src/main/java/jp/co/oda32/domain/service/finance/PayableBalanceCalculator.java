@@ -49,12 +49,24 @@ public final class PayableBalanceCalculator {
     }
 
     /**
-     * 税抜 closing = opening_excl + change_excl - payment_settled_excl。
-     * 手動確定時の税抜側は tax_excluded_amount_change のままで税込側とは微小非対称あり。
+     * 税抜の effectiveChange。手動確定行 (verifiedAmountTaxExcluded != null) なら優先、
+     * それ以外は taxExcludedAmountChange。V026 対応 (2026-04-23)。
+     */
+    public static BigDecimal effectiveChangeTaxExcluded(TAccountsPayableSummary r) {
+        boolean manual = Boolean.TRUE.equals(r.getVerifiedManually());
+        return manual && r.getVerifiedAmountTaxExcluded() != null
+                ? r.getVerifiedAmountTaxExcluded()
+                : nz(r.getTaxExcludedAmountChange());
+    }
+
+    /**
+     * 税抜 closing = opening_excl + effectiveChange_excl - payment_settled_excl。
+     * V026 以降、手動確定行は verifiedAmountTaxExcluded を優先して使うため
+     * MF CSV 出力の「仕入高」金額が仕入先請求書と一致する。
      */
     public static BigDecimal closingTaxExcluded(TAccountsPayableSummary r) {
         return nz(r.getOpeningBalanceTaxExcluded())
-                .add(nz(r.getTaxExcludedAmountChange()))
+                .add(effectiveChangeTaxExcluded(r))
                 .subtract(nz(r.getPaymentAmountSettledTaxExcluded()));
     }
 

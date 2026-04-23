@@ -45,6 +45,8 @@ public class AccountsPayableLedgerResponse {
          */
         private BigDecimal effectiveChangeTaxIncluded;
         private BigDecimal verifiedAmount;
+        /** V026: 振込明細取込時の自動調整額合計 (税率別行の合算)。0 なら調整なし。 */
+        private BigDecimal autoAdjustedAmount;
         private BigDecimal paymentSettledTaxIncluded;
         private BigDecimal closingBalanceTaxIncluded;
         private Integer taxRateCount;

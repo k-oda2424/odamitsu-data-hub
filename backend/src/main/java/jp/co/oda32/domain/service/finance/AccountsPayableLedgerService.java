@@ -142,6 +142,7 @@ public class AccountsPayableLedgerService {
         BigDecimal effectiveChange = BigDecimal.ZERO;
         BigDecimal paymentSettled = BigDecimal.ZERO;
         BigDecimal closing = BigDecimal.ZERO;
+        BigDecimal autoAdjusted = BigDecimal.ZERO;
         boolean hasPaymentOnly = false;
         boolean hasVerifiedManually = false;
         List<TaxRateInfo> breakdown = new ArrayList<>();
@@ -151,6 +152,7 @@ public class AccountsPayableLedgerService {
             change = change.add(nz(r.getTaxIncludedAmountChange()));
             effectiveChange = effectiveChange.add(PayableBalanceCalculator.effectiveChangeTaxIncluded(r));
             paymentSettled = paymentSettled.add(nz(r.getPaymentAmountSettledTaxIncluded()));
+            autoAdjusted = autoAdjusted.add(nz(r.getAutoAdjustedAmount()));
             // closing は PayableBalanceCalculator (Phase B' 流用、R3 反映)
             closing = closing.add(PayableBalanceCalculator.closingTaxIncluded(r));
             if (Boolean.TRUE.equals(r.getIsPaymentOnly())) hasPaymentOnly = true;
@@ -175,12 +177,19 @@ public class AccountsPayableLedgerService {
                 .noneMatch(a -> "CONTINUITY_BREAK".equals(a.getCode())
                         || "MONTH_GAP".equals(a.getCode()));
 
+        // 税率別複数行で autoAdjusted が重複計上される (applyVerification は全税率行に同額書き込み)。
+        // 代表値として 1 行分に戻す: 行数で割る。単一税率なら変わらない。
+        BigDecimal autoAdjustedAvg = breakdown.isEmpty()
+                ? BigDecimal.ZERO
+                : autoAdjusted.divide(BigDecimal.valueOf(breakdown.size()), 0, java.math.RoundingMode.DOWN);
+
         return LedgerRow.builder()
                 .transactionMonth(month)
                 .openingBalanceTaxIncluded(opening)
                 .changeTaxIncluded(change)
                 .effectiveChangeTaxIncluded(effectiveChange)
                 .verifiedAmount(verified)
+                .autoAdjustedAmount(autoAdjustedAvg)
                 .paymentSettledTaxIncluded(paymentSettled)
                 .closingBalanceTaxIncluded(closing)
                 .taxRateCount(breakdown.size())

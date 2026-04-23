@@ -130,19 +130,32 @@ function VerificationBadge({ row }: { row: AccountsPayable }) {
   // 安全側に倒して手動扱い（BULK 以外は手動）とする。
   const showManualBadge =
     row.verifiedManually === true && row.verificationSource !== 'BULK'
+  // V026: 自動調整 (振込明細金額と自社計算の差を合わせた痕跡) を ±¥N で表示
+  const adj = row.autoAdjustedAmount ?? 0
+  const showAdjBadge = adj !== 0
+  const adjClass = Math.abs(adj) > 100
+    ? 'border-red-500 text-red-700'
+    : 'border-amber-500 text-amber-700'
+  const AdjBadge = showAdjBadge ? (
+    <Badge variant="outline" className={`text-xs ${adjClass}`} title={`振込明細取込で ${adj > 0 ? '+' : ''}¥${adj.toLocaleString('ja-JP')} 自動調整`}>
+      調整 {adj > 0 ? '+' : ''}¥{Math.abs(adj).toLocaleString('ja-JP')}
+    </Badge>
+  ) : null
   if (row.verificationResult === 1) {
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         <Badge className="bg-green-600 hover:bg-green-700">一致</Badge>
         {showManualBadge && <Badge variant="outline" className="text-xs">手動</Badge>}
+        {AdjBadge}
       </div>
     )
   }
   if (row.verificationResult === 0) {
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         <Badge variant="destructive">不一致</Badge>
         {showManualBadge && <Badge variant="outline" className="text-xs">手動</Badge>}
+        {AdjBadge}
       </div>
     )
   }

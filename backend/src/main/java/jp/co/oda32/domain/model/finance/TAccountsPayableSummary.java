@@ -89,6 +89,24 @@ public class TAccountsPayableSummary {
     private BigDecimal verifiedAmount;
 
     /**
+     * 振込明細 Excel 由来の税抜確定額。verifiedAmount (税込) と対で保持し、
+     * MF CSV 出力の「仕入高」金額に使われる。null の場合は自社計算 (taxExcludedAmountChange) を使用。
+     * V026 で追加 (2026-04-23)。
+     */
+    @Column(name = "verified_amount_tax_excluded")
+    private BigDecimal verifiedAmountTaxExcluded;
+
+    /**
+     * 振込明細 Excel 取込時の自動調整額 (= verifiedAmount - taxIncludedAmountChange、符号あり)。
+     * 消費税丸め差等で ±100 円以内に自動合わせ込みされた金額。0 なら調整なし。
+     * V026 で追加 (2026-04-23)。
+     */
+    @Builder.Default
+    @Column(name = "auto_adjusted_amount", nullable = false)
+    @ColumnDefault("0")
+    private BigDecimal autoAdjustedAmount = BigDecimal.ZERO;
+
+    /**
      * MF CSV 出力時の送金日 (CSV 取引日列に使う)。
      * Excel 振込明細取込 (applyVerification) で、行が属するセクションの送金日を記録する。
      * 5日払いセクション hit → 当月 5日。NULL 時は transactionMonth (締め日) にフォールバック。

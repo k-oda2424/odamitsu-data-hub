@@ -258,13 +258,31 @@ public class PaymentMfImportService {
             // 振込明細の請求額は支払先単位で1件だが、DBは税率別に複数行ある場合がある。
             // UI 表示用途のため、全税率行に同じ verified_amount を書き込む
             // （税率別の請求額内訳は Excel 側に存在しないため、合計値を代表値として保持）。
+            // V026: 税抜側 (verified_amount_tax_excluded) も税率別に逆算して書き込む
+            // → MF CSV 出力の「仕入高」金額が仕入先請求書と一致する。
+            // auto_adjusted_amount に自動調整額 (verified - 元の自社計算) を記録 (監査証跡)。
+            BigDecimal autoAdjusted = isMatched ? invoice.subtract(payable) : BigDecimal.ZERO;
+            String adjustNote = isMatched && autoAdjusted.signum() != 0
+                    ? note + " | 自動調整: 元 ¥" + payable + " → ¥" + invoice
+                      + " (" + (autoAdjusted.signum() > 0 ? "+" : "") + "¥" + autoAdjusted + ")"
+                    : note;
             for (TAccountsPayableSummary s : list) {
                 s.setVerificationResult(isMatched ? 1 : 0);
                 s.setPaymentDifference(difference);
                 s.setVerifiedManually(true);
                 s.setMfExportEnabled(isMatched);
-                s.setVerificationNote(note);
+                s.setVerificationNote(adjustNote);
                 s.setVerifiedAmount(invoice);
+                // V026: 税抜 verified を税率別に逆算 (単一税率前提。複数税率の仕入先は手動調整で対応)。
+                BigDecimal taxRate = s.getTaxRate() != null ? s.getTaxRate() : BigDecimal.TEN;
+                BigDecimal divisor = BigDecimal.valueOf(100).add(taxRate);
+                BigDecimal invoiceTaxExcl = invoice.multiply(BigDecimal.valueOf(100))
+                        .divide(divisor, 0, java.math.RoundingMode.DOWN);
+                s.setVerifiedAmountTaxExcluded(invoiceTaxExcl);
+                s.setAutoAdjustedAmount(autoAdjusted);
+                // 5日払いセクション hit (afterTotal=false) の PAYABLE のみここに到達する。
+                // Excel の送金日を CSV 取引日として記録する。
+                s.setMfTransferDate(cached.getTransferDate());
                 payableService.save(s);
             }
         }
@@ -487,11 +505,21 @@ public class PaymentMfImportService {
             if (amount == 0L) continue;
             totalAmount += amount;
 
+            // PAYABLE 行の取引日は mf_transfer_date (= Excel 振込明細の送金日) を優先。
+            // 同一 supplier に複数税率行があって mf_transfer_date がバラバラのケースは想定外だが、
+            // 最初の非 null を採用する (振込明細一括検証時は全税率行に同じ値が入る)。
+            java.time.LocalDate txDate = group.stream()
+                    .map(TAccountsPayableSummary::getMfTransferDate)
+                    .filter(java.util.Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+
             String sourceName = rule.getSourceName();
             PaymentMfPreviewRow row = PaymentMfPreviewRow.builder()
                     .paymentSupplierCode(s.getSupplierCode())
                     .sourceName(sourceName)
                     .amount(amount)
+                    .transactionDate(txDate)
                     .ruleKind(rule.getRuleKind())
                     .debitAccount(rule.getDebitAccount())
                     .debitSubAccount(rule.getDebitSubAccount())
@@ -513,6 +541,7 @@ public class PaymentMfImportService {
         int payableCount = csvRows.size();
 
         // 補助行 (EXPENSE/SUMMARY/DIRECT_PURCHASE) を末尾に追加 (transferDate ASC, sequenceNo ASC)
+        // aux.transferDate (Excel 振込明細の送金日) を取引日として使う。
         for (TPaymentMfAuxRow aux : auxRows) {
             long amount = aux.getAmount() == null ? 0L : toLongFloor(aux.getAmount());
             totalAmount += amount;
@@ -520,6 +549,7 @@ public class PaymentMfImportService {
                     .paymentSupplierCode(aux.getPaymentSupplierCode())
                     .sourceName(aux.getSourceName())
                     .amount(amount)
+                    .transactionDate(aux.getTransferDate())
                     .ruleKind(aux.getRuleKind())
                     .debitAccount(aux.getDebitAccount())
                     .debitSubAccount(aux.getDebitSubAccount())
