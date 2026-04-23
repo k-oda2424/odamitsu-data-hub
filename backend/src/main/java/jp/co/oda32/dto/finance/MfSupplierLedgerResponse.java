@@ -32,6 +32,13 @@ public class MfSupplierLedgerResponse {
     private List<MfLedgerRow> rows;
     private Instant fetchedAt;
     private Integer totalJournalCount;
+    /**
+     * MF /journals 取得の実際の開始日 (fiscal year 境界 fallback で採用された値)。
+     * 2025-05-20 設定でも MF 会計期首が 2025-06-21 の場合はそれが返る。
+     */
+    private LocalDate mfStartDate;
+    /** MF /journals 取得の終了日 (= toMonth)。 */
+    private LocalDate mfEndDate;
 
     @Data
     @Builder
@@ -44,5 +51,7 @@ public class MfSupplierLedgerResponse {
         private BigDecimal mfDebitInMonth;
         /** 月次 delta = credit − debit (+ なら買掛増、- なら支払で減)。 */
         private BigDecimal mfPeriodDelta;
+        /** MF 累積残 = 期首 (2025-05-20) 〜当月の Σ(credit − debit)。自社 closing との差比較用。 */
+        private BigDecimal mfCumulativeBalance;
     }
 }

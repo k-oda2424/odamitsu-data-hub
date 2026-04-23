@@ -161,6 +161,13 @@ export function AccountsPayableLedgerPage() {
     return m
   }, [mfLedger])
 
+  // MF 累積残を月キーで lookup
+  const mfCumulativeByMonth = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of mfLedger?.rows ?? []) m.set(r.transactionMonth, r.mfCumulativeBalance ?? 0)
+    return m
+  }, [mfLedger])
+
   const data = ledgerQuery.data
 
   return (
@@ -291,14 +298,22 @@ export function AccountsPayableLedgerPage() {
                 </Button>
               )}
               {mfLedger && (
-                <span className="text-xs text-muted-foreground">
-                  matched: {mfLedger.matchedSubAccountNames.join(', ') || '(なし)'} / journals {mfLedger.totalJournalCount} 件
-                  {mfLedger.fetchedAt && (
-                    <span className="ml-2">
-                      / 取得: {new Date(mfLedger.fetchedAt).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })}
-                    </span>
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  <div>
+                    matched: {mfLedger.matchedSubAccountNames.join(', ') || '(なし)'} / journals {mfLedger.totalJournalCount} 件
+                    {mfLedger.fetchedAt && (
+                      <span className="ml-2">
+                        取得: {new Date(mfLedger.fetchedAt).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })}
+                      </span>
+                    )}
+                  </div>
+                  {mfLedger.mfStartDate && mfLedger.mfEndDate && (
+                    <div>
+                      <span className="font-semibold">MF 取得期間:</span> {mfLedger.mfStartDate} 〜 {mfLedger.mfEndDate}
+                      <span className="ml-2 text-amber-700">※ 実際は MF 会計期首 (fiscal year 境界) 以降のみ取得。期首前の累積残は反映されず、累積残の序盤は実態とズレます。</span>
+                    </div>
                   )}
-                </span>
+                </div>
               )}
               {mfLedger && mfLedger.unmatchedCandidates.length > 0 && (
                 <span className="flex items-center gap-1 text-xs text-amber-700">
@@ -332,6 +347,8 @@ export function AccountsPayableLedgerPage() {
                       <>
                         <th className="py-2 text-right">MF delta</th>
                         <th className="py-2 text-right">Δ(自社-MF)</th>
+                        <th className="py-2 text-right">MF 累積残</th>
+                        <th className="py-2 text-right">累積差</th>
                       </>
                     )}
                     <th className="py-2">ステータス</th>
@@ -340,7 +357,7 @@ export function AccountsPayableLedgerPage() {
                 <tbody>
                   {data.rows.length === 0 && (
                     <tr>
-                      <td colSpan={mfLedger ? 9 : 7} className="py-6 text-center text-muted-foreground">
+                      <td colSpan={mfLedger ? 11 : 7} className="py-6 text-center text-muted-foreground">
                         期間内にデータがありません
                       </td>
                     </tr>
@@ -376,7 +393,15 @@ export function AccountsPayableLedgerPage() {
                         <td className={`py-2 text-right font-medium ${row.closingBalanceTaxIncluded < 0 ? 'text-amber-700' : ''}`}>
                           {formatCurrency(row.closingBalanceTaxIncluded)}
                         </td>
-                        {mfLedger && (
+                        {mfLedger && (() => {
+                          const mfCum = mfCumulativeByMonth.get(row.transactionMonth) ?? 0
+                          const cumDiff = row.closingBalanceTaxIncluded - mfCum
+                          const cumClass =
+                            cumDiff === 0 ? 'text-green-700'
+                            : Math.abs(cumDiff) > 1000 ? 'text-red-700 font-medium'
+                            : Math.abs(cumDiff) > 100 ? 'text-amber-700 font-medium'
+                            : 'text-muted-foreground'
+                          return (
                           <>
                             <td className="py-2 text-right">{formatCurrency(mfDelta ?? 0)}</td>
                             <td className={`py-2 text-right ${
@@ -388,8 +413,11 @@ export function AccountsPayableLedgerPage() {
                             }`}>
                               {formatCurrency(diff ?? 0)}
                             </td>
+                            <td className="py-2 text-right">{formatCurrency(mfCum)}</td>
+                            <td className={`py-2 text-right ${cumClass}`}>{formatCurrency(cumDiff)}</td>
                           </>
-                        )}
+                          )
+                        })()}
                         <td className="py-2">
                           <div className="flex flex-wrap items-center gap-1">
                             {row.hasPaymentOnly && (
@@ -397,6 +425,13 @@ export function AccountsPayableLedgerPage() {
                             )}
                             {row.hasVerifiedManually && (
                               <Badge variant="outline" className="text-xs">手動</Badge>
+                            )}
+                            {row.autoAdjustedAmount !== undefined && row.autoAdjustedAmount !== 0 && (
+                              <Badge variant="outline"
+                                className={`text-xs ${Math.abs(row.autoAdjustedAmount) > 100 ? 'border-red-500 text-red-700' : 'border-amber-500 text-amber-700'}`}
+                                title={`振込明細取込で ${row.autoAdjustedAmount > 0 ? '+' : ''}¥${row.autoAdjustedAmount.toLocaleString('ja-JP')} 自動調整`}>
+                                調整 {row.autoAdjustedAmount > 0 ? '+' : ''}¥{Math.abs(row.autoAdjustedAmount).toLocaleString('ja-JP')}
+                              </Badge>
                             )}
                             <TooltipProvider>
                               {row.anomalies.map((a) => (

@@ -46,6 +46,8 @@ public class MfSupplierLedgerService {
 
     private static final int MAX_PERIOD_MONTHS = 24;
     private static final String MF_ACCOUNT_PAYABLE = "買掛金";
+    /** MF 会計期首 (累積計算の起点)。軸 D の SupplierBalancesService と揃える。 */
+    private static final LocalDate MF_PERIOD_START = LocalDate.of(2025, 5, 20);
 
     private final MfOauthService mfOauthService;
     private final MfJournalCacheService journalCache;
@@ -89,21 +91,22 @@ public class MfSupplierLedgerService {
                 .orElseThrow(() -> new IllegalStateException("MF クライアント設定が未登録です"));
         String accessToken = mfOauthService.getValidAccessToken();
 
-        // --- MF /journals 取得 (キャッシュ経由, 差分 fetch) ---
+        // --- MF /journals 取得 (キャッシュ経由)。累積残の計算のため **期首 (MF_PERIOD_START) 〜 toMonth** で取得。
+        //     fromMonth が期首より後でも期首からの累積が必要なので全期間を引き、UI では fromMonth〜toMonth のみ出力。
         MfJournalCacheService.CachedResult cached = journalCache.getOrFetch(
-                shopNo, client, accessToken, fromMonth, toMonth, refresh);
+                shopNo, client, accessToken, MF_PERIOD_START, toMonth, refresh);
         List<MfJournal> allJournals = cached.journals();
         Instant fetchedAt = cached.oldestFetchedAt();
-        log.info("[mf-ledger] supplierNo={}, 期間 {}〜{}, journals {} 件, sub候補 {}, fetchedAt={}",
-                supplierNo, fromMonth, toMonth, allJournals.size(), resolved.matched, fetchedAt);
+        log.info("[mf-ledger] supplierNo={}, 期首〜{} journals {} 件, sub候補 {}, fetchedAt={}",
+                supplierNo, toMonth, allJournals.size(), resolved.matched, fetchedAt);
 
-        // --- 月次 bucket (20日締め月基準) ---
+        // --- 月次 bucket (20日締め月基準、全期間) ---
         TreeMap<LocalDate, MonthBucket> buckets = new TreeMap<>();
         for (MfJournal j : allJournals) {
             LocalDate jDate = j.transactionDate();
             if (jDate == null || j.branches() == null) continue;
             LocalDate monthKey = MfJournalFetcher.toClosingMonthDay20(jDate);
-            if (monthKey.isBefore(fromMonth) || monthKey.isAfter(toMonth)) continue;
+            if (monthKey.isBefore(MF_PERIOD_START) || monthKey.isAfter(toMonth)) continue;
 
             for (MfJournal.MfBranch br : j.branches()) {
                 BigDecimal credit = BigDecimal.ZERO;
@@ -128,16 +131,28 @@ public class MfSupplierLedgerService {
             }
         }
 
-        // --- 月次 row 生成 (fromMonth 〜 toMonth を 20日締め月単位で列挙) ---
+        // --- 月次 row 生成 (fromMonth 〜 toMonth を 20日締め月単位で列挙)
+        //     mfCumulativeBalance は期首から当月までの Σ(credit − debit)。 ---
         List<MfLedgerRow> rows = new ArrayList<>();
+        BigDecimal cumulative = BigDecimal.ZERO;
+        // 期首〜fromMonth 前月までの累積を先行計算
+        LocalDate cur = MF_PERIOD_START;
+        while (cur.isBefore(fromMonth)) {
+            MonthBucket b = buckets.getOrDefault(cur, new MonthBucket());
+            cumulative = cumulative.add(b.credit).subtract(b.debit);
+            cur = YearMonth.from(cur).plusMonths(1).atDay(20);
+        }
+        // fromMonth 〜 toMonth の各月 row を生成
         LocalDate cursor = fromMonth;
         while (!cursor.isAfter(toMonth)) {
             MonthBucket b = buckets.getOrDefault(cursor, new MonthBucket());
+            cumulative = cumulative.add(b.credit).subtract(b.debit);
             rows.add(MfLedgerRow.builder()
                     .transactionMonth(cursor)
                     .mfCreditInMonth(b.credit)
                     .mfDebitInMonth(b.debit)
                     .mfPeriodDelta(b.credit.subtract(b.debit))
+                    .mfCumulativeBalance(cumulative)
                     .build());
             cursor = YearMonth.from(cursor).plusMonths(1).atDay(20);
         }
@@ -153,6 +168,8 @@ public class MfSupplierLedgerService {
                 .rows(rows)
                 .fetchedAt(fetchedAt != null ? fetchedAt : Instant.now())
                 .totalJournalCount(allJournals.size())
+                .mfStartDate(MF_PERIOD_START)
+                .mfEndDate(toMonth)
                 .build();
     }
 

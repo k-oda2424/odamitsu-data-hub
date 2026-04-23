@@ -44,6 +44,8 @@ export interface LedgerRow {
   /** closing 算出で実際に使われた change (手動確定時は verified_amount 優先、Phase B' 仕様)。 */
   effectiveChangeTaxIncluded: number
   verifiedAmount: number
+  /** V026: 振込明細取込時の自動調整額 (= verified - change)。0 なら調整なし。 */
+  autoAdjustedAmount?: number
   paymentSettledTaxIncluded: number
   closingBalanceTaxIncluded: number
   taxRateCount: number
@@ -81,6 +83,8 @@ export interface MfLedgerRow {
   mfCreditInMonth: number
   mfDebitInMonth: number
   mfPeriodDelta: number
+  /** MF 累積残 = 期首 (2025-05-20) 〜当月の Σ(credit − debit)。 */
+  mfCumulativeBalance: number
 }
 
 export interface MfSupplierLedgerResponse {
@@ -94,6 +98,10 @@ export interface MfSupplierLedgerResponse {
   rows: MfLedgerRow[]
   fetchedAt: string
   totalJournalCount: number
+  /** MF /journals fetch 開始日 (fiscal year 境界 fallback で実際に採用された値)。 */
+  mfStartDate?: string
+  /** MF /journals fetch 終了日 (= toMonth)。 */
+  mfEndDate?: string
 }
 
 // ---- UI 用ラベル ----
