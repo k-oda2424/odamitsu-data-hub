@@ -8,6 +8,8 @@ export interface IntegrityReportSummary {
   selfOnlyCount: number
   amountMismatchCount: number
   unmatchedSupplierCount: number
+  /** 期末解消済 (reconciledAtPeriodEnd=true) エントリの総数。ノイズ抑制用の参考値。 */
+  reconciledAtPeriodEndCount?: number
   totalMfOnlyAmount: number
   totalSelfOnlyAmount: number
   totalMismatchAmount: number
@@ -23,6 +25,19 @@ export interface MfOnlyEntry {
   guessedSupplierNo: number | null
   guessedSupplierCode: string | null
   reason: string
+  /** MF /journals の number (取引番号) 昇順・重複排除。自社取込漏れ特定用。 */
+  journalNumbers: number[]
+  /** toMonth 時点での supplier 累積残が MATCH なら true = 期末解消済ノイズ。 */
+  reconciledAtPeriodEnd?: boolean
+  /** toMonth 時点での supplier 単位累積残 diff (= selfBalance - mfBalance)。null なら計算不能。 */
+  supplierCumulativeDiff?: number | null
+  /** 差分確認 (案 X+Y)。 */
+  reviewStatus?: 'IGNORED' | 'MF_APPLIED' | null
+  reviewedAt?: string | null
+  reviewedByName?: string | null
+  reviewNote?: string | null
+  /** true なら現在値が snapshot と乖離、再確認要 (確認済みでも再表示する)。 */
+  snapshotStale?: boolean
 }
 
 export interface SelfOnlyEntry {
@@ -35,6 +50,13 @@ export interface SelfOnlyEntry {
   paymentSettledTaxIncluded: number
   taxRateRowCount: number
   reason: string
+  reconciledAtPeriodEnd?: boolean
+  supplierCumulativeDiff?: number | null
+  reviewStatus?: 'IGNORED' | 'MF_APPLIED' | null
+  reviewedAt?: string | null
+  reviewedByName?: string | null
+  reviewNote?: string | null
+  snapshotStale?: boolean
 }
 
 export interface AmountMismatchEntry {
@@ -46,6 +68,13 @@ export interface AmountMismatchEntry {
   mfDelta: number
   diff: number
   severity: 'MINOR' | 'MAJOR'
+  reconciledAtPeriodEnd?: boolean
+  supplierCumulativeDiff?: number | null
+  reviewStatus?: 'IGNORED' | 'MF_APPLIED' | null
+  reviewedAt?: string | null
+  reviewedByName?: string | null
+  reviewNote?: string | null
+  snapshotStale?: boolean
 }
 
 export interface UnmatchedSupplierEntry {

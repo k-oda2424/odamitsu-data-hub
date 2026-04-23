@@ -17,6 +17,8 @@ import jp.co.oda32.dto.finance.IntegrityReportResponse.MfOnlyEntry;
 import jp.co.oda32.dto.finance.IntegrityReportResponse.SelfOnlyEntry;
 import jp.co.oda32.dto.finance.IntegrityReportResponse.Summary;
 import jp.co.oda32.dto.finance.IntegrityReportResponse.UnmatchedSupplierEntry;
+import jp.co.oda32.dto.finance.SupplierBalancesResponse;
+import jp.co.oda32.dto.finance.SupplierBalancesResponse.SupplierBalanceRow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.http.HttpStatus;
@@ -71,6 +73,8 @@ public class AccountsPayableIntegrityService {
     private final MfAccountMasterRepository mfAccountMasterRepository;
     private final TAccountsPayableSummaryRepository summaryRepository;
     private final MPaymentSupplierService paymentSupplierService;
+    private final SupplierBalancesService supplierBalancesService;
+    private final ConsistencyReviewService consistencyReviewService;
 
     public IntegrityReportResponse generate(Integer shopNo, LocalDate fromMonth, LocalDate toMonth, boolean refresh) {
         // --- 入力検証 ---
@@ -166,6 +170,7 @@ public class AccountsPayableIntegrityService {
                 b.credit = b.credit.add(credit);
                 b.debit = b.debit.add(debit);
                 b.branchCount++;
+                if (j.number() != null) b.journalNumbers.add(j.number());
             }
         }
 
@@ -247,6 +252,7 @@ public class AccountsPayableIntegrityService {
                 BigDecimal mfCredit = BigDecimal.ZERO;
                 BigDecimal mfDebit = BigDecimal.ZERO;
                 int mfBranchCount = 0;
+                Set<Integer> mfJournalNumbers = new java.util.TreeSet<>();
                 for (String sn : matchedSubNames) {
                     Map<LocalDate, MonthBucket> mfMap = mfBySubAccount.get(sn);
                     if (mfMap == null) continue;
@@ -255,6 +261,7 @@ public class AccountsPayableIntegrityService {
                     mfCredit = mfCredit.add(b.credit);
                     mfDebit = mfDebit.add(b.debit);
                     mfBranchCount += b.branchCount;
+                    mfJournalNumbers.addAll(b.journalNumbers);
                     processedSubNames.add(sn + "|" + month);
                 }
                 BigDecimal mfDelta = mfCredit.subtract(mfDebit);
@@ -300,6 +307,7 @@ public class AccountsPayableIntegrityService {
                             .guessedSupplierNo(supplierNo)
                             .guessedSupplierCode(supplierCode)
                             .reason("MF 側手入力 or 自社取込漏れ")
+                            .journalNumbers(new ArrayList<>(mfJournalNumbers))
                             .build());
                     continue;
                 }
@@ -354,12 +362,61 @@ public class AccountsPayableIntegrityService {
                         .branchCount(b.branchCount)
                         .guessedSupplierNo(guessedNo)
                         .guessedSupplierCode(guessedCode)
+                        .journalNumbers(new ArrayList<>(new java.util.TreeSet<>(b.journalNumbers)))
                         .reason(guessedNo != null
                                 ? "MF にあって自社に無い (自社取込漏れ疑い)"
                                 : "MF 手入力または未登録 supplier")
                         .build());
             }
         }
+
+        // ---- 期末累積残判定 (軸 D 連動): supplier ごとに toMonth 時点の累積残が ±¥0 一致なら
+        //     reconciledAtPeriodEnd=true。加えて累積 diff 値も各エントリに併記 ----
+        Map<Integer, BigDecimal> supplierCumulativeDiff = buildSupplierCumulativeDiffMap(shopNo, toMonth, refresh);
+        int reconciledCount = 0;
+        for (MfOnlyEntry e : mfOnly) {
+            BigDecimal cd = e.getGuessedSupplierNo() != null
+                    ? supplierCumulativeDiff.get(e.getGuessedSupplierNo()) : null;
+            e.setSupplierCumulativeDiff(cd);
+            boolean reconciled = cd != null && cd.signum() == 0;
+            e.setReconciledAtPeriodEnd(reconciled);
+            if (reconciled) reconciledCount++;
+        }
+        for (SelfOnlyEntry e : selfOnly) {
+            BigDecimal cd = e.getSupplierNo() != null
+                    ? supplierCumulativeDiff.get(e.getSupplierNo()) : null;
+            e.setSupplierCumulativeDiff(cd);
+            boolean reconciled = cd != null && cd.signum() == 0;
+            e.setReconciledAtPeriodEnd(reconciled);
+            if (reconciled) reconciledCount++;
+        }
+        for (AmountMismatchEntry e : amountMismatch) {
+            BigDecimal cd = e.getSupplierNo() != null
+                    ? supplierCumulativeDiff.get(e.getSupplierNo()) : null;
+            e.setSupplierCumulativeDiff(cd);
+            boolean reconciled = cd != null && cd.signum() == 0;
+            e.setReconciledAtPeriodEnd(reconciled);
+            if (reconciled) reconciledCount++;
+        }
+
+        // ---- 差分確認履歴 (案 X+Y) を各 entry に付与。snapshotStale は ±¥100 閾値で判定 ----
+        Map<ConsistencyReviewService.ReviewKey, ConsistencyReviewService.ReviewInfo> reviewMap =
+                consistencyReviewService.findForPeriod(shopNo, fromMonth, toMonth);
+        attachReviewToMfOnly(mfOnly, reviewMap);
+        attachReviewToSelfOnly(selfOnly, reviewMap);
+        attachReviewToAmountMismatch(amountMismatch, reviewMap);
+
+        // ---- 日付 (transactionMonth) 昇順ソート、同月内は supplier/subAccount 名で安定化 ----
+        mfOnly.sort(java.util.Comparator
+                .comparing(MfOnlyEntry::getTransactionMonth)
+                .thenComparing(e -> e.getSubAccountName() == null ? "" : e.getSubAccountName()));
+        selfOnly.sort(java.util.Comparator
+                .comparing(SelfOnlyEntry::getTransactionMonth)
+                .thenComparing(e -> e.getSupplierNo() == null ? 0 : e.getSupplierNo()));
+        amountMismatch.sort(java.util.Comparator
+                .comparing(AmountMismatchEntry::getTransactionMonth)
+                .thenComparing(e -> e.getSupplierNo() == null ? 0 : e.getSupplierNo()));
+        final int finalReconciledCount = reconciledCount;
 
         // ---- Summary 集計 ----
         BigDecimal totalMfOnly = mfOnly.stream()
@@ -385,6 +442,7 @@ public class AccountsPayableIntegrityService {
                 .selfOnlyCount(selfOnly.size())
                 .amountMismatchCount(amountMismatch.size())
                 .unmatchedSupplierCount(unmatchedSuppliers.size())
+                .reconciledAtPeriodEndCount(finalReconciledCount)
                 .totalMfOnlyAmount(totalMfOnly)
                 .totalSelfOnlyAmount(totalSelfOnly)
                 .totalMismatchAmount(totalMismatch)
@@ -409,9 +467,101 @@ public class AccountsPayableIntegrityService {
         return v == null ? BigDecimal.ZERO : v;
     }
 
+    // ==================== 差分確認履歴の付与 (案 X+Y) ====================
+
+    private static final BigDecimal STALE_TOLERANCE = BigDecimal.valueOf(100);
+
+    private void attachReviewToMfOnly(List<MfOnlyEntry> list,
+            Map<ConsistencyReviewService.ReviewKey, ConsistencyReviewService.ReviewInfo> reviewMap) {
+        for (MfOnlyEntry e : list) {
+            String key = e.getGuessedSupplierNo() != null
+                    ? e.getGuessedSupplierNo().toString()
+                    : e.getSubAccountName();
+            var info = reviewMap.get(new ConsistencyReviewService.ReviewKey("mfOnly", key, e.getTransactionMonth()));
+            if (info != null) {
+                e.setReviewStatus(info.reviewStatus());
+                e.setReviewedAt(info.reviewedAt());
+                e.setReviewedByName(info.reviewedByName());
+                e.setReviewNote(info.note());
+                BigDecimal currentMf = nz(e.getPeriodDelta());
+                BigDecimal diff = currentMf.subtract(nz(info.mfSnapshot())).abs();
+                e.setSnapshotStale(diff.compareTo(STALE_TOLERANCE) > 0);
+            } else {
+                e.setSnapshotStale(false);
+            }
+        }
+    }
+
+    private void attachReviewToSelfOnly(List<SelfOnlyEntry> list,
+            Map<ConsistencyReviewService.ReviewKey, ConsistencyReviewService.ReviewInfo> reviewMap) {
+        for (SelfOnlyEntry e : list) {
+            if (e.getSupplierNo() == null) continue;
+            var info = reviewMap.get(new ConsistencyReviewService.ReviewKey(
+                    "selfOnly", e.getSupplierNo().toString(), e.getTransactionMonth()));
+            if (info != null) {
+                e.setReviewStatus(info.reviewStatus());
+                e.setReviewedAt(info.reviewedAt());
+                e.setReviewedByName(info.reviewedByName());
+                e.setReviewNote(info.note());
+                BigDecimal diff = nz(e.getSelfDelta()).subtract(nz(info.selfSnapshot())).abs();
+                e.setSnapshotStale(diff.compareTo(STALE_TOLERANCE) > 0);
+            } else {
+                e.setSnapshotStale(false);
+            }
+        }
+    }
+
+    private void attachReviewToAmountMismatch(List<AmountMismatchEntry> list,
+            Map<ConsistencyReviewService.ReviewKey, ConsistencyReviewService.ReviewInfo> reviewMap) {
+        for (AmountMismatchEntry e : list) {
+            if (e.getSupplierNo() == null) continue;
+            var info = reviewMap.get(new ConsistencyReviewService.ReviewKey(
+                    "amountMismatch", e.getSupplierNo().toString(), e.getTransactionMonth()));
+            if (info != null) {
+                e.setReviewStatus(info.reviewStatus());
+                e.setReviewedAt(info.reviewedAt());
+                e.setReviewedByName(info.reviewedByName());
+                e.setReviewNote(info.note());
+                BigDecimal selfDiff = nz(e.getSelfDelta()).subtract(nz(info.selfSnapshot())).abs();
+                BigDecimal mfDiff = nz(e.getMfDelta()).subtract(nz(info.mfSnapshot())).abs();
+                e.setSnapshotStale(selfDiff.compareTo(STALE_TOLERANCE) > 0
+                                || mfDiff.compareTo(STALE_TOLERANCE) > 0);
+            } else {
+                e.setSnapshotStale(false);
+            }
+        }
+    }
+
+    /**
+     * 軸 D (SupplierBalancesService) を呼び、toMonth 時点での supplier 単位累積 diff (self - mf) を map で返す。
+     * このマップは各 entry に supplierCumulativeDiff として併記され、UI に「累積差: ¥25」のように表示される。
+     * 加えて diff == 0 の supplier は reconciledAtPeriodEnd=true 扱い (ノイズ抑制)。
+     * <p>
+     * MF /journals は {@link MfJournalCacheService} 共有のため、既に integrity 側で取得済み期間と重複する部分はキャッシュヒット。
+     */
+    private Map<Integer, BigDecimal> buildSupplierCumulativeDiffMap(Integer shopNo, LocalDate toMonth, boolean refresh) {
+        try {
+            SupplierBalancesResponse bal = supplierBalancesService.generate(shopNo, toMonth, refresh);
+            Map<Integer, BigDecimal> map = new HashMap<>();
+            for (SupplierBalanceRow r : bal.getRows()) {
+                if (r.getSupplierNo() != null && r.getDiff() != null) {
+                    map.put(r.getSupplierNo(), r.getDiff());
+                }
+            }
+            long reconciled = map.values().stream().filter(d -> d.signum() == 0).count();
+            log.info("[integrity] cumulativeDiff @ toMonth={} : {} supplier, うち diff=0 が {} 件",
+                    toMonth, map.size(), reconciled);
+            return map;
+        } catch (Exception e) {
+            log.warn("[integrity] 期末累積残判定スキップ (計算失敗): {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
     private static class MonthBucket {
         BigDecimal credit = BigDecimal.ZERO;
         BigDecimal debit = BigDecimal.ZERO;
         int branchCount = 0;
+        final List<Integer> journalNumbers = new ArrayList<>();
     }
 }

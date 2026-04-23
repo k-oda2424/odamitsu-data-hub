@@ -44,6 +44,8 @@ export function IntegrityReportPage() {
   const [fromMonth, setFromMonth] = useState<string>(initialFromMonth)
   const [toMonth, setToMonth] = useState<string>(initialToMonth)
   const [report, setReport] = useState<IntegrityReportResponse | null>(null)
+  const [hideReconciled, setHideReconciled] = useState<boolean>(true)
+  const [hideReviewed, setHideReviewed] = useState<boolean>(true)
 
   const shopsQuery = useShops(isAdmin)
   const shopOptions = (shopsQuery.data ?? []).map((s) => ({
@@ -58,6 +60,58 @@ export function IntegrityReportPage() {
     sp.set('toMonth', toMonth)
     router.replace(`?${sp.toString()}`, { scroll: false })
   }, [router, shopNo, fromMonth, toMonth])
+
+  // 差分確認 POST / DELETE (案 X+Y)
+  const reviewMutation = useMutation({
+    mutationFn: async (args: {
+      entryType: 'mfOnly' | 'selfOnly' | 'amountMismatch'
+      entryKey: string
+      transactionMonth: string
+      actionType: 'IGNORE' | 'MF_APPLY'
+      selfSnapshot: number
+      mfSnapshot: number
+      note?: string
+    }) => {
+      return api.post(`/finance/accounts-payable/integrity-report/reviews`, {
+        shopNo,
+        entryType: args.entryType,
+        entryKey: args.entryKey,
+        transactionMonth: args.transactionMonth,
+        actionType: args.actionType,
+        selfSnapshot: args.selfSnapshot,
+        mfSnapshot: args.mfSnapshot,
+        note: args.note ?? null,
+      })
+    },
+    onSuccess: (_, v) => {
+      toast.success(`${v.actionType === 'MF_APPLY' ? 'MF 金額で自社確定' : '確認済みマーク'}を保存しました`)
+      runMutation.mutate(false)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const reviewDeleteMutation = useMutation({
+    mutationFn: async (args: { entryType: string; entryKey: string; transactionMonth: string }) => {
+      const sp = new URLSearchParams()
+      sp.set('shopNo', String(shopNo))
+      sp.set('entryType', args.entryType)
+      sp.set('entryKey', args.entryKey)
+      sp.set('transactionMonth', args.transactionMonth)
+      return api.delete(`/finance/accounts-payable/integrity-report/reviews?${sp.toString()}`)
+    },
+    onSuccess: () => {
+      toast.success('確認履歴を取り消しました')
+      runMutation.mutate(false)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const confirmReview = (args: Parameters<typeof reviewMutation.mutate>[0]) => {
+    const actionLabel = args.actionType === 'MF_APPLY' ? 'MF 金額で自社 verified_amount を上書き' : '確認済みとしてマーク (副作用なし)'
+    const note = window.prompt(`${actionLabel}\n備考 (任意):`, '')
+    if (note === null) return
+    reviewMutation.mutate({ ...args, note })
+  }
 
   const runMutation = useMutation({
     mutationFn: async (refresh: boolean = false) => {
@@ -174,10 +228,23 @@ export function IntegrityReportPage() {
         </CardContent>
       </Card>
 
-      {report && (
+      {report && (() => {
+        const filterFn = <T extends { reconciledAtPeriodEnd?: boolean; reviewStatus?: string | null; snapshotStale?: boolean }>(arr: T[]) =>
+          arr.filter((e) => {
+            // 期末解消済みをデフォルト非表示
+            if (hideReconciled && e.reconciledAtPeriodEnd) return false
+            // 確認済み (review 付与かつ stale でない) をデフォルト非表示
+            if (hideReviewed && e.reviewStatus && !e.snapshotStale) return false
+            return true
+          })
+        const mfOnlyView = filterFn(report.mfOnly)
+        const selfOnlyView = filterFn(report.selfOnly)
+        const mismatchView = filterFn(report.amountMismatch)
+        const reconciledTotal = report.summary.reconciledAtPeriodEndCount ?? 0
+        return (
         <>
           <Card>
-            <CardContent className="pt-4">
+            <CardContent className="pt-4 space-y-3">
               <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-5">
                 <SummaryTile label="MF 側のみ" count={report.summary.mfOnlyCount} amount={report.summary.totalMfOnlyAmount} color="red" />
                 <SummaryTile label="自社側のみ" count={report.summary.selfOnlyCount} amount={report.summary.totalSelfOnlyAmount} color="red" />
@@ -187,14 +254,26 @@ export function IntegrityReportPage() {
                   journals: {report.totalJournalCount} 件 / supplier: {report.supplierCount}
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" checked={hideReconciled}
+                         onChange={(e) => setHideReconciled(e.target.checked)} />
+                  期末累積残で解消済み ({reconciledTotal} 件) を隠す
+                </label>
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" checked={hideReviewed}
+                         onChange={(e) => setHideReviewed(e.target.checked)} />
+                  確認済み (IGNORED / MF_APPLIED、金額不変) を隠す
+                </label>
+              </div>
             </CardContent>
           </Card>
 
           <Tabs defaultValue="mfOnly">
             <TabsList>
-              <TabsTrigger value="mfOnly">MF 側のみ ({report.mfOnly.length})</TabsTrigger>
-              <TabsTrigger value="selfOnly">自社側のみ ({report.selfOnly.length})</TabsTrigger>
-              <TabsTrigger value="mismatch">金額差 ({report.amountMismatch.length})</TabsTrigger>
+              <TabsTrigger value="mfOnly">MF 側のみ ({mfOnlyView.length}{hideReconciled && mfOnlyView.length !== report.mfOnly.length ? `/${report.mfOnly.length}` : ''})</TabsTrigger>
+              <TabsTrigger value="selfOnly">自社側のみ ({selfOnlyView.length}{hideReconciled && selfOnlyView.length !== report.selfOnly.length ? `/${report.selfOnly.length}` : ''})</TabsTrigger>
+              <TabsTrigger value="mismatch">金額差 ({mismatchView.length}{hideReconciled && mismatchView.length !== report.amountMismatch.length ? `/${report.amountMismatch.length}` : ''})</TabsTrigger>
               <TabsTrigger value="unmatched">MF 未登録 ({report.unmatchedSuppliers.length})</TabsTrigger>
             </TabsList>
 
@@ -204,27 +283,43 @@ export function IntegrityReportPage() {
                   <thead>
                     <tr className="border-b text-left">
                       <th className="py-2">月</th>
-                      <th className="py-2">MF sub_account</th>
-                      <th className="py-2 text-right">credit</th>
-                      <th className="py-2 text-right">debit</th>
-                      <th className="py-2 text-right">delta</th>
-                      <th className="py-2 text-right">branch 数</th>
+                      <th className="py-2">MF 補助科目</th>
+                      <th className="py-2 text-right">貸方</th>
+                      <th className="py-2 text-right">借方</th>
+                      <th className="py-2 text-right">差額</th>
+                      <th className="py-2 pr-4 text-right">明細数</th>
+                      <th className="py-2 pl-2">MF 取引番号</th>
                       <th className="py-2">推定仕入先</th>
+                      <th className="py-2 text-right">累積差 ({report.toMonth})</th>
                       <th className="py-2">備考</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {report.mfOnly.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">該当なし</td></tr>}
-                    {report.mfOnly.map((e, i) => (
-                      <tr key={i} className="border-b hover:bg-red-50 cursor-pointer"
+                    {mfOnlyView.length === 0 && <tr><td colSpan={10} className="py-6 text-center text-muted-foreground">該当なし</td></tr>}
+                    {mfOnlyView.map((e, i) => (
+                      <tr key={i} className={`border-b cursor-pointer ${e.reconciledAtPeriodEnd ? 'opacity-60 hover:bg-slate-50' : 'hover:bg-red-50'}`}
                           onClick={() => gotoLedger(e.guessedSupplierNo)}>
-                        <td className="py-2">{e.transactionMonth}</td>
+                        <td className="py-2">{e.transactionMonth}{e.reconciledAtPeriodEnd && <span className="ml-1 text-[10px] text-green-700">[解消済]</span>}</td>
                         <td className="py-2">{e.subAccountName}</td>
                         <td className="py-2 text-right">{formatCurrency(e.creditAmount)}</td>
                         <td className="py-2 text-right">{formatCurrency(e.debitAmount)}</td>
                         <td className="py-2 text-right font-medium">{formatCurrency(e.periodDelta)}</td>
-                        <td className="py-2 text-right">{e.branchCount}</td>
+                        <td className="py-2 pr-4 text-right">{e.branchCount}</td>
+                        <td className="py-2 pl-2 text-xs font-mono text-muted-foreground">
+                          {e.journalNumbers && e.journalNumbers.length > 0
+                            ? e.journalNumbers.length <= 5
+                              ? e.journalNumbers.join(', ')
+                              : `${e.journalNumbers.slice(0, 5).join(', ')} 他 ${e.journalNumbers.length - 5} 件`
+                            : '-'}
+                        </td>
                         <td className="py-2">{e.guessedSupplierCode ?? '-'}</td>
+                        <td className={`py-2 text-right font-medium ${
+                          e.supplierCumulativeDiff == null ? 'text-muted-foreground'
+                          : e.supplierCumulativeDiff === 0 ? 'text-green-700'
+                          : Math.abs(e.supplierCumulativeDiff) > 1000 ? 'text-red-700' : 'text-amber-700'
+                        }`}>
+                          {e.supplierCumulativeDiff == null ? '-' : formatCurrency(e.supplierCumulativeDiff)}
+                        </td>
                         <td className="py-2 text-xs text-muted-foreground">{e.reason}</td>
                       </tr>
                     ))}
@@ -241,25 +336,33 @@ export function IntegrityReportPage() {
                       <th className="py-2">月</th>
                       <th className="py-2">仕入先コード</th>
                       <th className="py-2">仕入先名</th>
-                      <th className="py-2 text-right">self delta</th>
+                      <th className="py-2 text-right">自社差額</th>
                       <th className="py-2 text-right">仕入</th>
                       <th className="py-2 text-right">支払反映</th>
                       <th className="py-2 text-right">税率行数</th>
+                      <th className="py-2 text-right">累積差 ({report.toMonth})</th>
                       <th className="py-2">備考</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {report.selfOnly.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">該当なし</td></tr>}
-                    {report.selfOnly.map((e, i) => (
-                      <tr key={i} className="border-b hover:bg-red-50 cursor-pointer"
+                    {selfOnlyView.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-muted-foreground">該当なし</td></tr>}
+                    {selfOnlyView.map((e, i) => (
+                      <tr key={i} className={`border-b cursor-pointer ${e.reconciledAtPeriodEnd ? 'opacity-60 hover:bg-slate-50' : 'hover:bg-red-50'}`}
                           onClick={() => gotoLedger(e.supplierNo)}>
-                        <td className="py-2">{e.transactionMonth}</td>
+                        <td className="py-2">{e.transactionMonth}{e.reconciledAtPeriodEnd && <span className="ml-1 text-[10px] text-green-700">[解消済]</span>}</td>
                         <td className="py-2">{e.supplierCode}</td>
                         <td className="py-2 text-blue-600 hover:underline">{e.supplierName}</td>
                         <td className="py-2 text-right font-medium">{formatCurrency(e.selfDelta)}</td>
                         <td className="py-2 text-right">{formatCurrency(e.changeTaxIncluded)}</td>
                         <td className="py-2 text-right">{formatCurrency(e.paymentSettledTaxIncluded)}</td>
                         <td className="py-2 text-right">{e.taxRateRowCount}</td>
+                        <td className={`py-2 text-right font-medium ${
+                          e.supplierCumulativeDiff == null ? 'text-muted-foreground'
+                          : e.supplierCumulativeDiff === 0 ? 'text-green-700'
+                          : Math.abs(e.supplierCumulativeDiff) > 1000 ? 'text-red-700' : 'text-amber-700'
+                        }`}>
+                          {e.supplierCumulativeDiff == null ? '-' : formatCurrency(e.supplierCumulativeDiff)}
+                        </td>
                         <td className="py-2 text-xs text-muted-foreground">{e.reason}</td>
                       </tr>
                     ))}
@@ -276,27 +379,76 @@ export function IntegrityReportPage() {
                       <th className="py-2">月</th>
                       <th className="py-2">仕入先コード</th>
                       <th className="py-2">仕入先名</th>
-                      <th className="py-2 text-right">self delta</th>
-                      <th className="py-2 text-right">MF delta</th>
-                      <th className="py-2 text-right">差 (self - MF)</th>
-                      <th className="py-2">severity</th>
+                      <th className="py-2 text-right">自社差額</th>
+                      <th className="py-2 text-right">MF 差額</th>
+                      <th className="py-2 text-right">差 (自社 − MF)</th>
+                      <th className="py-2 text-right">累積差 ({report.toMonth})</th>
+                      <th className="py-2">重大度</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {report.amountMismatch.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-muted-foreground">該当なし</td></tr>}
-                    {report.amountMismatch.map((e, i) => (
-                      <tr key={i} className="border-b hover:bg-amber-50 cursor-pointer"
+                    {mismatchView.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">該当なし</td></tr>}
+                    {mismatchView.map((e, i) => (
+                      <tr key={i} className={`border-b cursor-pointer ${e.reconciledAtPeriodEnd ? 'opacity-60 hover:bg-slate-50' : 'hover:bg-amber-50'}`}
                           onClick={() => gotoLedger(e.supplierNo)}>
-                        <td className="py-2">{e.transactionMonth}</td>
+                        <td className="py-2">{e.transactionMonth}{e.reconciledAtPeriodEnd && <span className="ml-1 text-[10px] text-green-700">[解消済]</span>}</td>
                         <td className="py-2">{e.supplierCode}</td>
                         <td className="py-2 text-blue-600 hover:underline">{e.supplierName}</td>
                         <td className="py-2 text-right">{formatCurrency(e.selfDelta)}</td>
                         <td className="py-2 text-right">{formatCurrency(e.mfDelta)}</td>
                         <td className="py-2 text-right font-medium">{formatCurrency(e.diff)}</td>
+                        <td className={`py-2 text-right font-medium ${
+                          e.supplierCumulativeDiff == null
+                            ? 'text-muted-foreground'
+                            : e.supplierCumulativeDiff === 0
+                            ? 'text-green-700'
+                            : Math.abs(e.supplierCumulativeDiff) > 1000
+                            ? 'text-red-700'
+                            : 'text-amber-700'
+                        }`}>
+                          {e.supplierCumulativeDiff == null ? '-' : formatCurrency(e.supplierCumulativeDiff)}
+                        </td>
                         <td className="py-2">
-                          <Badge variant="outline" className={`text-xs ${MISMATCH_SEVERITY_CLASS[e.severity]}`}>
-                            {MISMATCH_SEVERITY_LABEL[e.severity]} ({e.severity})
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge variant="outline" className={`text-xs ${MISMATCH_SEVERITY_CLASS[e.severity]}`}>
+                              {MISMATCH_SEVERITY_LABEL[e.severity]} ({e.severity})
+                            </Badge>
+                            {e.reviewStatus && (
+                              <Badge variant="outline" className={`text-xs ${e.snapshotStale ? 'border-amber-500 text-amber-700' : 'border-green-500 text-green-700'}`}
+                                     title={`${e.reviewedByName ?? ''} ${e.reviewedAt ?? ''} ${e.reviewNote ?? ''}${e.snapshotStale ? ' (金額変動 — 要再確認)' : ''}`}>
+                                {e.reviewStatus === 'MF_APPLIED' ? '✓MF確定' : '✓確認'}{e.snapshotStale ? '⚠' : ''}
+                              </Badge>
+                            )}
+                            {!e.reviewStatus && e.supplierNo && (
+                              <div className="flex gap-1" onClick={(ev) => ev.stopPropagation()}>
+                                <button className="text-[10px] text-blue-600 hover:underline"
+                                  onClick={() => confirmReview({
+                                    entryType: 'amountMismatch', entryKey: String(e.supplierNo),
+                                    transactionMonth: e.transactionMonth, actionType: 'IGNORE',
+                                    selfSnapshot: e.selfDelta, mfSnapshot: e.mfDelta,
+                                  })}>確認済</button>
+                                <button className="text-[10px] text-red-600 hover:underline"
+                                  onClick={() => confirmReview({
+                                    entryType: 'amountMismatch', entryKey: String(e.supplierNo),
+                                    transactionMonth: e.transactionMonth, actionType: 'MF_APPLY',
+                                    selfSnapshot: e.selfDelta, mfSnapshot: e.mfDelta,
+                                  })}>MF確定</button>
+                              </div>
+                            )}
+                            {e.reviewStatus && e.supplierNo && (
+                              <button className="text-[10px] text-slate-500 hover:underline"
+                                onClick={(ev) => {
+                                  ev.stopPropagation()
+                                  if (window.confirm('確認履歴を取り消しますか?')) {
+                                    reviewDeleteMutation.mutate({
+                                      entryType: 'amountMismatch',
+                                      entryKey: String(e.supplierNo),
+                                      transactionMonth: e.transactionMonth,
+                                    })
+                                  }
+                                }}>取消</button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -338,7 +490,8 @@ export function IntegrityReportPage() {
             row クリックで該当仕入先の買掛帳画面を新規タブで開きます。
           </p>
         </>
-      )}
+        )
+      })()}
     </div>
   )
 }

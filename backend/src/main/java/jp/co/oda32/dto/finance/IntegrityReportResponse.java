@@ -50,6 +50,19 @@ public class IntegrityReportResponse {
         private Integer guessedSupplierNo;
         private String guessedSupplierCode;
         private String reason;
+        /** MF /journals の number (取引番号) リスト。自社取込漏れ疑いのときの確認用。昇順・重複排除。 */
+        private List<Integer> journalNumbers;
+        /** toMonth 時点での supplier 累積残が MATCH かどうか。true なら期末で自社と MF が一致 = ノイズとして除外可。 */
+        private Boolean reconciledAtPeriodEnd;
+        /** toMonth 時点での supplier 単位累積残 diff (= selfBalance - mfBalance)。null なら軸 D 計算不可。 */
+        private BigDecimal supplierCumulativeDiff;
+        /** 差分確認状態: null | IGNORED | MF_APPLIED (案 X+Y)。 */
+        private String reviewStatus;
+        private Instant reviewedAt;
+        private String reviewedByName;
+        private String reviewNote;
+        /** 現在値と snapshot が ±¥100 超で乖離していれば true (再確認必要)。 */
+        private Boolean snapshotStale;
     }
 
     /** 自社にあって MF に無い (supplier × 月 単位)。MF_MISSING。 */
@@ -65,6 +78,17 @@ public class IntegrityReportResponse {
         private BigDecimal paymentSettledTaxIncluded;
         private Integer taxRateRowCount;
         private String reason;
+        /** toMonth 時点での supplier 累積残が MATCH かどうか。true なら期末で解消済 = ノイズ。 */
+        private Boolean reconciledAtPeriodEnd;
+        /** toMonth 時点での supplier 単位累積残 diff (= selfBalance - mfBalance)。 */
+        private BigDecimal supplierCumulativeDiff;
+        /** 差分確認状態: null | IGNORED | MF_APPLIED (案 X+Y)。 */
+        private String reviewStatus;
+        private Instant reviewedAt;
+        private String reviewedByName;
+        private String reviewNote;
+        /** 現在値と snapshot が ±¥100 超で乖離していれば true (再確認必要)。 */
+        private Boolean snapshotStale;
     }
 
     /** ペアあり、金額差 (supplier × 月 単位)。AMOUNT_DIFF。 */
@@ -80,6 +104,17 @@ public class IntegrityReportResponse {
         private BigDecimal diff;                  // = self - mf (符号あり)
         /** MINOR (100 < |diff| ≤ 1000) / MAJOR (|diff| > 1000)。 */
         private String severity;
+        /** toMonth 時点での supplier 累積残が MATCH かどうか。true なら期末で解消済 = ノイズ。 */
+        private Boolean reconciledAtPeriodEnd;
+        /** toMonth 時点での supplier 単位累積残 diff (= selfBalance - mfBalance)。 */
+        private BigDecimal supplierCumulativeDiff;
+        /** 差分確認状態: null | IGNORED | MF_APPLIED (案 X+Y)。 */
+        private String reviewStatus;
+        private Instant reviewedAt;
+        private String reviewedByName;
+        private String reviewNote;
+        /** 現在値と snapshot が ±¥100 超で乖離していれば true (再確認必要)。 */
+        private Boolean snapshotStale;
     }
 
     /** supplier 単位: mf_account_master に登録無し (MF_UNMATCHED、R11 反映で supplier 単位に格上げ)。 */
@@ -99,6 +134,8 @@ public class IntegrityReportResponse {
         private Integer selfOnlyCount;
         private Integer amountMismatchCount;
         private Integer unmatchedSupplierCount;
+        /** 期末解消済 (reconciledAtPeriodEnd=true) のエントリ数 (3 カテゴリ合計)。ノイズ抑制用の参考値。 */
+        private Integer reconciledAtPeriodEndCount;
         /** R10 反映: 絶対値ベースの集計。 */
         private BigDecimal totalMfOnlyAmount;
         private BigDecimal totalSelfOnlyAmount;

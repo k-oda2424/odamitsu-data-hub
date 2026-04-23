@@ -7,6 +7,7 @@ import jp.co.oda32.domain.model.finance.TInvoice;
 import jp.co.oda32.domain.service.finance.AccountingStatusService;
 import jp.co.oda32.domain.service.finance.AccountsPayableIntegrityService;
 import jp.co.oda32.domain.service.finance.AccountsPayableLedgerService;
+import jp.co.oda32.domain.service.finance.ConsistencyReviewService;
 import jp.co.oda32.domain.service.finance.InvoiceImportService;
 import jp.co.oda32.domain.service.finance.MPartnerGroupService;
 import jp.co.oda32.domain.service.finance.MfHealthCheckService;
@@ -30,6 +31,8 @@ import jp.co.oda32.dto.finance.MfSupplierLedgerResponse;
 import jp.co.oda32.dto.finance.SupplierBalancesResponse;
 import jp.co.oda32.dto.finance.AccountsPayableVerifyRequest;
 import jp.co.oda32.dto.finance.BulkPaymentDateRequest;
+import jp.co.oda32.dto.finance.ConsistencyReviewRequest;
+import jp.co.oda32.dto.finance.ConsistencyReviewResponse;
 import jp.co.oda32.dto.finance.MfExportToggleRequest;
 import jp.co.oda32.dto.finance.InvoiceImportResult;
 import jp.co.oda32.dto.finance.InvoiceResponse;
@@ -90,6 +93,7 @@ public class FinanceController {
     private final SupplierBalancesService supplierBalancesService;
     private final MfHealthCheckService mfHealthCheckService;
     private final MfJournalCacheService mfJournalCacheService;
+    private final ConsistencyReviewService consistencyReviewService;
 
     @GetMapping("/accounts-payable")
     public ResponseEntity<Page<AccountsPayableResponse>> listAccountsPayable(
@@ -258,6 +262,31 @@ public class FinanceController {
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("message", e.getMessage()));
         }
+    }
+
+    /**
+     * 差分確認 (案 X+Y): 整合性レポートの差分行に IGNORE / MF_APPLY を記録。
+     * @since 2026-04-23
+     */
+    @PostMapping("/accounts-payable/integrity-report/reviews")
+    public ResponseEntity<ConsistencyReviewResponse> saveConsistencyReview(
+            @RequestBody @Valid ConsistencyReviewRequest req) throws Exception {
+        assertShopAccess(req.getShopNo());
+        Integer userNo = LoginUserUtil.getLoginUserInfo().getUser().getLoginUserNo();
+        ConsistencyReviewResponse res = consistencyReviewService.upsert(req, userNo);
+        return ResponseEntity.status(HttpStatus.CREATED).body(res);
+    }
+
+    @DeleteMapping("/accounts-payable/integrity-report/reviews")
+    public ResponseEntity<Void> deleteConsistencyReview(
+            @RequestParam("shopNo") Integer shopNo,
+            @RequestParam("entryType") String entryType,
+            @RequestParam("entryKey") String entryKey,
+            @RequestParam("transactionMonth")
+                @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth) {
+        assertShopAccess(shopNo);
+        consistencyReviewService.delete(shopNo, entryType, entryKey, transactionMonth);
+        return ResponseEntity.noContent().build();
     }
 
     /**

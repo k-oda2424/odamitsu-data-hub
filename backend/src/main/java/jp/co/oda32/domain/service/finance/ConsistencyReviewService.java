@@ -1,0 +1,299 @@
+package jp.co.oda32.domain.service.finance;
+
+import jp.co.oda32.domain.model.embeddable.TConsistencyReviewPK;
+import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
+import jp.co.oda32.domain.model.finance.TConsistencyReview;
+import jp.co.oda32.domain.model.master.MLoginUser;
+import jp.co.oda32.domain.repository.finance.TAccountsPayableSummaryRepository;
+import jp.co.oda32.domain.repository.finance.TConsistencyReviewRepository;
+import jp.co.oda32.domain.repository.master.LoginUserRepository;
+import jp.co.oda32.dto.finance.ConsistencyReviewRequest;
+import jp.co.oda32.dto.finance.ConsistencyReviewResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.log4j.Log4j2;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * 整合性レポート 差分確認機能 Service (案 X + Y)。
+ * <p>
+ * IGNORE: review 作成のみ、副作用なし。
+ * MF_APPLY: 対象 summary 行の verified_amount を MF 金額に合わせる。税率別に按分。
+ * DELETE / IGNORE 切替: MF_APPLY で書き換えた verified_amount を previous から復元。
+ * <p>
+ * 設計書: claudedocs/design-consistency-review.md
+ *
+ * @since 2026-04-23
+ */
+@Service
+@Log4j2
+@RequiredArgsConstructor
+@Transactional
+public class ConsistencyReviewService {
+
+    private static final String ENTRY_MF_ONLY = "mfOnly";
+    private static final String ENTRY_SELF_ONLY = "selfOnly";
+    private static final String ENTRY_AMOUNT_MISMATCH = "amountMismatch";
+    private static final String ACTION_IGNORE = "IGNORE";
+    private static final String ACTION_MF_APPLY = "MF_APPLY";
+
+    private final TConsistencyReviewRepository reviewRepository;
+    private final TAccountsPayableSummaryRepository summaryRepository;
+    private final LoginUserRepository loginUserRepository;
+
+    public ConsistencyReviewResponse upsert(ConsistencyReviewRequest req, Integer userNo) {
+        validateRequest(req);
+
+        TConsistencyReviewPK pk = new TConsistencyReviewPK(
+                req.getShopNo(), req.getEntryType(), req.getEntryKey(), req.getTransactionMonth());
+
+        Optional<TConsistencyReview> existingOpt = reviewRepository.findById(pk);
+        // 旧 review が MF_APPLY なら先にロールバック (副作用を剥がす)
+        existingOpt.ifPresent(old -> {
+            if (ACTION_MF_APPLY.equals(old.getActionType())) {
+                rollbackVerifiedAmounts(req.getShopNo(), req.getEntryKey(),
+                        req.getTransactionMonth(), old.getPreviousVerifiedAmounts());
+            }
+        });
+
+        Map<String, BigDecimal> previous = null;
+        boolean verifiedUpdated = false;
+        if (ACTION_MF_APPLY.equals(req.getActionType())) {
+            previous = applyMfOverride(req);
+            verifiedUpdated = true;
+        }
+
+        TConsistencyReview review = TConsistencyReview.builder()
+                .pk(pk)
+                .actionType(req.getActionType())
+                .selfSnapshot(req.getSelfSnapshot())
+                .mfSnapshot(req.getMfSnapshot())
+                .previousVerifiedAmounts(previous)
+                .reviewedBy(userNo)
+                .reviewedAt(Instant.now())
+                .note(req.getNote())
+                .build();
+        reviewRepository.save(review);
+
+        return buildResponse(review, verifiedUpdated);
+    }
+
+    public void delete(Integer shopNo, String entryType, String entryKey, LocalDate transactionMonth) {
+        TConsistencyReviewPK pk = new TConsistencyReviewPK(shopNo, entryType, entryKey, transactionMonth);
+        Optional<TConsistencyReview> existing = reviewRepository.findById(pk);
+        if (existing.isEmpty()) return;
+        TConsistencyReview r = existing.get();
+        if (ACTION_MF_APPLY.equals(r.getActionType())) {
+            rollbackVerifiedAmounts(shopNo, entryKey, transactionMonth, r.getPreviousVerifiedAmounts());
+        }
+        reviewRepository.deleteById(pk);
+    }
+
+    /** 整合性レポートサービスから呼ばれる: 期間内 review を PK Map で返す。reviewer 名も付与。 */
+    @Transactional(readOnly = true)
+    public Map<ReviewKey, ReviewInfo> findForPeriod(Integer shopNo, LocalDate fromMonth, LocalDate toMonth) {
+        List<Object[]> rows = reviewRepository.findWithReviewerNameForPeriod(shopNo, fromMonth, toMonth);
+        Map<ReviewKey, ReviewInfo> map = new HashMap<>();
+        for (Object[] row : rows) {
+            TConsistencyReview r = (TConsistencyReview) row[0];
+            String reviewerName = (String) row[1];
+            ReviewKey key = new ReviewKey(r.getPk().getEntryType(), r.getPk().getEntryKey(), r.getPk().getTransactionMonth());
+            map.put(key, new ReviewInfo(
+                    r.getActionType(),
+                    r.getSelfSnapshot(),
+                    r.getMfSnapshot(),
+                    r.getReviewedBy(),
+                    reviewerName,
+                    r.getReviewedAt(),
+                    r.getNote()));
+        }
+        return map;
+    }
+
+    // ==================== private helpers ====================
+
+    private void validateRequest(ConsistencyReviewRequest req) {
+        if (!ACTION_IGNORE.equals(req.getActionType()) && !ACTION_MF_APPLY.equals(req.getActionType())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "actionType は IGNORE か MF_APPLY のみ");
+        }
+        if (!ENTRY_MF_ONLY.equals(req.getEntryType())
+                && !ENTRY_SELF_ONLY.equals(req.getEntryType())
+                && !ENTRY_AMOUNT_MISMATCH.equals(req.getEntryType())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "entryType は mfOnly / selfOnly / amountMismatch");
+        }
+        if (ENTRY_MF_ONLY.equals(req.getEntryType()) && ACTION_MF_APPLY.equals(req.getActionType())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "mfOnly の MF_APPLY は未対応 (自社側 supplier 行がないため)");
+        }
+    }
+
+    /**
+     * MF_APPLY の副作用: 対象 summary 行の verified_amount を MF 金額に合わせる。
+     * <ul>
+     *   <li>selfOnly: 全税率行 verified_amount=0 (自社取消)</li>
+     *   <li>amountMismatch: 税率別 change 比で target = mfSnapshot+payment_settled を按分</li>
+     * </ul>
+     *
+     * @return 更新前の verified_amount 退避 (税率 → 金額 Map)
+     */
+    private Map<String, BigDecimal> applyMfOverride(ConsistencyReviewRequest req) {
+        Integer supplierNo = parseSupplierNo(req.getEntryKey());
+        if (supplierNo == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "entryKey が supplier_no 数値ではありません: " + req.getEntryKey());
+        }
+        List<TAccountsPayableSummary> rows = summaryRepository
+                .findByShopNoAndSupplierNoAndTransactionMonthBetweenOrderByTransactionMonthAscTaxRateAsc(
+                        req.getShopNo(), supplierNo, req.getTransactionMonth(), req.getTransactionMonth());
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "対象 summary 行が見つかりません: shopNo=" + req.getShopNo()
+                            + ", supplierNo=" + supplierNo + ", month=" + req.getTransactionMonth());
+        }
+
+        Map<String, BigDecimal> previous = new HashMap<>();
+        for (TAccountsPayableSummary r : rows) {
+            previous.put(r.getTaxRate().toPlainString(),
+                    r.getVerifiedAmount() != null ? r.getVerifiedAmount() : BigDecimal.ZERO);
+        }
+
+        if (ENTRY_SELF_ONLY.equals(req.getEntryType())) {
+            // 自社取消: 全税率行を 0 に
+            for (TAccountsPayableSummary r : rows) {
+                r.setVerifiedAmount(BigDecimal.ZERO);
+                r.setVerifiedAmountTaxExcluded(BigDecimal.ZERO);
+                r.setVerifiedManually(true);
+                r.setVerificationResult(1);
+                r.setMfExportEnabled(false);
+                summaryRepository.save(r);
+            }
+        } else if (ENTRY_AMOUNT_MISMATCH.equals(req.getEntryType())) {
+            // 税率別 change 比で target 按分
+            BigDecimal paymentSettled = rows.stream()
+                    .map(r -> nz(r.getPaymentAmountSettledTaxIncluded()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal target = nz(req.getMfSnapshot()).add(paymentSettled);
+            BigDecimal changeSum = rows.stream()
+                    .map(r -> nz(r.getTaxIncludedAmountChange()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal assigned = BigDecimal.ZERO;
+            TAccountsPayableSummary largest = null;
+            BigDecimal largestChange = BigDecimal.valueOf(Long.MIN_VALUE);
+            for (TAccountsPayableSummary r : rows) {
+                BigDecimal ch = nz(r.getTaxIncludedAmountChange());
+                if (ch.compareTo(largestChange) > 0) { largestChange = ch; largest = r; }
+            }
+            for (TAccountsPayableSummary r : rows) {
+                BigDecimal allocated;
+                if (changeSum.signum() == 0) {
+                    // 全 change 0 の場合は代表行に一括
+                    allocated = r == largest ? target : BigDecimal.ZERO;
+                } else {
+                    BigDecimal ch = nz(r.getTaxIncludedAmountChange());
+                    allocated = target.multiply(ch).divide(changeSum, 0, RoundingMode.DOWN);
+                }
+                assigned = assigned.add(allocated);
+                r.setVerifiedAmount(allocated);
+                BigDecimal divisor = BigDecimal.valueOf(100).add(nz(r.getTaxRate()));
+                r.setVerifiedAmountTaxExcluded(
+                        allocated.multiply(BigDecimal.valueOf(100)).divide(divisor, 0, RoundingMode.DOWN));
+                r.setVerifiedManually(true);
+                r.setVerificationResult(1);
+                r.setMfExportEnabled(true);
+            }
+            // 端数誤差は最大行で吸収
+            BigDecimal diff = target.subtract(assigned);
+            if (diff.signum() != 0 && largest != null) {
+                largest.setVerifiedAmount(nz(largest.getVerifiedAmount()).add(diff));
+                BigDecimal divisor = BigDecimal.valueOf(100).add(nz(largest.getTaxRate()));
+                largest.setVerifiedAmountTaxExcluded(
+                        largest.getVerifiedAmount().multiply(BigDecimal.valueOf(100))
+                                .divide(divisor, 0, RoundingMode.DOWN));
+            }
+            for (TAccountsPayableSummary r : rows) summaryRepository.save(r);
+        }
+        log.info("[consistency-review] MF_APPLY shopNo={} supplier={} month={} type={} target={}",
+                req.getShopNo(), supplierNo, req.getTransactionMonth(), req.getEntryType(), req.getMfSnapshot());
+        return previous;
+    }
+
+    private void rollbackVerifiedAmounts(Integer shopNo, String entryKey, LocalDate month,
+                                          Map<String, BigDecimal> previous) {
+        if (previous == null || previous.isEmpty()) return;
+        Integer supplierNo = parseSupplierNo(entryKey);
+        if (supplierNo == null) return;
+        List<TAccountsPayableSummary> rows = summaryRepository
+                .findByShopNoAndSupplierNoAndTransactionMonthBetweenOrderByTransactionMonthAscTaxRateAsc(
+                        shopNo, supplierNo, month, month);
+        for (TAccountsPayableSummary r : rows) {
+            String taxKey = r.getTaxRate().toPlainString();
+            if (previous.containsKey(taxKey)) {
+                BigDecimal prev = previous.get(taxKey);
+                r.setVerifiedAmount(prev);
+                // 税抜は逆算で復元 (元値を持っていないため)
+                if (prev != null && prev.signum() != 0) {
+                    BigDecimal divisor = BigDecimal.valueOf(100).add(nz(r.getTaxRate()));
+                    r.setVerifiedAmountTaxExcluded(
+                            prev.multiply(BigDecimal.valueOf(100)).divide(divisor, 0, RoundingMode.DOWN));
+                } else {
+                    r.setVerifiedAmountTaxExcluded(null);
+                }
+                summaryRepository.save(r);
+            }
+        }
+        log.info("[consistency-review] ROLLBACK shopNo={} supplier={} month={} rows={}",
+                shopNo, supplierNo, month, rows.size());
+    }
+
+    private Integer parseSupplierNo(String entryKey) {
+        try { return Integer.parseInt(entryKey); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
+    }
+
+    private ConsistencyReviewResponse buildResponse(TConsistencyReview r, boolean verifiedUpdated) {
+        String reviewerName = loginUserRepository.findById(r.getReviewedBy())
+                .map(MLoginUser::getUserName).orElse(null);
+        return ConsistencyReviewResponse.builder()
+                .shopNo(r.getPk().getShopNo())
+                .entryType(r.getPk().getEntryType())
+                .entryKey(r.getPk().getEntryKey())
+                .transactionMonth(r.getPk().getTransactionMonth())
+                .actionType(r.getActionType())
+                .reviewStatus(ACTION_IGNORE.equals(r.getActionType()) ? "IGNORED" : "MF_APPLIED")
+                .selfSnapshot(r.getSelfSnapshot())
+                .mfSnapshot(r.getMfSnapshot())
+                .reviewedBy(r.getReviewedBy())
+                .reviewedByName(reviewerName)
+                .reviewedAt(r.getReviewedAt())
+                .note(r.getNote())
+                .verifiedAmountUpdated(verifiedUpdated)
+                .build();
+    }
+
+    public record ReviewKey(String entryType, String entryKey, LocalDate transactionMonth) {}
+
+    public record ReviewInfo(String actionType, BigDecimal selfSnapshot, BigDecimal mfSnapshot,
+                              Integer reviewedBy, String reviewedByName,
+                              Instant reviewedAt, String note) {
+        public String reviewStatus() {
+            return "IGNORE".equals(actionType) ? "IGNORED" : "MF_APPLIED";
+        }
+    }
+}
