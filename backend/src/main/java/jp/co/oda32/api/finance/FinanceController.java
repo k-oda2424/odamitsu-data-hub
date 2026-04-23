@@ -5,6 +5,7 @@ import jp.co.oda32.domain.model.finance.MPartnerGroup;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.model.finance.TInvoice;
 import jp.co.oda32.domain.service.finance.AccountingStatusService;
+import jp.co.oda32.domain.service.finance.AccountsPayableIntegrityService;
 import jp.co.oda32.domain.service.finance.AccountsPayableLedgerService;
 import jp.co.oda32.domain.service.finance.InvoiceImportService;
 import jp.co.oda32.domain.service.finance.MPartnerGroupService;
@@ -20,6 +21,7 @@ import jp.co.oda32.domain.service.master.MPaymentSupplierService;
 import jp.co.oda32.dto.finance.AccountsPayableLedgerResponse;
 import jp.co.oda32.dto.finance.AccountsPayableResponse;
 import jp.co.oda32.dto.finance.AccountsPayableSummaryResponse;
+import jp.co.oda32.dto.finance.IntegrityReportResponse;
 import jp.co.oda32.dto.finance.MfSupplierLedgerResponse;
 import jp.co.oda32.dto.finance.AccountsPayableVerifyRequest;
 import jp.co.oda32.dto.finance.BulkPaymentDateRequest;
@@ -79,6 +81,7 @@ public class FinanceController {
     private final PurchaseJournalCsvService purchaseJournalCsvService;
     private final AccountsPayableLedgerService accountsPayableLedgerService;
     private final MfSupplierLedgerService mfSupplierLedgerService;
+    private final AccountsPayableIntegrityService accountsPayableIntegrityService;
 
     @GetMapping("/accounts-payable")
     public ResponseEntity<Page<AccountsPayableResponse>> listAccountsPayable(
@@ -191,6 +194,32 @@ public class FinanceController {
      *
      * @since 2026-04-22 (買掛帳画面)
      */
+    /**
+     * 買掛帳 整合性検出 (軸 B + 軸 C): 全 supplier 一括診断。
+     * 設計書: claudedocs/design-integrity-report.md
+     *
+     * @since 2026-04-22
+     */
+    @GetMapping("/accounts-payable/integrity-report")
+    public ResponseEntity<?> getIntegrityReport(
+            @RequestParam("shopNo") Integer shopNo,
+            @RequestParam("fromMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromMonth,
+            @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth) {
+        assertShopAccess(shopNo);
+        try {
+            IntegrityReportResponse res = accountsPayableIntegrityService.generate(shopNo, fromMonth, toMonth);
+            return ResponseEntity.ok(res);
+        } catch (MfReAuthRequiredException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
+        } catch (MfScopeInsufficientException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "message", e.getMessage(),
+                    "requiredScope", e.getRequiredScope()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("message", e.getMessage()));
+        }
+    }
+
     @GetMapping("/accounts-payable/ledger/mf")
     public ResponseEntity<?> getMfSupplierLedger(
             @RequestParam("shopNo") Integer shopNo,

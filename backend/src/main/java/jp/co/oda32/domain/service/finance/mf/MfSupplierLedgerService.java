@@ -18,7 +18,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -28,13 +27,14 @@ import java.util.TreeMap;
 
 /**
  * MF 仕入先別 ledger API `/accounts-payable/ledger/mf`。
- * MF /journals を期間でページング全件取得し、買掛金 account の sub_account_name が
+ * MF /journals を期間で取得し、買掛金 account の sub_account_name が
  * 指定 supplier に一致する branch の credit/debit を月次で集計する。
  * <p>
- * sub_account_name 解決は既存 {@link MfJournalReconcileService#buildMfSubAccountMap}
- * と同じく {@code mf_account_master.search_key == supplier_code} 経由。
+ * 2026-04-22 refactor (R3 反映): journals 取得 logic は {@link MfJournalFetcher} に委譲。
+ * sub_account_name 解決は {@code mf_account_master.search_key == supplier_code} 経由。
  * <p>
- * 設計書: claudedocs/design-accounts-payable-ledger.md §4.2 / §5.2
+ * 設計書: claudedocs/design-accounts-payable-ledger.md §4.2 / §5.2,
+ *         claudedocs/design-integrity-report.md §5.2 (R3)
  *
  * @since 2026-04-22
  */
@@ -45,12 +45,10 @@ import java.util.TreeMap;
 public class MfSupplierLedgerService {
 
     private static final int MAX_PERIOD_MONTHS = 24;
-    private static final int PER_PAGE = 1000;
-    private static final int MAX_PAGES = 50;
     private static final String MF_ACCOUNT_PAYABLE = "買掛金";
 
     private final MfOauthService mfOauthService;
-    private final MfApiClient mfApiClient;
+    private final MfJournalFetcher journalFetcher;
     private final MPaymentSupplierService paymentSupplierService;
     private final MfAccountMasterRepository mfAccountMasterRepository;
 
@@ -91,42 +89,11 @@ public class MfSupplierLedgerService {
                 .orElseThrow(() -> new IllegalStateException("MF クライアント設定が未登録です"));
         String accessToken = mfOauthService.getValidAccessToken();
 
-        // 自社 fromMonth (20日締め月) の bucket には「前月 21日 〜 当月 20日」の仕入が含まれる。
-        // MF 仕訳を bucket 化するには前月 21日 から取得が理想だが、MF fiscal year 境界で
-        // "Given date is not matching any accounting periods" 400 が返るケースがある。
-        // fiscal year 設定は会社により異なるため、広範囲の候補を段階的に試行する
-        // (buildStartDateCandidates 参照)。
-        List<LocalDate> candidates = buildStartDateCandidates(fromMonth, toMonth);
-        List<MfJournal> allJournals = null;
-        LocalDate actualStart = null;
-        Exception lastError = null;
-        boolean firstAttempt = true;
-        for (LocalDate candidate : candidates) {
-            if (candidate.isAfter(toMonth)) continue;
-            // 候補試行間もレート制限回避
-            if (!firstAttempt) sleepQuietly(RATE_LIMIT_SLEEP_MS);
-            firstAttempt = false;
-            try {
-                allJournals = fetchAllJournals(client, accessToken, candidate, toMonth);
-                actualStart = candidate;
-                break;
-            } catch (org.springframework.web.client.HttpClientErrorException e) {
-                if (e.getStatusCode().value() == 400
-                        && e.getResponseBodyAsString() != null
-                        && e.getResponseBodyAsString().contains("accounting periods")) {
-                    log.info("[mf-ledger] MF accounting periods 範囲外: start_date={} → 次候補へ", candidate);
-                    lastError = e;
-                    continue;
-                }
-                throw e;
-            }
-        }
-        if (allJournals == null) {
-            throw new IllegalStateException(
-                    "MF fiscal year 境界エラー: どの start_date 候補でも journals を取得できませんでした。"
-                            + " 取引月の期間を見直すか、MF 事業年度設定を確認してください。"
-                            + (lastError != null ? " 最終エラー: " + lastError.getMessage() : ""));
-        }
+        // --- MF /journals 取得 (共通 helper に委譲) ---
+        MfJournalFetcher.FetchResult fetched = journalFetcher.fetchJournalsForPeriod(
+                client, accessToken, fromMonth, toMonth);
+        List<MfJournal> allJournals = fetched.journals();
+        LocalDate actualStart = fetched.actualStart();
         log.info("[mf-ledger] supplierNo={}, 期間 {}〜{}, 取得 journals {} 件, sub候補 {}",
                 supplierNo, actualStart, toMonth, allJournals.size(), resolved.matched);
 
@@ -135,7 +102,7 @@ public class MfSupplierLedgerService {
         for (MfJournal j : allJournals) {
             LocalDate jDate = j.transactionDate();
             if (jDate == null || j.branches() == null) continue;
-            LocalDate monthKey = toClosingMonthDay20(jDate);
+            LocalDate monthKey = MfJournalFetcher.toClosingMonthDay20(jDate);
             if (monthKey.isBefore(fromMonth) || monthKey.isAfter(toMonth)) continue;
 
             for (MfJournal.MfBranch br : j.branches()) {
@@ -189,107 +156,11 @@ public class MfSupplierLedgerService {
                 .build();
     }
 
-    /** MF API のレート制限 (Operations per second) 回避のため、リクエスト間に挿入する遅延 (ms)。 */
-    private static final long RATE_LIMIT_SLEEP_MS = 350;
-
-    /**
-     * fiscal year 境界で 400 になるケースを回避するため、start_date 候補を広範囲で列挙する。
-     * 候補は「理想的な前月 21日」から始まり、fromMonth 以降を数ヶ月先まで滑らせる。
-     * 各月の 1日 / 21日 両方を試行することで、3月決算 (4/1 開始) / 6月決算 (6/21 開始) 等
-     * 多様な fiscal year 開始日パターンに対応。
-     */
-    static List<LocalDate> buildStartDateCandidates(LocalDate fromMonth, LocalDate toMonth) {
-        java.util.LinkedHashSet<LocalDate> set = new java.util.LinkedHashSet<>();
-        // 1) 前月 21日: 自社 bucket と整合する理想形 (前 fiscal year 内なら成功)
-        set.add(fromMonth.minusMonths(1).plusDays(1));
-        // 2) fromMonth 自身 (Phase 0 実測で end_date は通ったが start_date はだめだった)
-        set.add(fromMonth);
-        // 3) fromMonth + 1日
-        set.add(fromMonth.plusDays(1));
-        // 4-11) fromMonth から toMonth まで、各月の 1日 / 21日 を列挙
-        LocalDate cursor = fromMonth;
-        while (!cursor.isAfter(toMonth)) {
-            java.time.YearMonth ym = java.time.YearMonth.from(cursor);
-            set.add(ym.atDay(1));
-            set.add(ym.atDay(21));
-            cursor = ym.plusMonths(1).atDay(1);
-            if (set.size() > 30) break; // 安全上限
-        }
-        return new java.util.ArrayList<>(set);
-    }
-
-    /**
-     * MF /journals をページング全件取得。
-     * レート制限 (429) 対策: 各ページ間に {@value #RATE_LIMIT_SLEEP_MS} ms sleep、
-     * 429 を受けたら指数バックオフで最大 3 回 retry。
-     */
-    private List<MfJournal> fetchAllJournals(MMfOauthClient client, String accessToken,
-                                               LocalDate startDate, LocalDate endDate) {
-        List<MfJournal> all = new ArrayList<>();
-        String sd = startDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
-        String ed = endDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
-        int page = 1;
-        while (true) {
-            MfJournalsResponse res = callListJournalsWithRetry(client, accessToken, sd, ed, page);
-            List<MfJournal> items = res.items();
-            all.addAll(items);
-            if (items.size() < PER_PAGE) break;
-            page++;
-            if (page > MAX_PAGES) {
-                throw new IllegalStateException("MF journals ページング safeguard を超過しました (50 pages)");
-            }
-            sleepQuietly(RATE_LIMIT_SLEEP_MS);
-        }
-        return all;
-    }
-
-    /**
-     * /journals を呼び出し、429 (too_many_requests) を受けたら指数バックオフで最大 3 回 retry。
-     */
-    private MfJournalsResponse callListJournalsWithRetry(MMfOauthClient client, String accessToken,
-                                                          String sd, String ed, int page) {
-        long[] backoffs = {1000L, 2000L, 4000L};
-        int attempt = 0;
-        while (true) {
-            try {
-                return mfApiClient.listJournals(client, accessToken, sd, ed, page, PER_PAGE);
-            } catch (org.springframework.web.client.HttpClientErrorException e) {
-                if (e.getStatusCode().value() == 429 && attempt < backoffs.length) {
-                    long wait = backoffs[attempt];
-                    log.warn("[mf-ledger] MF rate limit 429, {}ms sleep して retry ({}回目)", wait, attempt + 1);
-                    sleepQuietly(wait);
-                    attempt++;
-                    continue;
-                }
-                throw e;
-            }
-        }
-    }
-
-    private static void sleepQuietly(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    /**
-     * transactionDate を 20日締め月 (LocalDate of 20日) に寄せる。
-     * day <= 20 → 当月20日、day > 20 → 翌月20日。
-     */
-    static LocalDate toClosingMonthDay20(LocalDate date) {
-        if (date.getDayOfMonth() <= 20) {
-            return YearMonth.from(date).atDay(20);
-        }
-        return YearMonth.from(date).plusMonths(1).atDay(20);
-    }
-
     /**
      * sub_account_name 候補を解決。
-     * 1) mf_account_master.search_key == supplier_code & account_name/financial_statement_item == "買掛金" で検索
+     * 1) mf_account_master.search_key == supplier_code & account_name == "買掛金"
      * 2) 見つからない場合は supplier_name をフォールバックで試行 (exact match)
-     * 3) どちらも候補無しの場合、unmatchedCandidates に supplier_name を含めて返す
+     * 3) どちらも候補無しなら unmatchedCandidates に supplier_name を含めて返す
      */
     ResolvedSubAccount resolveSubAccountNames(String supplierCode, String supplierName) {
         List<MfAccountMaster> list = mfAccountMasterRepository.findAll();
@@ -303,7 +174,6 @@ public class MfSupplierLedgerService {
                 matched.add(r.getSubAccountName());
             }
         }
-        // フォールバック: supplier_name で exact match
         if (matched.isEmpty() && supplierName != null && !supplierName.isBlank()) {
             for (MfAccountMaster r : list) {
                 if (!MF_ACCOUNT_PAYABLE.equals(r.getAccountName())) continue;

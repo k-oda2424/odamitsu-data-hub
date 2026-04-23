@@ -66,4 +66,11 @@ public interface TAccountsPayableSummaryRepository extends JpaRepository<TAccoun
      */
     List<TAccountsPayableSummary> findByShopNoAndSupplierNoAndTransactionMonth(
             Integer shopNo, Integer supplierNo, LocalDate transactionMonth);
+
+    /**
+     * 整合性検出 API 用: supplier 指定無しで期間内の全 row を取得 (R9 反映)。
+     * 呼び出し側で supplier × 月 に index 化する。
+     */
+    List<TAccountsPayableSummary> findByShopNoAndTransactionMonthBetweenOrderBySupplierNoAscTransactionMonthAscTaxRateAsc(
+            Integer shopNo, LocalDate fromMonth, LocalDate toMonth);
 }

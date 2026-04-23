@@ -29,6 +29,8 @@ import {
   highestSeverity,
   rowBgClass,
 } from '@/types/accounts-payable-ledger'
+import { computeMfMatchStatus } from '@/types/integrity-report'
+import Link from 'next/link'
 
 /**
  * 買掛帳: 1 仕入先の月次推移画面。
@@ -260,9 +262,9 @@ export function AccountsPayableLedgerPage() {
             </CardContent>
           </Card>
 
-          {/* MF 比較トリガ */}
+          {/* MF 比較トリガ + 整合性レポートリンク */}
           <Card>
-            <CardContent className="pt-4 flex items-center gap-3">
+            <CardContent className="pt-4 flex flex-wrap items-center gap-3">
               <Button
                 variant="outline"
                 onClick={() => mfMutation.mutate()}
@@ -281,6 +283,14 @@ export function AccountsPayableLedgerPage() {
                   <AlertCircle className="h-3 w-3" /> MF 側で {mfLedger.unmatchedCandidates.join(', ')} が見つかりません
                 </span>
               )}
+              <div className="ml-auto">
+                <Link
+                  href={`/finance/accounts-payable-ledger/integrity?shopNo=${committed.shopNo ?? ''}&fromMonth=${committed.fromMonth}&toMonth=${committed.toMonth}`}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  整合性レポート (全仕入先) →
+                </Link>
+              </div>
             </CardContent>
           </Card>
 
@@ -317,9 +327,17 @@ export function AccountsPayableLedgerPage() {
                     const sev = highestSeverity(row.anomalies)
                     const bg = rowBgClass(sev)
                     const mfDelta = mfLedger ? mfDeltaByMonth.get(row.transactionMonth) ?? 0 : null
-                    const selfDelta = row.changeTaxIncluded - row.paymentSettledTaxIncluded
+                    // C1 反映: バックエンド AccountsPayableIntegrityService と整合させるため effectiveChange を使用
+                    // (手動確定行 verified_manually=1 の月で誤発火を防ぐ)
+                    const selfDelta = row.effectiveChangeTaxIncluded - row.paymentSettledTaxIncluded
                     const diff = mfDelta !== null ? selfDelta - mfDelta : null
-                    const mfMismatch = diff !== null && Math.abs(diff) > 10000
+                    // R7 反映: MFA (MINOR amber) / MFA! (MAJOR red) / MFM (MF 側欠落 or 自社欠落) に細分化
+                    const selfHasActivity = row.effectiveChangeTaxIncluded !== 0 || row.paymentSettledTaxIncluded !== 0
+                    const mfHasActivity = mfDelta !== null && mfDelta !== 0
+                    const mfStatus = mfDelta === null
+                      ? { code: null, label: '', className: '' }
+                      : computeMfMatchStatus(selfDelta, mfDelta, selfHasActivity, mfHasActivity)
+                    const mfMismatch = mfStatus.code !== null && mfStatus.code !== 'MATCH'
                     return (
                       <tr key={row.transactionMonth} className={`border-b ${bg}`}>
                         <td className="py-2">{row.transactionMonth}</td>
@@ -339,7 +357,13 @@ export function AccountsPayableLedgerPage() {
                         {mfLedger && (
                           <>
                             <td className="py-2 text-right">{formatCurrency(mfDelta ?? 0)}</td>
-                            <td className={`py-2 text-right ${mfMismatch ? 'text-amber-700 font-medium' : 'text-muted-foreground'}`}>
+                            <td className={`py-2 text-right ${
+                              mfStatus.code === 'MFA_MAJOR' || mfStatus.code === 'MFM_SELF' || mfStatus.code === 'MFM_MF'
+                                ? 'text-red-700 font-medium'
+                                : mfStatus.code === 'MFA_MINOR'
+                                ? 'text-amber-700 font-medium'
+                                : 'text-muted-foreground'
+                            }`}>
                               {formatCurrency(diff ?? 0)}
                             </td>
                           </>
@@ -366,17 +390,21 @@ export function AccountsPayableLedgerPage() {
                                 </Tooltip>
                               ))}
                             </TooltipProvider>
-                            {mfMismatch && (
+                            {mfMismatch && mfStatus.code !== null && (
                               <TooltipProvider>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <Badge variant="outline" className={`text-xs cursor-help ${ANOMALY_BADGE_CLASS.MF_DELTA_MISMATCH}`}>
-                                      {ANOMALY_SHORT_LABEL.MF_DELTA_MISMATCH}
+                                    <Badge variant="outline" className={`text-xs cursor-help ${mfStatus.className}`}>
+                                      {mfStatus.label}
                                     </Badge>
                                   </TooltipTrigger>
                                   <TooltipContent>
                                     <p className="text-xs">
-                                      自社 delta {formatCurrency(selfDelta)} − MF delta {formatCurrency(mfDelta ?? 0)} = {formatCurrency(diff ?? 0)}
+                                      {mfStatus.code === 'MFM_SELF' && '自社にあって MF に無い (MF CSV 出力漏れ疑い)'}
+                                      {mfStatus.code === 'MFM_MF' && 'MF にあって自社に無い (自社取込漏れ疑い)'}
+                                      {(mfStatus.code === 'MFA_MINOR' || mfStatus.code === 'MFA_MAJOR') && (
+                                        <>自社 delta {formatCurrency(selfDelta)} − MF delta {formatCurrency(mfDelta ?? 0)} = {formatCurrency(diff ?? 0)}</>
+                                      )}
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>
