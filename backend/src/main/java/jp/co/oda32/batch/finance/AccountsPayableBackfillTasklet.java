@@ -1,8 +1,10 @@
 package jp.co.oda32.batch.finance;
 
 import jp.co.oda32.batch.finance.service.PayableMonthlyAggregator;
+import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
+import jp.co.oda32.domain.service.finance.mf.MfPaymentAggregator;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.configuration.annotation.StepScope;
@@ -15,6 +17,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -45,6 +48,7 @@ public class AccountsPayableBackfillTasklet implements Tasklet {
 
     private final TAccountsPayableSummaryService summaryService;
     private final PayableMonthlyAggregator monthlyAggregator;
+    private final MfPaymentAggregator mfPaymentAggregator;
     private final TransactionTemplate monthTxTemplate;
 
     @Value("#{jobParameters['fromMonth']}")
@@ -61,9 +65,11 @@ public class AccountsPayableBackfillTasklet implements Tasklet {
     public AccountsPayableBackfillTasklet(
             TAccountsPayableSummaryService summaryService,
             PayableMonthlyAggregator monthlyAggregator,
+            MfPaymentAggregator mfPaymentAggregator,
             PlatformTransactionManager txManager) {
         this.summaryService = summaryService;
         this.monthlyAggregator = monthlyAggregator;
+        this.mfPaymentAggregator = mfPaymentAggregator;
         // 月単位 REQUIRES_NEW tx
         this.monthTxTemplate = new TransactionTemplate(txManager);
         this.monthTxTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -118,6 +124,10 @@ public class AccountsPayableBackfillTasklet implements Tasklet {
         // opening + payment_settled 適用
         monthlyAggregator.applyOpenings(current, prev);
         monthlyAggregator.applyPaymentSettled(current, prev);
+        // 案 A (2026-04-23): MF 期首以降は MF debit で上書き
+        Map<Integer, BigDecimal> mfDebit = mfPaymentAggregator.getMfDebitBySupplierForMonth(
+                FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO, periodEndDate);
+        monthlyAggregator.overrideWithMfDebit(current, mfDebit, periodEndDate);
 
         // payment-only 行生成 (支plier 単位 change 判定)
         List<TAccountsPayableSummary> generated = monthlyAggregator.generatePaymentOnlyRows(

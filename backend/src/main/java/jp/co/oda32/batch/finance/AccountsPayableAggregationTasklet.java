@@ -2,6 +2,8 @@ package jp.co.oda32.batch.finance;
 
 import jp.co.oda32.batch.finance.service.AccountsPayableSummaryCalculator;
 import jp.co.oda32.batch.finance.service.PayableMonthlyAggregator;
+import jp.co.oda32.constant.FinanceConstants;
+import jp.co.oda32.domain.service.finance.mf.MfPaymentAggregator;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.repository.finance.TAccountsPayableSummaryRepository;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
@@ -44,6 +46,7 @@ public class AccountsPayableAggregationTasklet implements Tasklet {
     private final TAccountsPayableSummaryRepository tAccountsPayableSummaryRepository;
     private final AccountsPayableSummaryCalculator summaryCalculator;
     private final PayableMonthlyAggregator monthlyAggregator;
+    private final MfPaymentAggregator mfPaymentAggregator;
 
     @Value("#{jobParameters['targetDate']}")
     private String targetDate;
@@ -101,6 +104,11 @@ public class AccountsPayableAggregationTasklet implements Tasklet {
             // opening + payment_settled を共通ロジックで適用
             monthlyAggregator.applyOpenings(allCurrRows, prev);
             monthlyAggregator.applyPaymentSettled(allCurrRows, prev);
+            // 案 A (2026-04-23): MF 期首以降は MF debit で上書き
+            monthlyAggregator.overrideWithMfDebit(allCurrRows,
+                    mfPaymentAggregator.getMfDebitBySupplierForMonth(
+                            FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO, periodEndDate),
+                    periodEndDate);
 
             // payment-only 行生成 (supplier 単位 change 合計を全 currRows から判定 = R2 fix)
             Map<String, TAccountsPayableSummary> currMap = new HashMap<>();

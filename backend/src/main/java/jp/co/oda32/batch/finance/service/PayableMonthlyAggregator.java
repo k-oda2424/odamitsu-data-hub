@@ -153,6 +153,81 @@ public class PayableMonthlyAggregator {
     }
 
     /**
+     * MF debit を supplier 単位で当月 payment_settled に上書き (案 A、2026-04-23)。
+     * <p>
+     * MF 期首 (2025-07-20 bucket) 以降の月で、{@link MfPaymentAggregator} から取れた supplier は
+     * MF debit 値を採用。取れなかった supplier は従来の verified_amount ベースの値を維持 (fallback)。
+     *
+     * @param rows           対象月の summary rows (既に applyPaymentSettled 済み)
+     * @param mfDebitMap     supplier_no → MF debit (税込) の map。空 or null なら何もしない
+     * @param currentMonth   ログ表示用
+     */
+    public void overrideWithMfDebit(List<TAccountsPayableSummary> rows,
+                                     Map<Integer, BigDecimal> mfDebitMap,
+                                     LocalDate currentMonth) {
+        if (mfDebitMap == null || mfDebitMap.isEmpty()) return;
+        Map<String, List<TAccountsPayableSummary>> bySupplier = new HashMap<>();
+        for (TAccountsPayableSummary r : rows) {
+            bySupplier.computeIfAbsent(supplierKey(r), k -> new ArrayList<>()).add(r);
+        }
+        int overridden = 0;
+        for (Map.Entry<String, List<TAccountsPayableSummary>> e : bySupplier.entrySet()) {
+            List<TAccountsPayableSummary> group = e.getValue();
+            Integer supplierNo = group.get(0).getSupplierNo();
+            BigDecimal mfDebit = mfDebitMap.get(supplierNo);
+            if (mfDebit == null) continue;
+
+            // 当月 change 比で按分 (applyPaymentSettled と同じロジック)
+            group.sort(Comparator.comparing(r -> r.getTaxRate() != null ? r.getTaxRate() : BigDecimal.ZERO));
+            BigDecimal changeInclTotal = BigDecimal.ZERO;
+            BigDecimal changeExclTotal = BigDecimal.ZERO;
+            for (TAccountsPayableSummary r : group) {
+                changeInclTotal = changeInclTotal.add(nz(r.getTaxIncludedAmountChange()));
+                changeExclTotal = changeExclTotal.add(nz(r.getTaxExcludedAmountChange()));
+            }
+            // change=0 supplier は payment-only 行で処理 (既存ロジックに委ねる)
+            // ただし当月 payment 発生のみで change=0 のケースもあるため、代表行に全額入れる fallback
+            if (changeInclTotal.signum() == 0) {
+                TAccountsPayableSummary representative = group.get(group.size() - 1);
+                representative.setPaymentAmountSettledTaxIncluded(mfDebit);
+                // 税抜は税率逆算 (ratio 情報無いため)
+                BigDecimal divisor = BigDecimal.valueOf(100).add(nz(representative.getTaxRate()));
+                representative.setPaymentAmountSettledTaxExcluded(
+                        mfDebit.multiply(BigDecimal.valueOf(100)).divide(divisor, 0, RoundingMode.DOWN));
+                overridden++;
+                continue;
+            }
+
+            // 税抜の合計は MF debit × 比率の累積。最終行で端数吸収
+            BigDecimal cumIncl = BigDecimal.ZERO;
+            BigDecimal cumExcl = BigDecimal.ZERO;
+            BigDecimal mfDebitExcl = mfDebit.multiply(changeExclTotal)
+                    .divide(changeInclTotal, 0, RoundingMode.DOWN);
+            for (int i = 0; i < group.size(); i++) {
+                TAccountsPayableSummary r = group.get(i);
+                boolean isLast = (i == group.size() - 1);
+                BigDecimal paidInclRow, paidExclRow;
+                if (isLast) {
+                    paidInclRow = mfDebit.subtract(cumIncl);
+                    paidExclRow = mfDebitExcl.subtract(cumExcl);
+                } else {
+                    BigDecimal changeIncl = nz(r.getTaxIncludedAmountChange());
+                    BigDecimal changeExcl = nz(r.getTaxExcludedAmountChange());
+                    paidInclRow = mfDebit.multiply(changeIncl).divide(changeInclTotal, 0, RoundingMode.DOWN);
+                    paidExclRow = changeExclTotal.signum() == 0 ? BigDecimal.ZERO
+                            : mfDebitExcl.multiply(changeExcl).divide(changeExclTotal, 0, RoundingMode.DOWN);
+                    cumIncl = cumIncl.add(paidInclRow);
+                    cumExcl = cumExcl.add(paidExclRow);
+                }
+                r.setPaymentAmountSettledTaxIncluded(paidInclRow);
+                r.setPaymentAmountSettledTaxExcluded(paidExclRow);
+            }
+            overridden++;
+        }
+        log.info("[payment_settled MF] month={} MF debit 上書き supplier 数={}", currentMonth, overridden);
+    }
+
+    /**
      * supplier 内の当月 change 比で payment_settled を按分。
      * 決定論化のため group を tax_rate 昇順でソートして最終行 (最高税率) で端数吸収 (R6 対応)。
      * change 合計=0 の supplier は payment-only 行側で処理するため skip。
