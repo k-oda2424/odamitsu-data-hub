@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatCurrency } from '@/lib/utils'
-import { AlertCircle, CheckCircle2, Loader2, Play, Search } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, Play, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   ANOMALY_BADGE_CLASS,
@@ -111,20 +111,22 @@ export function AccountsPayableLedgerPage() {
 
   const [mfLedger, setMfLedger] = useState<MfSupplierLedgerResponse | null>(null)
   const mfMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (refresh: boolean = false) => {
       const sp = new URLSearchParams()
       sp.set('shopNo', String(committed.shopNo))
       sp.set('supplierNo', String(committed.supplierNo))
       sp.set('fromMonth', committed.fromMonth)
       sp.set('toMonth', committed.toMonth)
+      if (refresh) sp.set('refresh', 'true')
       return api.get<MfSupplierLedgerResponse>(`/finance/accounts-payable/ledger/mf?${sp.toString()}`)
     },
-    onSuccess: (res) => {
+    onSuccess: (res, refresh) => {
       setMfLedger(res)
+      const prefix = refresh ? 'MF API 再取得: ' : ''
       if (res.matchedSubAccountNames.length === 0) {
-        toast.warning('MF 側で対応する sub_account が見つかりませんでした')
+        toast.warning(`${prefix}MF 側で対応する sub_account が見つかりませんでした`)
       } else {
-        toast.success(`MF 累積取得完了 (journals ${res.totalJournalCount} 件)`)
+        toast.success(`${prefix}MF 取得完了 (journals ${res.totalJournalCount} 件)`)
       }
     },
     onError: (e: Error) => {
@@ -267,15 +269,35 @@ export function AccountsPayableLedgerPage() {
             <CardContent className="pt-4 flex flex-wrap items-center gap-3">
               <Button
                 variant="outline"
-                onClick={() => mfMutation.mutate()}
+                onClick={() => mfMutation.mutate(false)}
                 disabled={mfMutation.isPending}
               >
                 {mfMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Play className="mr-1 h-4 w-4" />}
                 MF と比較を取得
               </Button>
               {mfLedger && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (window.confirm('MF API から最新データを再取得します。続行しますか?')) {
+                      mfMutation.mutate(true)
+                    }
+                  }}
+                  disabled={mfMutation.isPending}
+                  title="MF API から再取得 (キャッシュ無視)"
+                >
+                  <RefreshCw className="mr-1 h-3 w-3" /> 最新取得
+                </Button>
+              )}
+              {mfLedger && (
                 <span className="text-xs text-muted-foreground">
                   matched: {mfLedger.matchedSubAccountNames.join(', ') || '(なし)'} / journals {mfLedger.totalJournalCount} 件
+                  {mfLedger.fetchedAt && (
+                    <span className="ml-2">
+                      / 取得: {new Date(mfLedger.fetchedAt).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })}
+                    </span>
+                  )}
                 </span>
               )}
               {mfLedger && mfLedger.unmatchedCandidates.length > 0 && (

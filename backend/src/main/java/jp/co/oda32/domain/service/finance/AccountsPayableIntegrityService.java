@@ -7,6 +7,7 @@ import jp.co.oda32.domain.model.master.MPaymentSupplier;
 import jp.co.oda32.domain.repository.finance.MfAccountMasterRepository;
 import jp.co.oda32.domain.repository.finance.TAccountsPayableSummaryRepository;
 import jp.co.oda32.domain.service.finance.mf.MfJournal;
+import jp.co.oda32.domain.service.finance.mf.MfJournalCacheService;
 import jp.co.oda32.domain.service.finance.mf.MfJournalFetcher;
 import jp.co.oda32.domain.service.finance.mf.MfOauthService;
 import jp.co.oda32.domain.service.master.MPaymentSupplierService;
@@ -66,12 +67,12 @@ public class AccountsPayableIntegrityService {
     private static final BigDecimal MINOR_UPPER = BigDecimal.valueOf(1000);
 
     private final MfOauthService mfOauthService;
-    private final MfJournalFetcher journalFetcher;
+    private final MfJournalCacheService journalCache;
     private final MfAccountMasterRepository mfAccountMasterRepository;
     private final TAccountsPayableSummaryRepository summaryRepository;
     private final MPaymentSupplierService paymentSupplierService;
 
-    public IntegrityReportResponse generate(Integer shopNo, LocalDate fromMonth, LocalDate toMonth) {
+    public IntegrityReportResponse generate(Integer shopNo, LocalDate fromMonth, LocalDate toMonth, boolean refresh) {
         // --- 入力検証 ---
         if (shopNo == null || fromMonth == null || toMonth == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -108,15 +109,16 @@ public class AccountsPayableIntegrityService {
             selfSupplierNos.add(r.getSupplierNo());
         }
 
-        // --- MF /journals 取得 (全 supplier 分、共通 helper) ---
+        // --- MF /journals 取得 (キャッシュ経由, 差分 fetch) ---
         MMfOauthClient client = mfOauthService.findActiveClient()
                 .orElseThrow(() -> new IllegalStateException("MF クライアント設定が未登録です"));
         String accessToken = mfOauthService.getValidAccessToken();
-        MfJournalFetcher.FetchResult fetched = journalFetcher.fetchJournalsForPeriod(
-                client, accessToken, fromMonth, toMonth);
-        List<MfJournal> allJournals = fetched.journals();
-        log.info("[integrity] shopNo={}, 期間 {}〜{}, 取得 journals {} 件",
-                shopNo, fromMonth, toMonth, allJournals.size());
+        MfJournalCacheService.CachedResult cached = journalCache.getOrFetch(
+                shopNo, client, accessToken, fromMonth, toMonth, refresh);
+        List<MfJournal> allJournals = cached.journals();
+        Instant fetchedAt = cached.oldestFetchedAt();
+        log.info("[integrity] shopNo={}, 期間 {}〜{}, journals {} 件, fetchedAt={}",
+                shopNo, fromMonth, toMonth, allJournals.size(), fetchedAt);
 
         // --- mf_account_master 逆引き map 構築 (sub_account_name → supplier_code(search_key)) ---
         // 同じ sub_account_name が複数 supplier_code に対応する場合は set で保持 (表記揺れ検出用)
@@ -392,7 +394,7 @@ public class AccountsPayableIntegrityService {
                 .shopNo(shopNo)
                 .fromMonth(fromMonth)
                 .toMonth(toMonth)
-                .fetchedAt(Instant.now())
+                .fetchedAt(fetchedAt != null ? fetchedAt : Instant.now())
                 .totalJournalCount(allJournals.size())
                 .supplierCount(supplierUnion.size())
                 .mfOnly(mfOnly)

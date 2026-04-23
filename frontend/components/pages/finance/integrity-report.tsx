@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatCurrency } from '@/lib/utils'
-import { AlertCircle, Loader2, Search } from 'lucide-react'
+import { AlertCircle, Loader2, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import type { IntegrityReportResponse } from '@/types/integrity-report'
 import { MISMATCH_SEVERITY_CLASS, MISMATCH_SEVERITY_LABEL } from '@/types/integrity-report'
@@ -60,7 +60,7 @@ export function IntegrityReportPage() {
   }, [router, shopNo, fromMonth, toMonth])
 
   const runMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (refresh: boolean = false) => {
       if (shopNo === undefined) {
         throw new Error('ショップを選択してください')
       }
@@ -68,16 +68,18 @@ export function IntegrityReportPage() {
       sp.set('shopNo', String(shopNo))
       sp.set('fromMonth', fromMonth)
       sp.set('toMonth', toMonth)
+      if (refresh) sp.set('refresh', 'true')
       return api.get<IntegrityReportResponse>(`/finance/accounts-payable/integrity-report?${sp.toString()}`)
     },
-    onSuccess: (res) => {
+    onSuccess: (res, refresh) => {
       setReport(res)
       const s = res.summary
       const total = s.mfOnlyCount + s.selfOnlyCount + s.amountMismatchCount
+      const prefix = refresh ? 'MF API から再取得しました。' : ''
       if (total === 0 && s.unmatchedSupplierCount === 0) {
-        toast.success('全 supplier で MF と整合しました。')
+        toast.success(`${prefix}全 supplier で MF と整合しました。`)
       } else {
-        toast.warning(`MF 側のみ ${s.mfOnlyCount} / 自社側のみ ${s.selfOnlyCount} / 金額差 ${s.amountMismatchCount} 件、要確認。`)
+        toast.warning(`${prefix}MF 側のみ ${s.mfOnlyCount} / 自社側のみ ${s.selfOnlyCount} / 金額差 ${s.amountMismatchCount} 件、要確認。`)
       }
     },
     onError: (e: Error) => {
@@ -93,13 +95,18 @@ export function IntegrityReportPage() {
     },
   })
 
-  const handleSearch = () => {
+  const handleSearch = (refresh = false) => {
     if (shopNo === undefined) {
       toast.warning('ショップを選択してください')
       return
     }
     updateUrl()
-    runMutation.mutate()
+    runMutation.mutate(refresh)
+  }
+
+  const handleRefresh = () => {
+    if (!window.confirm('MF API から最新データを再取得します。10〜15 秒かかる場合があります。続行しますか?')) return
+    handleSearch(true)
   }
 
   const gotoLedger = (supplierNo?: number | null) => {
@@ -141,18 +148,29 @@ export function IntegrityReportPage() {
               <Input id="to-month" type="month" value={toMonth.slice(0, 7)}
                      onChange={(e) => setToMonth(`${e.target.value}-20`)} />
             </div>
-            <div className="flex items-end">
-              <Button onClick={handleSearch} disabled={runMutation.isPending}>
+            <div className="flex items-end gap-2">
+              <Button onClick={() => handleSearch(false)} disabled={runMutation.isPending}>
                 {runMutation.isPending
                   ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                   : <Search className="mr-1 h-4 w-4" />}
                 整合性チェック
               </Button>
+              <Button variant="outline" onClick={handleRefresh} disabled={runMutation.isPending}
+                      title="MF API から再取得 (キャッシュ無視)">
+                <RefreshCw className="mr-1 h-4 w-4" />
+                最新取得
+              </Button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            期間は最大 12 ヶ月。MF /journals を全件取得 + 買掛金 sub_account で仕入先別に分類して、自社 DB と月次単位で突合します (処理 8〜15 秒)。
+            通常は月単位キャッシュから表示 (初回のみ MF API 通信)。MF 側で仕訳を変更した後は「最新取得」で再取得してください。
           </p>
+          {report?.fetchedAt && (
+            <p className="text-xs text-muted-foreground">
+              取得日時: {new Date(report.fetchedAt).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })}
+              <span className="ml-2">(期間内の最古キャッシュ時刻)</span>
+            </p>
+          )}
         </CardContent>
       </Card>
 

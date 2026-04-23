@@ -48,13 +48,13 @@ public class MfSupplierLedgerService {
     private static final String MF_ACCOUNT_PAYABLE = "買掛金";
 
     private final MfOauthService mfOauthService;
-    private final MfJournalFetcher journalFetcher;
+    private final MfJournalCacheService journalCache;
     private final MPaymentSupplierService paymentSupplierService;
     private final MfAccountMasterRepository mfAccountMasterRepository;
 
     public MfSupplierLedgerResponse getSupplierLedger(
             Integer shopNo, Integer supplierNo,
-            LocalDate fromMonth, LocalDate toMonth) {
+            LocalDate fromMonth, LocalDate toMonth, boolean refresh) {
 
         if (shopNo == null || supplierNo == null || fromMonth == null || toMonth == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -89,13 +89,13 @@ public class MfSupplierLedgerService {
                 .orElseThrow(() -> new IllegalStateException("MF クライアント設定が未登録です"));
         String accessToken = mfOauthService.getValidAccessToken();
 
-        // --- MF /journals 取得 (共通 helper に委譲) ---
-        MfJournalFetcher.FetchResult fetched = journalFetcher.fetchJournalsForPeriod(
-                client, accessToken, fromMonth, toMonth);
-        List<MfJournal> allJournals = fetched.journals();
-        LocalDate actualStart = fetched.actualStart();
-        log.info("[mf-ledger] supplierNo={}, 期間 {}〜{}, 取得 journals {} 件, sub候補 {}",
-                supplierNo, actualStart, toMonth, allJournals.size(), resolved.matched);
+        // --- MF /journals 取得 (キャッシュ経由, 差分 fetch) ---
+        MfJournalCacheService.CachedResult cached = journalCache.getOrFetch(
+                shopNo, client, accessToken, fromMonth, toMonth, refresh);
+        List<MfJournal> allJournals = cached.journals();
+        Instant fetchedAt = cached.oldestFetchedAt();
+        log.info("[mf-ledger] supplierNo={}, 期間 {}〜{}, journals {} 件, sub候補 {}, fetchedAt={}",
+                supplierNo, fromMonth, toMonth, allJournals.size(), resolved.matched, fetchedAt);
 
         // --- 月次 bucket (20日締め月基準) ---
         TreeMap<LocalDate, MonthBucket> buckets = new TreeMap<>();
@@ -151,7 +151,7 @@ public class MfSupplierLedgerService {
                 .matchedSubAccountNames(new ArrayList<>(resolved.matched))
                 .unmatchedCandidates(resolved.unmatched)
                 .rows(rows)
-                .fetchedAt(Instant.now())
+                .fetchedAt(fetchedAt != null ? fetchedAt : Instant.now())
                 .totalJournalCount(allJournals.size())
                 .build();
     }

@@ -204,10 +204,11 @@ public class FinanceController {
     public ResponseEntity<?> getIntegrityReport(
             @RequestParam("shopNo") Integer shopNo,
             @RequestParam("fromMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromMonth,
-            @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth) {
+            @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth,
+            @RequestParam(value = "refresh", defaultValue = "false") boolean refresh) {
         assertShopAccess(shopNo);
         try {
-            IntegrityReportResponse res = accountsPayableIntegrityService.generate(shopNo, fromMonth, toMonth);
+            IntegrityReportResponse res = accountsPayableIntegrityService.generate(shopNo, fromMonth, toMonth, refresh);
             return ResponseEntity.ok(res);
         } catch (MfReAuthRequiredException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
@@ -225,10 +226,11 @@ public class FinanceController {
             @RequestParam("shopNo") Integer shopNo,
             @RequestParam("supplierNo") Integer supplierNo,
             @RequestParam("fromMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromMonth,
-            @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth) {
+            @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth,
+            @RequestParam(value = "refresh", defaultValue = "false") boolean refresh) {
         assertShopAccess(shopNo);
         try {
-            MfSupplierLedgerResponse res = mfSupplierLedgerService.getSupplierLedger(shopNo, supplierNo, fromMonth, toMonth);
+            MfSupplierLedgerResponse res = mfSupplierLedgerService.getSupplierLedger(shopNo, supplierNo, fromMonth, toMonth, refresh);
             return ResponseEntity.ok(res);
         } catch (MfReAuthRequiredException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
