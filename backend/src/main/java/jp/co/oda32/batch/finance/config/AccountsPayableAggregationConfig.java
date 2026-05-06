@@ -54,17 +54,19 @@ public class AccountsPayableAggregationConfig {
         return new JobBuilder("accountsPayableAggregation", jobRepository)
                 .incrementer(new RunIdIncrementer())
                 .listener(accountsPayableAggregationListener())
-                .start(accountsPayableSummaryInitStep())   // 最初に買掛金サマリーテーブルの初期化ステップを実行
+                .start(accountsPayableAggregationInitStep())   // 最初に買掛金サマリーテーブルの初期化ステップを実行
                 .next(accountsPayableAggregationStep())
                 .build();
     }
 
     /**
      * 買掛金サマリーテーブル初期化ステップ
+     * （旧 {@code accountsPayableSummaryInitStep} と Bean 名衝突を避けるため、
+     * Aggregation 系では {@code accountsPayableAggregationInitStep} に rename）
      */
     @Bean
-    public Step accountsPayableSummaryInitStep() {
-        return new StepBuilder("accountsPayableSummaryInitStep", jobRepository)
+    public Step accountsPayableAggregationInitStep() {
+        return new StepBuilder("accountsPayableAggregationInitStep", jobRepository)
                 .tasklet(accountsPayableSummaryInitTasklet, transactionManager)
                 .build();
     }

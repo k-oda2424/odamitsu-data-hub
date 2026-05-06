@@ -98,9 +98,13 @@ export default function PaymentMfRulesPage() {
     return rules.filter((r) => {
       if (!raw) return true
       const name = normalizeName(r.sourceName.toLowerCase())
+      // debitSubAccount も正規化して送り先名と表面挙動を揃える（㈱/株式会社/空白ゆれを吸収）。
+      // paymentSupplierCode は数値 6 桁なので正規化不要だが toLowerCase() で他項目と統一。
+      const sub = normalizeName((r.debitSubAccount ?? '').toLowerCase())
+      const code = (r.paymentSupplierCode ?? '').toLowerCase()
       return name.includes(q)
-          || (r.debitSubAccount ?? '').toLowerCase().includes(raw)
-          || (r.paymentSupplierCode ?? '').includes(raw)
+          || sub.includes(q)
+          || code.includes(raw)
     })
   }, [rules, search])
 

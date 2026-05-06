@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { MfJournalRule, MfJournalRuleRequest } from '@/types/mf-cashbook'
+import type { AmountSource, MfJournalRule, MfJournalRuleRequest, TaxResolver } from '@/types/mf-cashbook'
 import { TAX_RESOLVERS } from '@/types/mf-cashbook'
 
 const initForm = (): MfJournalRuleRequest => ({
@@ -178,7 +178,7 @@ export default function MfJournalRulesPage() {
             <Field label="摘要D キーワード"><Input value={form.descriptionDKeyword ?? ''} onChange={(e) => setForm({ ...form, descriptionDKeyword: e.target.value })} /></Field>
             <Field label="優先度"><Input type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })} /></Field>
             <Field label="金額ソース">
-              <Select value={form.amountSource} onValueChange={(v) => setForm({ ...form, amountSource: v as 'INCOME' | 'PAYMENT' })}>
+              <Select value={form.amountSource} onValueChange={(v) => setForm({ ...form, amountSource: v as AmountSource })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="INCOME">収入</SelectItem>
@@ -235,9 +235,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function TaxSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function TaxSelect({ value, onChange }: { value: TaxResolver; onChange: (v: TaxResolver) => void }) {
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value} onValueChange={(v) => onChange(v as TaxResolver)}>
       <SelectTrigger><SelectValue /></SelectTrigger>
       <SelectContent>
         {TAX_RESOLVERS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}

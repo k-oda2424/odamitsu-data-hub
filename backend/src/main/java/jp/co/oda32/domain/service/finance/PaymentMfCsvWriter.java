@@ -1,6 +1,7 @@
 package jp.co.oda32.domain.service.finance;
 
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfPreviewRow;
+import jp.co.oda32.exception.FinanceInternalException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -41,23 +42,30 @@ final class PaymentMfCsvWriter {
      * 仕訳行リストを CP932 (MS932) + LF の CSV バイト列に変換する。
      * {@code errorType=UNREGISTERED} の行はスキップ。
      *
-     * @param rows            出力対象の仕訳行
-     * @param transactionDate CSV「取引日」列の値（締め日 = transactionMonth）
+     * <p>取引日は行ごとに {@link PaymentMfPreviewRow#getTransactionDate()} を優先し、
+     * NULL のときは引数の fallback ({@code fallbackTransactionDate}) を使う。
+     *
+     * @param rows                    出力対象の仕訳行
+     * @param fallbackTransactionDate 行に transactionDate が無い場合のフォールバック
+     *                                （通常は締め日 = transactionMonth）
      * @return CSV バイト列（CP932 エンコード）
      */
-    static byte[] toCsvBytes(List<PaymentMfPreviewRow> rows, LocalDate transactionDate) {
+    static byte[] toCsvBytes(List<PaymentMfPreviewRow> rows, LocalDate fallbackTransactionDate) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (OutputStreamWriter w = new OutputStreamWriter(baos, CSV_CHARSET)) {
             w.write(String.join(",", CSV_HEADERS));
             w.write(CSV_LINE_END);
-            String date = transactionDate == null ? "" : transactionDate.format(CSV_DATE);
+            String fallback = fallbackTransactionDate == null ? "" : fallbackTransactionDate.format(CSV_DATE);
             for (PaymentMfPreviewRow r : rows) {
                 if ("UNREGISTERED".equals(r.getErrorType())) continue;
+                String date = r.getTransactionDate() != null
+                        ? r.getTransactionDate().format(CSV_DATE) : fallback;
                 w.write(toCsvLine(r, date));
                 w.write(CSV_LINE_END);
             }
         } catch (IOException e) {
-            throw new IllegalStateException("CSV出力に失敗しました", e);
+            // T5: I/O エラー (内部) を専用例外に置換。
+            throw new FinanceInternalException("CSV出力に失敗しました", e);
         }
         return baos.toByteArray();
     }
@@ -87,8 +95,10 @@ final class PaymentMfCsvWriter {
     }
 
     private static String fmtAmount(Long v) {
-        if (v == null) return "";
-        return v + " "; // 金額後ろに半角スペース（既存運用CSVに合わせる）
+        // 金額末尾の半角スペースは既存運用 CSV の不変条件。null 入力でも 0 + " " を返し、
+        // 「列のうち1セルだけスペース欠落」が起きないようにする (SF-C02)。
+        long amount = v == null ? 0L : v;
+        return amount + " ";
     }
 
     private static String safe(String s) {

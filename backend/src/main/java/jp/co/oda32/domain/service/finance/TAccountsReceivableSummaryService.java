@@ -2,6 +2,7 @@ package jp.co.oda32.domain.service.finance;
 
 import jakarta.persistence.criteria.Predicate;
 import jp.co.oda32.annotation.SkipShopCheck;
+import jp.co.oda32.audit.AuditLog;
 import jp.co.oda32.domain.model.finance.TAccountsReceivableSummary;
 import jp.co.oda32.domain.repository.finance.TAccountsReceivableSummaryRepository;
 import jp.co.oda32.dto.finance.AccountsReceivableSummaryResponse;
@@ -201,6 +202,9 @@ public class TAccountsReceivableSummaryService {
      * verified_manually=true をセットし、次回再集計・再検証バッチで上書きされないようにします。
      */
     @Transactional
+    @AuditLog(table = "t_accounts_receivable_summary", operation = "verify",
+            pkExpression = "{'shopNo': #a0, 'partnerNo': #a1, 'transactionMonth': #a2, 'taxRate': #a3, 'isOtakeGarbageBag': #a4}",
+            captureArgsAsAfter = true)
     public TAccountsReceivableSummary verify(
             int shopNo, int partnerNo, LocalDate transactionMonth, BigDecimal taxRate, boolean isOtakeGarbageBag,
             BigDecimal taxIncludedAmount, BigDecimal taxExcludedAmount, String note, boolean mfExportEnabled) {
@@ -223,6 +227,9 @@ public class TAccountsReceivableSummaryService {
      * 手動確定を解除します。次回再検証バッチで上書きされるようになります。
      */
     @Transactional
+    @AuditLog(table = "t_accounts_receivable_summary", operation = "release_manual_lock",
+            pkExpression = "{'shopNo': #a0, 'partnerNo': #a1, 'transactionMonth': #a2, 'taxRate': #a3, 'isOtakeGarbageBag': #a4}",
+            captureArgsAsAfter = true)
     public TAccountsReceivableSummary releaseManualLock(
             int shopNo, int partnerNo, LocalDate transactionMonth,
             BigDecimal taxRate, boolean isOtakeGarbageBag) {
@@ -238,6 +245,9 @@ public class TAccountsReceivableSummaryService {
      * MF出力フラグを更新します。
      */
     @Transactional
+    @AuditLog(table = "t_accounts_receivable_summary", operation = "mf_export_toggle",
+            pkExpression = "{'shopNo': #a0, 'partnerNo': #a1, 'transactionMonth': #a2, 'taxRate': #a3, 'isOtakeGarbageBag': #a4}",
+            captureArgsAsAfter = true)
     public TAccountsReceivableSummary updateMfExport(
             int shopNo, int partnerNo, LocalDate transactionMonth,
             BigDecimal taxRate, boolean isOtakeGarbageBag, boolean enabled) {

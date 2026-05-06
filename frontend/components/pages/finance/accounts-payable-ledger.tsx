@@ -30,6 +30,7 @@ import {
   rowBgClass,
 } from '@/types/accounts-payable-ledger'
 import { computeMfMatchStatus } from '@/types/integrity-report'
+import { AmountSourceTooltip } from '@/components/common/AmountSourceTooltip'
 import Link from 'next/link'
 
 /**
@@ -251,6 +252,13 @@ export function AccountsPayableLedgerPage() {
                   value={data.rows[0]?.openingBalanceTaxIncluded ?? 0}
                   hint="期首残 (DB backfill で算出)"
                 />
+                {mfLedger?.openingBalance !== undefined && mfLedger.openingBalance !== 0 && (
+                  <InfoTile
+                    label="前期繰越 (MF journal #1)"
+                    value={mfLedger.openingBalance}
+                    hint="MF 期首残高仕訳 + 手動補正 (m_supplier_opening_balance)"
+                  />
+                )}
                 <InfoTile label="期間累計 仕入" value={data.summary.totalChangeTaxIncluded} />
                 <InfoTile label="期間累計 検証" value={data.summary.totalVerified} />
                 <InfoTile label="期間累計 支払反映" value={data.summary.totalPaymentSettled} />
@@ -338,16 +346,16 @@ export function AccountsPayableLedgerPage() {
                 <thead>
                   <tr className="border-b text-left">
                     <th className="py-2">月</th>
-                    <th className="py-2 text-right">前月繰越</th>
-                    <th className="py-2 text-right">仕入</th>
-                    <th className="py-2 text-right">検証額</th>
-                    <th className="py-2 text-right">支払反映</th>
-                    <th className="py-2 text-right">当月残</th>
+                    <th className="py-2 text-right">前月繰越<AmountSourceTooltip source="OPENING_BALANCE" /></th>
+                    <th className="py-2 text-right">仕入<AmountSourceTooltip source="PAYABLE_SUMMARY" /></th>
+                    <th className="py-2 text-right">検証額<AmountSourceTooltip source="VERIFIED_AMOUNT" /></th>
+                    <th className="py-2 text-right">支払反映<AmountSourceTooltip source="VERIFIED_AMOUNT" /></th>
+                    <th className="py-2 text-right">当月残<AmountSourceTooltip source="CLOSING_CALC" /></th>
                     {mfLedger && (
                       <>
-                        <th className="py-2 text-right">MF delta</th>
+                        <th className="py-2 text-right">MF delta<AmountSourceTooltip source="MF_JOURNAL" /></th>
                         <th className="py-2 text-right">Δ(自社-MF)</th>
-                        <th className="py-2 text-right">MF 累積残</th>
+                        <th className="py-2 text-right">MF 累積残<AmountSourceTooltip source="MF_JOURNAL" /></th>
                         <th className="py-2 text-right">累積差</th>
                       </>
                     )}
@@ -395,7 +403,10 @@ export function AccountsPayableLedgerPage() {
                         </td>
                         {mfLedger && (() => {
                           const mfCum = mfCumulativeByMonth.get(row.transactionMonth) ?? 0
-                          const cumDiff = row.closingBalanceTaxIncluded - mfCum
+                          // 前期繰越 を self 側に加算して cumDiff を対称化。
+                          // MF 側 mfCum は既に opening を含むので、自社 closing (DB 由来、opening 欠落) に足す。
+                          const opening = mfLedger.openingBalance ?? 0
+                          const cumDiff = (row.closingBalanceTaxIncluded + opening) - mfCum
                           const cumClass =
                             cumDiff === 0 ? 'text-green-700'
                             : Math.abs(cumDiff) > 1000 ? 'text-red-700 font-medium'
@@ -489,13 +500,14 @@ export function AccountsPayableLedgerPage() {
             支払反映は「前月 supplier の検証額を当月 change 比で按分」したもの (Phase B')。
           </p>
           <p className="text-xs text-muted-foreground">
-            <b>期首残</b>: 期間開始 opening は DB backfill で 2025-06-20 以前のデータから累積計算された値。
-            2025-05 以前にデータがない supplier は opening=0 から始まるため、本来の MF 期首残とは差が出る。
+            <b>前期繰越</b>: MF journal #1 (期首残高仕訳) から supplier 別に取得した値 ({'/finance/supplier-opening-balance'} で管理)。
+            journal #1 本体は月次 accumulation から除外され、累積残の初期値として注入される。
+            未登録 supplier は 0 のままなので、{'/finance/supplier-opening-balance'} で「MF から取得」実行をご検討ください。
           </p>
           <p className="text-xs text-muted-foreground">
             <b>MF 比較</b>: 月次 delta (= credit − debit) で比較する方式。
             自社 delta (= change − payment_settled) との月次差が MFX バッジ発火 (閾値 ¥10,000)。
-            MF 側は期間内 journals の累積のみで、期間開始時点の supplier 別 MF 残は取得対象外 (sub_account 粒度の期首残取得は将来の Phase で対応予定)。
+            累積差列は <code>(自社 closing + 前期繰越) − MF 累積残</code> で計算され、整合的な supplier では ±¥100 以内に収まる。
           </p>
         </>
       )}

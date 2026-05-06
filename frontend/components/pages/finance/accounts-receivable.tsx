@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatCurrency, normalizeForSearch } from '@/lib/utils'
+import { paymentTypeLabel } from '@/lib/payment-type'
 import { emptyPage, type Paginated } from '@/types/paginated'
 import {
   AlertCircle,
@@ -43,6 +44,7 @@ import {
 import { AccountsReceivableVerifyDialog } from './AccountsReceivableVerifyDialog'
 import { AccountsReceivableAggregateDialog } from './AccountsReceivableAggregateDialog'
 import { InvoiceImportDialog } from './InvoiceImportDialog'
+import { AmountSourceTooltip } from '@/components/common/AmountSourceTooltip'
 
 const PAGE_SIZE = 50
 /** 「全件表示」ON 時のページサイズ上限（実運用の月次売掛は 1000 行超えない想定）。 */
@@ -289,22 +291,22 @@ export default function AccountsReceivablePage() {
     { key: 'shopNo', header: '店舗' },
     { key: 'partnerCode', header: '得意先Code' },
     { key: 'partnerName', header: '得意先名', render: (r) => r.partnerName ?? '-' },
-    { key: 'cutoffDate', header: '締め日', render: (r) => cutoffDateLabel(r.cutoffDate) },
+    { key: 'cutoffDate', header: '締め日', render: (r) => paymentTypeLabel(r.cutoffDate) },
     { key: 'transactionMonth', header: '取引日' },
     { key: 'taxRate', header: '税率', render: (r) => `${Number(r.taxRate)}%` },
     {
       key: 'taxIncludedAmountChange',
-      header: '税込金額',
+      header: <>税込金額<AmountSourceTooltip source="PAYABLE_SUMMARY" /></>,
       render: (r) => <span className="tabular-nums">{formatCurrency(r.taxIncludedAmountChange ?? 0)}</span>,
     },
     {
       key: 'taxExcludedAmountChange',
-      header: '税抜金額',
+      header: <>税抜金額<AmountSourceTooltip source="PAYABLE_SUMMARY" /></>,
       render: (r) => <span className="tabular-nums">{formatCurrency(r.taxExcludedAmountChange ?? 0)}</span>,
     },
     {
       key: 'invoiceAmount',
-      header: '請求書金額',
+      header: <>請求書金額<AmountSourceTooltip source="AR_INVOICE" /></>,
       render: (r) => r.invoiceAmount == null ? '-' : <span className="tabular-nums">{formatCurrency(r.invoiceAmount)}</span>,
     },
     {
@@ -573,9 +575,3 @@ function VerificationBadge({ row }: { row: AccountsReceivable }) {
   return <Badge variant="outline">未検証</Badge>
 }
 
-function cutoffDateLabel(cutoff: number | null | undefined): string {
-  if (cutoff == null) return '-'
-  if (cutoff === -1) return '都度現金'
-  if (cutoff === 0) return '月末'
-  return `${cutoff}日`
-}

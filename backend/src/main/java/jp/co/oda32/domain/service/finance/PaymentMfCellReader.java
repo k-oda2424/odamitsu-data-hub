@@ -60,12 +60,13 @@ final class PaymentMfCellReader {
     /**
      * セル値を Long として読み出す。文字列の "1,234" などはカンマ除去してパース。
      * 非数値・空欄は null を返す。
+     * <p>SF-C12: NaN/Infinity/long 範囲外の値は null を返してオーバーフロー被害を防ぐ。
      */
     static Long readLongCell(Cell cell) {
         if (cell == null) return null;
         try {
             return switch (cell.getCellType()) {
-                case NUMERIC -> (long) cell.getNumericCellValue();
+                case NUMERIC -> safeToLong(cell.getNumericCellValue());
                 case STRING -> {
                     String s = cell.getStringCellValue().trim();
                     if (s.isEmpty()) yield null;
@@ -73,12 +74,22 @@ final class PaymentMfCellReader {
                     catch (NumberFormatException e) { yield null; }
                 }
                 case FORMULA -> {
-                    try { yield (long) cell.getNumericCellValue(); }
+                    try { yield safeToLong(cell.getNumericCellValue()); }
                     catch (Exception e) { yield null; }
                 }
                 default -> null;
             };
         } catch (Exception e) { return null; }
+    }
+
+    /**
+     * double → long 変換時の NaN/Infinity/オーバーフローガード (SF-C12)。
+     * Excel の壊れたセルや異常値で長整数オーバーフローが起きないようにする。
+     */
+    private static Long safeToLong(double d) {
+        if (Double.isNaN(d) || Double.isInfinite(d)) return null;
+        if (d > Long.MAX_VALUE || d < Long.MIN_VALUE) return null;
+        return Math.round(d);
     }
 
     /**

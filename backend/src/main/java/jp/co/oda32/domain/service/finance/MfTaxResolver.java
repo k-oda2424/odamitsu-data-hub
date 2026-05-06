@@ -25,7 +25,9 @@ public final class MfTaxResolver {
             case "PURCHASE_AUTO" -> d.contains("軽8%") ? "課税仕入 (軽)8%" : "課税仕入 10%";
             case "PURCHASE_AUTO_WIDE" -> (d.contains("軽8%") || d.contains("軽８％"))
                     ? "課税仕入 (軽)8%" : "課税仕入 10%";
-            default -> throw new IllegalArgumentException("未知の税区分リゾルバ: " + resolverCode);
+            // SF-B10: マスタ起因の構造異常は IllegalStateException 化し、
+            // FinanceExceptionHandler で 422 に翻訳。リクエスト不正 (400) との区別を明確化。
+            default -> throw new IllegalStateException("未知の税区分リゾルバ: " + resolverCode);
         };
     }
 }

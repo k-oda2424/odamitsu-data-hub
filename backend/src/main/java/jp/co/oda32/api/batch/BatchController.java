@@ -1,5 +1,6 @@
 package jp.co.oda32.api.batch;
 
+import jp.co.oda32.batch.BatchJobCatalog;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.Job;
@@ -31,31 +32,10 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class BatchController {
 
-    private static final List<Map<String, String>> JOB_DEFINITIONS = List.of(
-            Map.of("jobName", "bCartOrderImport", "category", "B-CART連携", "description", "新規受注取込", "requiresShopNo", "false"),
-            Map.of("jobName", "smileOrderFileImport", "category", "B-CART連携", "description", "売上明細取込", "requiresShopNo", "false"),
-            Map.of("jobName", "bCartLogisticsCsvExport", "category", "B-CART連携", "description", "出荷実績CSV出力", "requiresShopNo", "false"),
-            Map.of("jobName", "bCartMemberUpdate", "category", "B-CART連携", "description", "新規会員取込", "requiresShopNo", "false"),
-            Map.of("jobName", "bCartProductsImport", "category", "B-CART連携", "description", "商品マスタ同期", "requiresShopNo", "false"),
-            Map.of("jobName", "bCartCategorySync", "category", "B-CART連携", "description", "カテゴリマスタ同期", "requiresShopNo", "false"),
-            Map.of("jobName", "bCartCategoryUpdate", "category", "B-CART連携", "description", "カテゴリマスタ反映", "requiresShopNo", "false"),
-            Map.of("jobName", "bCartProductDescriptionUpdate", "category", "B-CART連携", "description", "商品説明反映", "requiresShopNo", "false"),
-            Map.of("jobName", "goodsFileImport", "category", "マスタ取込", "description", "SMILE商品マスタCSV取込", "requiresShopNo", "true"),
-            Map.of("jobName", "purchaseFileImport", "category", "SMILE取込", "description", "SMILE仕入ファイル取込", "requiresShopNo", "false"),
-            Map.of("jobName", "smilePaymentImport", "category", "SMILE取込", "description", "SMILE支払情報取込", "requiresShopNo", "false"),
-            Map.of("jobName", "accountsPayableAggregation", "category", "買掛金", "description", "買掛金集計", "requiresShopNo", "false"),
-            Map.of("jobName", "accountsPayableVerification", "category", "買掛金", "description", "買掛金検証", "requiresShopNo", "false"),
-            Map.of("jobName", "accountsPayableSummary", "category", "買掛金", "description", "買掛金サマリ", "requiresShopNo", "false"),
-            Map.of("jobName", "accountsPayableBackfill", "category", "買掛金", "description", "買掛金累積残再集計", "requiresShopNo", "false"),
-            Map.of("jobName", "accountsReceivableSummary", "category", "売掛金", "description", "売掛金サマリ", "requiresShopNo", "false"),
-            Map.of("jobName", "purchaseJournalIntegration", "category", "仕訳連携", "description", "買掛仕入CSV出力（マネーフォワード連携）", "requiresShopNo", "false"),
-            Map.of("jobName", "salesJournalIntegration", "category", "仕訳連携", "description", "売掛売上CSV出力（マネーフォワード連携）", "requiresShopNo", "false"),
-            Map.of("jobName", "partnerPriceChangePlanCreate", "category", "見積管理", "description", "得意先価格変更予定作成・見積自動生成", "requiresShopNo", "false")
-    );
-
-    private static final Set<String> ALLOWED_JOBS = Set.copyOf(
-            JOB_DEFINITIONS.stream().map(d -> d.get("jobName")).toList()
-    );
+    // SF-H05: ジョブ定義は BatchJobCatalog に集約 (旧 JOB_DEFINITIONS / ALLOWED_JOBS は削除)。
+    // 同種の参照は AccountingStatusService と frontend/accounting-workflow.tsx でも行われるため、
+    // 一元管理して 3 重同期コストを排除する。
+    private static final Set<String> ALLOWED_JOBS = BatchJobCatalog.allowedJobNames();
 
     /** SMILE支払取込ステップを含むため inputFile パラメータが必要なジョブ。 */
     private static final Set<String> REQUIRES_INPUT_FILE = Set.of(
@@ -123,13 +103,18 @@ public class BatchController {
     private final ThreadPoolTaskExecutor batchExecutor;
 
     @GetMapping("/jobs")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<List<Map<String, Object>>> listJobs() {
-        List<Map<String, Object>> result = JOB_DEFINITIONS.stream().map(def -> {
-            String jobName = def.get("jobName");
+        // SF-H05: BatchJobCatalog から各エントリを map 化して返却 (既存 API 互換維持)。
+        List<Map<String, Object>> result = BatchJobCatalog.ENTRIES.stream().map(def -> {
+            String jobName = def.jobName();
             String beanName = jobName + "Job";
             boolean available = applicationContext.containsBean(beanName);
-            Map<String, Object> job = new LinkedHashMap<>(def);
+            Map<String, Object> job = new LinkedHashMap<>();
+            job.put("jobName", jobName);
+            job.put("category", def.category());
+            job.put("description", def.description());
+            job.put("requiresShopNo", String.valueOf(def.requiresShopNo()));
             job.put("available", available);
             job.put("requiresInputFile", REQUIRES_INPUT_FILE.contains(jobName));
             job.put("requiresTargetDate", REQUIRES_TARGET_DATE.contains(jobName));
@@ -140,7 +125,7 @@ public class BatchController {
     }
 
     @GetMapping("/status/{jobName}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<Map<String, Object>> getJobStatus(@PathVariable String jobName) {
         var instances = jobExplorer.findJobInstancesByJobName(jobName, 0, 1);
         if (instances.isEmpty()) {
@@ -170,7 +155,7 @@ public class BatchController {
     }
 
     @PostMapping("/execute/{jobName}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<Map<String, String>> execute(
             @PathVariable String jobName,
             @RequestParam(required = false) Integer shopNo,

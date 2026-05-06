@@ -28,6 +28,22 @@ interface Props {
   isAdmin: boolean
 }
 
+// SF-E19: 初期値の出典を表す内部型。「請求書金額」「集計確定値」「集計変動値」「ゼロ」の 4 種。
+type DefaultIncSource = 'invoiceAmount' | 'taxIncludedAmount' | 'taxIncludedAmountChange' | 'zero'
+type DefaultExcSource = 'taxExcludedAmount' | 'taxExcludedAmountChange' | 'zero'
+
+const DEFAULT_INC_SOURCE_LABELS: Record<DefaultIncSource, string> = {
+  invoiceAmount: '初期値は請求書金額から取得しました',
+  taxIncludedAmount: '初期値は集計確定値（税込）から取得しました',
+  taxIncludedAmountChange: '初期値は集計変動値（税込）から取得しました',
+  zero: '初期値はゼロ（請求書・集計いずれも未設定）',
+}
+const DEFAULT_EXC_SOURCE_LABELS: Record<DefaultExcSource, string> = {
+  taxExcludedAmount: '初期値は集計確定値（税抜）から取得しました',
+  taxExcludedAmountChange: '初期値は集計変動値（税抜）から取得しました',
+  zero: '初期値はゼロ（集計値が未設定）',
+}
+
 /**
  * 売掛金の手動確定ダイアログ。買掛側 VerifyDialog と対称。
  * 税込・税抜を個別に入力できる（売掛は税率別に行が分かれているため）。
@@ -49,16 +65,47 @@ export function AccountsReceivableVerifyDialog({
   const [taxExcluded, setTaxExcluded] = useState<string>('')
   const [note, setNote] = useState<string>('')
   const [mfExport, setMfExport] = useState<boolean>(true)
+  // SF-E19: 初期値の出典を表示するための内部 state（ユーザが入力欄を書き換えても残す）
+  const [defaultIncSource, setDefaultIncSource] = useState<DefaultIncSource>('zero')
+  const [defaultExcSource, setDefaultExcSource] = useState<DefaultExcSource>('zero')
 
   useEffect(() => {
     if (rowKey !== prevKeyRef.current) {
       prevKeyRef.current = rowKey
       if (row) {
         // 請求書金額があればそれを初期値に（差額を吸収する定番操作）
-        const defaultInc = row.invoiceAmount ?? row.taxIncludedAmount ?? row.taxIncludedAmountChange ?? 0
-        const defaultExc = row.taxExcludedAmount ?? row.taxExcludedAmountChange ?? 0
+        // SF-E19: defaultInc / defaultExc の出典を補助表示するため、優先度フォールバックを明示。
+        let incSource: DefaultIncSource
+        let defaultInc: number
+        if (row.invoiceAmount != null) {
+          defaultInc = row.invoiceAmount
+          incSource = 'invoiceAmount'
+        } else if (row.taxIncludedAmount != null) {
+          defaultInc = row.taxIncludedAmount
+          incSource = 'taxIncludedAmount'
+        } else if (row.taxIncludedAmountChange != null) {
+          defaultInc = row.taxIncludedAmountChange
+          incSource = 'taxIncludedAmountChange'
+        } else {
+          defaultInc = 0
+          incSource = 'zero'
+        }
+        let excSource: DefaultExcSource
+        let defaultExc: number
+        if (row.taxExcludedAmount != null) {
+          defaultExc = row.taxExcludedAmount
+          excSource = 'taxExcludedAmount'
+        } else if (row.taxExcludedAmountChange != null) {
+          defaultExc = row.taxExcludedAmountChange
+          excSource = 'taxExcludedAmountChange'
+        } else {
+          defaultExc = 0
+          excSource = 'zero'
+        }
         setTaxIncluded(String(defaultInc))
         setTaxExcluded(String(defaultExc))
+        setDefaultIncSource(incSource)
+        setDefaultExcSource(excSource)
         setNote(row.verificationNote ?? '')
         // F-W9: 現行値を尊重。既存行が代引等で OFF ならそのまま、未設定は true デフォルト。
         setMfExport(row.mfExportEnabled ?? true)
@@ -69,6 +116,8 @@ export function AccountsReceivableVerifyDialog({
         setTaxExcluded('')
         setNote('')
         setMfExport(true)
+        setDefaultIncSource('zero')
+        setDefaultExcSource('zero')
       }
     }
   }, [rowKey, row])
@@ -133,6 +182,10 @@ export function AccountsReceivableVerifyDialog({
                 value={taxIncluded}
                 onChange={(e) => setTaxIncluded(e.target.value)}
               />
+              {/* SF-E19: 初期値の出典補助表示 */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {DEFAULT_INC_SOURCE_LABELS[defaultIncSource]}
+              </p>
             </div>
             <div>
               <Label htmlFor="tax-excluded">確定金額(税抜)</Label>
@@ -142,6 +195,10 @@ export function AccountsReceivableVerifyDialog({
                 value={taxExcluded}
                 onChange={(e) => setTaxExcluded(e.target.value)}
               />
+              {/* SF-E19: 初期値の出典補助表示 */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {DEFAULT_EXC_SOURCE_LABELS[defaultExcSource]}
+              </p>
             </div>
             <div>
               <Label htmlFor="verification-note">備考（最大500字）</Label>

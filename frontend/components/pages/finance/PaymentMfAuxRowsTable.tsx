@@ -50,7 +50,8 @@ export function PaymentMfAuxRowsTable({ transactionMonth, onCountChange }: Props
 
   useEffect(() => {
     if (query.data) onCountChangeRef.current?.(query.data.length)
-  }, [query.data])
+    // 依存は length のみ。query.data の参照が変わるだけ（同一件数）の再計算を抑制する。
+  }, [query.data?.length])
 
   const columns: Column<PaymentMfAuxRow>[] = [
     { key: 'transferDate', header: '送金日', sortable: true },

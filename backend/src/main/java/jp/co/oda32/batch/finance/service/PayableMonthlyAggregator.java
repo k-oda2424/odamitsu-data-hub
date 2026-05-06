@@ -171,13 +171,38 @@ public class PayableMonthlyAggregator {
             bySupplier.computeIfAbsent(supplierKey(r), k -> new ArrayList<>()).add(r);
         }
         int overridden = 0;
+        int skippedManual = 0;
         for (Map.Entry<String, List<TAccountsPayableSummary>> e : bySupplier.entrySet()) {
-            List<TAccountsPayableSummary> group = e.getValue();
-            Integer supplierNo = group.get(0).getSupplierNo();
+            List<TAccountsPayableSummary> fullGroup = e.getValue();
+            Integer supplierNo = fullGroup.get(0).getSupplierNo();
             BigDecimal mfDebit = mfDebitMap.get(supplierNo);
             if (mfDebit == null) continue;
 
-            // 当月 change 比で按分 (applyPaymentSettled と同じロジック)
+            // 手動確定行は paymentAmountSettled を MF debit で上書きしない (verified_amount で固定)
+            // 残額 = mfDebit - 手動確定行の paymentAmountSettledTaxIncluded 合計
+            // を非手動行に按分する
+            List<TAccountsPayableSummary> manualRows = new ArrayList<>();
+            List<TAccountsPayableSummary> autoRows = new ArrayList<>();
+            for (TAccountsPayableSummary r : fullGroup) {
+                if (Boolean.TRUE.equals(r.getVerifiedManually())) manualRows.add(r);
+                else autoRows.add(r);
+            }
+            if (autoRows.isEmpty()) {
+                // 全行手動確定: 上書き対象外
+                skippedManual++;
+                continue;
+            }
+
+            BigDecimal manualPaidIncl = BigDecimal.ZERO;
+            BigDecimal manualPaidExcl = BigDecimal.ZERO;
+            for (TAccountsPayableSummary r : manualRows) {
+                manualPaidIncl = manualPaidIncl.add(nz(r.getPaymentAmountSettledTaxIncluded()));
+                manualPaidExcl = manualPaidExcl.add(nz(r.getPaymentAmountSettledTaxExcluded()));
+            }
+            BigDecimal remainingIncl = mfDebit.subtract(manualPaidIncl);
+
+            // 当月 change 比で按分 (applyPaymentSettled と同じロジック、対象は autoRows のみ)
+            List<TAccountsPayableSummary> group = autoRows;
             group.sort(Comparator.comparing(r -> r.getTaxRate() != null ? r.getTaxRate() : BigDecimal.ZERO));
             BigDecimal changeInclTotal = BigDecimal.ZERO;
             BigDecimal changeExclTotal = BigDecimal.ZERO;
@@ -189,11 +214,11 @@ public class PayableMonthlyAggregator {
             // ただし当月 payment 発生のみで change=0 のケースもあるため、代表行に全額入れる fallback
             if (changeInclTotal.signum() == 0) {
                 TAccountsPayableSummary representative = group.get(group.size() - 1);
-                representative.setPaymentAmountSettledTaxIncluded(mfDebit);
+                representative.setPaymentAmountSettledTaxIncluded(remainingIncl);
                 // 税抜は税率逆算 (ratio 情報無いため)
                 BigDecimal divisor = BigDecimal.valueOf(100).add(nz(representative.getTaxRate()));
                 representative.setPaymentAmountSettledTaxExcluded(
-                        mfDebit.multiply(BigDecimal.valueOf(100)).divide(divisor, 0, RoundingMode.DOWN));
+                        remainingIncl.multiply(BigDecimal.valueOf(100)).divide(divisor, 0, RoundingMode.DOWN));
                 overridden++;
                 continue;
             }
@@ -201,21 +226,21 @@ public class PayableMonthlyAggregator {
             // 税抜の合計は MF debit × 比率の累積。最終行で端数吸収
             BigDecimal cumIncl = BigDecimal.ZERO;
             BigDecimal cumExcl = BigDecimal.ZERO;
-            BigDecimal mfDebitExcl = mfDebit.multiply(changeExclTotal)
+            BigDecimal remainingExcl = remainingIncl.multiply(changeExclTotal)
                     .divide(changeInclTotal, 0, RoundingMode.DOWN);
             for (int i = 0; i < group.size(); i++) {
                 TAccountsPayableSummary r = group.get(i);
                 boolean isLast = (i == group.size() - 1);
                 BigDecimal paidInclRow, paidExclRow;
                 if (isLast) {
-                    paidInclRow = mfDebit.subtract(cumIncl);
-                    paidExclRow = mfDebitExcl.subtract(cumExcl);
+                    paidInclRow = remainingIncl.subtract(cumIncl);
+                    paidExclRow = remainingExcl.subtract(cumExcl);
                 } else {
                     BigDecimal changeIncl = nz(r.getTaxIncludedAmountChange());
                     BigDecimal changeExcl = nz(r.getTaxExcludedAmountChange());
-                    paidInclRow = mfDebit.multiply(changeIncl).divide(changeInclTotal, 0, RoundingMode.DOWN);
+                    paidInclRow = remainingIncl.multiply(changeIncl).divide(changeInclTotal, 0, RoundingMode.DOWN);
                     paidExclRow = changeExclTotal.signum() == 0 ? BigDecimal.ZERO
-                            : mfDebitExcl.multiply(changeExcl).divide(changeExclTotal, 0, RoundingMode.DOWN);
+                            : remainingExcl.multiply(changeExcl).divide(changeExclTotal, 0, RoundingMode.DOWN);
                     cumIncl = cumIncl.add(paidInclRow);
                     cumExcl = cumExcl.add(paidExclRow);
                 }
@@ -224,7 +249,8 @@ public class PayableMonthlyAggregator {
             }
             overridden++;
         }
-        log.info("[payment_settled MF] month={} MF debit 上書き supplier 数={}", currentMonth, overridden);
+        log.info("[payment_settled MF] month={} MF debit 上書き supplier 数={} (全行手動確定で skip={})",
+                currentMonth, overridden, skippedManual);
     }
 
     /**
@@ -329,6 +355,10 @@ public class PayableMonthlyAggregator {
 
             String k = buildRowKey(agg.shopNo(), agg.supplierNo(), periodEndDate, agg.maxTaxRate());
             TAccountsPayableSummary row = currMap.get(k);
+            // 手動確定済み行は payment-only 行として上書きしない (検証済み振込明細を保護)
+            if (row != null && Boolean.TRUE.equals(row.getVerifiedManually())) {
+                continue;
+            }
             if (row == null) {
                 row = TAccountsPayableSummary.builder()
                         .shopNo(agg.shopNo())

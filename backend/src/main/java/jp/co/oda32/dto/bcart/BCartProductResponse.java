@@ -50,6 +50,7 @@ public class BCartProductResponse {
         private String name;
         private BigDecimal unitPrice;
         private BigDecimal purchasePrice;
+        private BigDecimal shippingSize;
         private Integer stock;
         private String setFlag;
         @JsonProperty("bCartPriceReflected")
@@ -98,6 +99,7 @@ public class BCartProductResponse {
                     .name(s.getName())
                     .unitPrice(s.getUnitPrice())
                     .purchasePrice(s.getPurchasePrice())
+                    .shippingSize(s.getShippingSize())
                     .stock(s.getStock())
                     .setFlag(s.getSetFlag())
                     .bCartPriceReflected(s.isBCartPriceReflected())

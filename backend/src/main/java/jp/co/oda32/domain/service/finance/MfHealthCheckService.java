@@ -1,6 +1,7 @@
 package jp.co.oda32.domain.service.finance;
 
 import jp.co.oda32.domain.repository.finance.TAccountsPayableSummaryRepository;
+import jp.co.oda32.domain.service.finance.mf.MfApiClient;
 import jp.co.oda32.domain.service.finance.mf.MfJournalCacheService;
 import jp.co.oda32.domain.service.finance.mf.MfOauthService;
 import jp.co.oda32.domain.service.finance.mf.MfTokenStatus;
@@ -40,6 +41,7 @@ public class MfHealthCheckService {
     private final MfOauthService mfOauthService;
     private final MfJournalCacheService journalCache;
     private final TAccountsPayableSummaryRepository summaryRepository;
+    private final MfApiClient mfApiClient;
 
     public MfHealthResponse check(Integer shopNo) {
         return MfHealthResponse.builder()
@@ -59,12 +61,43 @@ public class MfHealthCheckService {
             long secs = Duration.between(Instant.now(), s.expiresAt()).getSeconds();
             expiresInHours = Math.max(0, secs / 3600);
         }
+        // SF-22: 軽量 ping (listAccounts) で実通信可否を判定。
+        // 未接続 (connected=false) なら null のまま (skip)。
+        Boolean apiReachable = null;
+        if (Boolean.TRUE.equals(s.connected())) {
+            apiReachable = pingMfApi();
+        }
         return MfOauthStatus.builder()
                 .connected(s.connected())
                 .tokenExpiresAt(s.expiresAt())
                 .scope(s.scope())
                 .expiresInHours(expiresInHours)
+                .apiReachable(apiReachable)
                 .build();
+    }
+
+    /**
+     * SF-22: MF API への軽量 ping。listAccounts (キャッシュ向きの小さいレスポンス) を 1 回呼び、
+     * 例外が出たら false を返す。connected=true でも実際にアクセスできないケース
+     * (scope 不足 / refresh 失敗 / MF 側障害) を切り分けるための健康診断。
+     * <p>
+     * <strong>MA-03</strong>: token refresh は起動しない (スナップショット読み取りのみ)。
+     * 本サービスは {@code @Transactional(readOnly=true)} で稼働しており、内部から HTTP refresh +
+     * REQUIRES_NEW write tx を起動するのは設計違反。さらに 60 秒間隔の polling では token
+     * 残時間 5 分以下になった瞬間から毎分 refresh と /accounts 呼び出しが発火し続ける。
+     * <p>
+     * 期限切れ間近 / 期限切れ token をそのまま使って 401 が返れば apiReachable=false 判定。
+     * 画面側は別途 OAuth 状態 (有効期限) を表示しているため、ユーザーは再認可を判断できる。
+     */
+    private boolean pingMfApi() {
+        try {
+            MfOauthService.TokenSnapshot snap = mfOauthService.loadActiveTokenSnapshot();
+            mfApiClient.listAccounts(snap.client(), snap.accessToken());
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("[mf-health] MF API ping 失敗: {}", e.getMessage());
+            return false;
+        }
     }
 
     private SummaryStats buildSummaryStats(Integer shopNo) {

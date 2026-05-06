@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useCallback, useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
 import { api, ApiError } from '@/lib/api-client'
+import { handleApiError } from '@/lib/api-error-handler'
 import { useAuth } from '@/lib/auth'
 import { useShops } from '@/hooks/use-master-data'
 import { PageHeader } from '@/components/features/common/PageHeader'
@@ -16,11 +16,34 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatCurrency } from '@/lib/utils'
-import { AlertCircle, Loader2, RefreshCw, Search } from 'lucide-react'
+import { Loader2, RefreshCw, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import type { IntegrityReportResponse } from '@/types/integrity-report'
 import { MISMATCH_SEVERITY_CLASS, MISMATCH_SEVERITY_LABEL } from '@/types/integrity-report'
-import { defaultFromMonth, defaultToMonth } from '@/types/accounts-payable-ledger'
+import { defaultToMonth } from '@/types/accounts-payable-ledger'
+import {
+  ConsistencyReviewDialog,
+  type ConsistencyReviewActionType,
+} from './ConsistencyReviewDialog'
+import { AmountSourceTooltip } from '@/components/common/AmountSourceTooltip'
+
+const INTEGRITY_REPORT_QUERY_KEY = 'integrity-report' as const
+
+interface IntegrityQueryArgs {
+  shopNo: number
+  fromMonth: string
+  toMonth: string
+  refresh: boolean
+}
+
+interface ReviewArgs {
+  entryType: 'mfOnly' | 'selfOnly' | 'amountMismatch'
+  entryKey: string
+  transactionMonth: string
+  actionType: ConsistencyReviewActionType
+  selfSnapshot: number
+  mfSnapshot: number
+}
 
 /**
  * 買掛帳 整合性レポート画面 (軸 B + 軸 C)。
@@ -32,6 +55,7 @@ export function IntegrityReportPage() {
   const isAdmin = user?.shopNo === 0
   const router = useRouter()
   const urlParams = useSearchParams()
+  const queryClient = useQueryClient()
 
   // 整合性レポートは期間を短めに (デフォルト 6 ヶ月、最大 12 ヶ月)
   const initialToMonth = urlParams.get('toMonth') || defaultToMonth()
@@ -43,9 +67,18 @@ export function IntegrityReportPage() {
   )
   const [fromMonth, setFromMonth] = useState<string>(initialFromMonth)
   const [toMonth, setToMonth] = useState<string>(initialToMonth)
-  const [report, setReport] = useState<IntegrityReportResponse | null>(null)
   const [hideReconciled, setHideReconciled] = useState<boolean>(true)
   const [hideReviewed, setHideReviewed] = useState<boolean>(true)
+  /** 検索ボタン押下後にセットされる「実際に問い合わせる」入力。null なら未検索状態。 */
+  const [queryArgs, setQueryArgs] = useState<IntegrityQueryArgs | null>(null)
+  /** Dialog 表示中の差分確認リクエスト。null ならダイアログ非表示。 */
+  const [pendingReview, setPendingReview] = useState<ReviewArgs | null>(null)
+  /**
+   * 「手動検索ボタン押下後の最初の fetch 完了時のみ」toast を出すためのフラグ。
+   * review 保存後の {@link invalidateReport} → refetch では発火させない。
+   * MJ-02 (toast 多重発火修正, 2026-05-04)
+   */
+  const [wasSearched, setWasSearched] = useState<boolean>(false)
 
   const shopsQuery = useShops(isAdmin)
   const shopOptions = (shopsQuery.data ?? []).map((s) => ({
@@ -61,17 +94,72 @@ export function IntegrityReportPage() {
     router.replace(`?${sp.toString()}`, { scroll: false })
   }, [router, shopNo, fromMonth, toMonth])
 
+  // 整合性レポート取得 (TanStack Query 標準パターン)。
+  // 検索ボタン押下で queryArgs を更新 → useQuery が再フェッチ。
+  // review/delete 後は invalidateQueries で再取得。
+  const reportQuery = useQuery({
+    queryKey: [
+      INTEGRITY_REPORT_QUERY_KEY,
+      queryArgs?.shopNo,
+      queryArgs?.fromMonth,
+      queryArgs?.toMonth,
+      queryArgs?.refresh,
+    ],
+    queryFn: async () => {
+      if (!queryArgs) throw new Error('queryArgs not set')
+      const sp = new URLSearchParams()
+      sp.set('shopNo', String(queryArgs.shopNo))
+      sp.set('fromMonth', queryArgs.fromMonth)
+      sp.set('toMonth', queryArgs.toMonth)
+      if (queryArgs.refresh) sp.set('refresh', 'true')
+      return api.get<IntegrityReportResponse>(`/finance/accounts-payable/integrity-report?${sp.toString()}`)
+    },
+    enabled: queryArgs !== null,
+    refetchOnWindowFocus: false,
+    retry: false,
+  })
+
+  // MJ-02: 手動検索ボタン押下後の最初の fetch 完了時のみ summary toast を出す。
+  // queryFn 内で toast を出すと invalidateQueries による refetch で多重発火する問題を回避。
+  useEffect(() => {
+    if (!wasSearched) return
+    if (!reportQuery.data || reportQuery.isFetching) return
+    const s = reportQuery.data.summary
+    const total = s.mfOnlyCount + s.selfOnlyCount + s.amountMismatchCount
+    const prefix = queryArgs?.refresh ? 'MF API から再取得しました。' : ''
+    if (total === 0 && s.unmatchedSupplierCount === 0) {
+      toast.success(`${prefix}全 supplier で MF と整合しました。`)
+    } else {
+      toast.warning(`${prefix}MF 側のみ ${s.mfOnlyCount} / 自社側のみ ${s.selfOnlyCount} / 金額差 ${s.amountMismatchCount} 件、要確認。`)
+    }
+    setWasSearched(false)
+  }, [wasSearched, reportQuery.data, reportQuery.isFetching, queryArgs?.refresh])
+
+  // useQuery エラーは toast 化 (onError は v5 で削除されたため effect で副作用化)
+  useEffect(() => {
+    const e = reportQuery.error
+    if (!e) return
+    if (e instanceof ApiError && e.status === 401) {
+      toast.error('MF 認証エラー。「MF 連携状況」画面で再認証してください。')
+    } else if (e instanceof ApiError && e.status === 403) {
+      toast.error('MF scope 不足です。「MF 連携状況」で scope 更新 + 再認証してください。')
+    } else if (e instanceof ApiError && e.status === 400) {
+      toast.error(`入力エラー: ${e.message}`)
+    } else if (e instanceof Error) {
+      toast.error(e.message)
+    }
+  }, [reportQuery.error])
+
+  const report = reportQuery.data ?? null
+  const isFetching = reportQuery.isFetching
+
+  const invalidateReport = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: [INTEGRITY_REPORT_QUERY_KEY] })
+  }, [queryClient])
+
   // 差分確認 POST / DELETE (案 X+Y)
   const reviewMutation = useMutation({
-    mutationFn: async (args: {
-      entryType: 'mfOnly' | 'selfOnly' | 'amountMismatch'
-      entryKey: string
-      transactionMonth: string
-      actionType: 'IGNORE' | 'MF_APPLY'
-      selfSnapshot: number
-      mfSnapshot: number
-      note?: string
-    }) => {
+    mutationFn: async (args: ReviewArgs & { note: string }) => {
       return api.post(`/finance/accounts-payable/integrity-report/reviews`, {
         shopNo,
         entryType: args.entryType,
@@ -80,14 +168,15 @@ export function IntegrityReportPage() {
         actionType: args.actionType,
         selfSnapshot: args.selfSnapshot,
         mfSnapshot: args.mfSnapshot,
-        note: args.note ?? null,
+        note: args.note || null,
       })
     },
     onSuccess: (_, v) => {
       toast.success(`${v.actionType === 'MF_APPLY' ? 'MF 金額で自社確定' : '確認済みマーク'}を保存しました`)
-      runMutation.mutate(false)
+      setPendingReview(null)
+      invalidateReport()
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e),
   })
 
   const reviewDeleteMutation = useMutation({
@@ -101,53 +190,14 @@ export function IntegrityReportPage() {
     },
     onSuccess: () => {
       toast.success('確認履歴を取り消しました')
-      runMutation.mutate(false)
+      invalidateReport()
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e),
   })
 
-  const confirmReview = (args: Parameters<typeof reviewMutation.mutate>[0]) => {
-    const actionLabel = args.actionType === 'MF_APPLY' ? 'MF 金額で自社 verified_amount を上書き' : '確認済みとしてマーク (副作用なし)'
-    const note = window.prompt(`${actionLabel}\n備考 (任意):`, '')
-    if (note === null) return
-    reviewMutation.mutate({ ...args, note })
+  const confirmReview = (args: ReviewArgs) => {
+    setPendingReview(args)
   }
-
-  const runMutation = useMutation({
-    mutationFn: async (refresh: boolean = false) => {
-      if (shopNo === undefined) {
-        throw new Error('ショップを選択してください')
-      }
-      const sp = new URLSearchParams()
-      sp.set('shopNo', String(shopNo))
-      sp.set('fromMonth', fromMonth)
-      sp.set('toMonth', toMonth)
-      if (refresh) sp.set('refresh', 'true')
-      return api.get<IntegrityReportResponse>(`/finance/accounts-payable/integrity-report?${sp.toString()}`)
-    },
-    onSuccess: (res, refresh) => {
-      setReport(res)
-      const s = res.summary
-      const total = s.mfOnlyCount + s.selfOnlyCount + s.amountMismatchCount
-      const prefix = refresh ? 'MF API から再取得しました。' : ''
-      if (total === 0 && s.unmatchedSupplierCount === 0) {
-        toast.success(`${prefix}全 supplier で MF と整合しました。`)
-      } else {
-        toast.warning(`${prefix}MF 側のみ ${s.mfOnlyCount} / 自社側のみ ${s.selfOnlyCount} / 金額差 ${s.amountMismatchCount} 件、要確認。`)
-      }
-    },
-    onError: (e: Error) => {
-      if (e instanceof ApiError && e.status === 401) {
-        toast.error('MF 認証エラー。「MF 連携状況」画面で再認証してください。')
-      } else if (e instanceof ApiError && e.status === 403) {
-        toast.error('MF scope 不足です。「MF 連携状況」で scope 更新 + 再認証してください。')
-      } else if (e instanceof ApiError && e.status === 400) {
-        toast.error(`入力エラー: ${e.message}`)
-      } else {
-        toast.error(e.message)
-      }
-    },
-  })
 
   const handleSearch = (refresh = false) => {
     if (shopNo === undefined) {
@@ -155,7 +205,8 @@ export function IntegrityReportPage() {
       return
     }
     updateUrl()
-    runMutation.mutate(refresh)
+    setWasSearched(true)
+    setQueryArgs({ shopNo, fromMonth, toMonth, refresh })
   }
 
   const handleRefresh = () => {
@@ -203,13 +254,13 @@ export function IntegrityReportPage() {
                      onChange={(e) => setToMonth(`${e.target.value}-20`)} />
             </div>
             <div className="flex items-end gap-2">
-              <Button onClick={() => handleSearch(false)} disabled={runMutation.isPending}>
-                {runMutation.isPending
+              <Button onClick={() => handleSearch(false)} disabled={isFetching}>
+                {isFetching
                   ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                   : <Search className="mr-1 h-4 w-4" />}
                 整合性チェック
               </Button>
-              <Button variant="outline" onClick={handleRefresh} disabled={runMutation.isPending}
+              <Button variant="outline" onClick={handleRefresh} disabled={isFetching}
                       title="MF API から再取得 (キャッシュ無視)">
                 <RefreshCw className="mr-1 h-4 w-4" />
                 最新取得
@@ -284,9 +335,9 @@ export function IntegrityReportPage() {
                     <tr className="border-b text-left">
                       <th className="py-2">月</th>
                       <th className="py-2">MF 補助科目</th>
-                      <th className="py-2 text-right">貸方</th>
-                      <th className="py-2 text-right">借方</th>
-                      <th className="py-2 text-right">差額</th>
+                      <th className="py-2 text-right">貸方<AmountSourceTooltip source="MF_JOURNAL" /></th>
+                      <th className="py-2 text-right">借方<AmountSourceTooltip source="MF_JOURNAL" /></th>
+                      <th className="py-2 text-right">差額<AmountSourceTooltip source="MF_JOURNAL" /></th>
                       <th className="py-2 pr-4 text-right">明細数</th>
                       <th className="py-2 pl-2">MF 取引番号</th>
                       <th className="py-2">推定仕入先</th>
@@ -336,9 +387,9 @@ export function IntegrityReportPage() {
                       <th className="py-2">月</th>
                       <th className="py-2">仕入先コード</th>
                       <th className="py-2">仕入先名</th>
-                      <th className="py-2 text-right">自社差額</th>
-                      <th className="py-2 text-right">仕入</th>
-                      <th className="py-2 text-right">支払反映</th>
+                      <th className="py-2 text-right">自社差額<AmountSourceTooltip source="CLOSING_CALC" /></th>
+                      <th className="py-2 text-right">仕入<AmountSourceTooltip source="PAYABLE_SUMMARY" /></th>
+                      <th className="py-2 text-right">支払反映<AmountSourceTooltip source="VERIFIED_AMOUNT" /></th>
                       <th className="py-2 text-right">税率行数</th>
                       <th className="py-2 text-right">累積差 ({report.toMonth})</th>
                       <th className="py-2">備考</th>
@@ -379,8 +430,8 @@ export function IntegrityReportPage() {
                       <th className="py-2">月</th>
                       <th className="py-2">仕入先コード</th>
                       <th className="py-2">仕入先名</th>
-                      <th className="py-2 text-right">自社差額</th>
-                      <th className="py-2 text-right">MF 差額</th>
+                      <th className="py-2 text-right">自社差額<AmountSourceTooltip source="CLOSING_CALC" /></th>
+                      <th className="py-2 text-right">MF 差額<AmountSourceTooltip source="MF_JOURNAL" /></th>
                       <th className="py-2 text-right">差 (自社 − MF)</th>
                       <th className="py-2 text-right">累積差 ({report.toMonth})</th>
                       <th className="py-2">重大度</th>
@@ -492,6 +543,22 @@ export function IntegrityReportPage() {
         </>
         )
       })()}
+
+      <ConsistencyReviewDialog
+        open={pendingReview !== null}
+        onOpenChange={(o) => { if (!o) setPendingReview(null) }}
+        actionLabel={pendingReview?.actionType === 'MF_APPLY'
+          ? 'MF 金額で自社 verified_amount を上書き'
+          : '確認済みとしてマーク (副作用なし)'}
+        description={pendingReview
+          ? `対象: ${pendingReview.entryType} / ${pendingReview.transactionMonth} / key=${pendingReview.entryKey}`
+          : undefined}
+        submitting={reviewMutation.isPending}
+        onConfirm={(note) => {
+          if (!pendingReview) return
+          reviewMutation.mutate({ ...pendingReview, note })
+        }}
+      />
     </div>
   )
 }

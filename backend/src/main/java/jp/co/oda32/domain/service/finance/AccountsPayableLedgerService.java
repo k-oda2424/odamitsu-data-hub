@@ -1,5 +1,6 @@
 package jp.co.oda32.domain.service.finance;
 
+import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.model.master.MPaymentSupplier;
 import jp.co.oda32.domain.repository.finance.TAccountsPayableSummaryRepository;
@@ -45,8 +46,6 @@ import java.util.TreeMap;
 public class AccountsPayableLedgerService {
 
     private static final int MAX_PERIOD_MONTHS = 24;
-    /** VERIFY_DIFF の発火閾値 (100 円、既存 SmilePaymentVerifier と揃える)。 */
-    private static final BigDecimal VERIFY_DIFF_THRESHOLD = BigDecimal.valueOf(100);
     /** CONTINUITY_BREAK の許容差 (丸めによる 1 円ズレを許容)。 */
     private static final BigDecimal CONTINUITY_TOLERANCE = BigDecimal.ONE;
 
@@ -233,7 +232,7 @@ public class AccountsPayableLedgerService {
         // VERIFY_DIFF: |change - verified| > 100 かつ verified > 0
         if (verified.signum() != 0) {
             BigDecimal diff = change.subtract(verified).abs();
-            if (diff.compareTo(VERIFY_DIFF_THRESHOLD) > 0) {
+            if (diff.compareTo(FinanceConstants.MATCH_TOLERANCE) > 0) {
                 out.add(Anomaly.builder()
                         .code("VERIFY_DIFF")
                         .severity("WARN")

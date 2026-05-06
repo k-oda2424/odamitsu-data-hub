@@ -13,7 +13,9 @@ import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.io.FileWriter;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDate;
@@ -71,14 +73,16 @@ public class AccountsReceivableToSalesJournalTasklet implements Tasklet {
 
         if (summaries.isEmpty()) {
             log.info("対象データなし。ヘッダのみ空ファイルを出力します。");
-            try (FileWriter writer = new FileWriter(fileName)) {
+            try (Writer writer = new OutputStreamWriter(
+                    new FileOutputStream(fileName), SalesJournalCsvService.CP932)) {
                 salesJournalCsvService.writeCsv(summaries, writer, initialTransactionNo);
             }
             return RepeatStatus.FINISHED;
         }
 
         boolean success = false;
-        try (FileWriter writer = new FileWriter(fileName)) {
+        try (Writer writer = new OutputStreamWriter(
+                new FileOutputStream(fileName), SalesJournalCsvService.CP932)) {
             int written = salesJournalCsvService.writeCsv(summaries, writer, initialTransactionNo);
             log.info("CSV出力完了: {} 件", written);
             success = true;

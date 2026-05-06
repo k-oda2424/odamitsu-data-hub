@@ -82,24 +82,22 @@ public class UpdateSmilePurchaseProcessor {
 
     private void updateModifiedPurchase(List<WSmilePurchaseOutputFile> modifiedPurchaseList) throws Exception {
         // 処理連番とショップ番号の組み合わせでグルーピング
-        Map<String, List<WSmilePurchaseOutputFile>> renbanAndShopNoMap = modifiedPurchaseList.stream()
+        Map<ShoriRenbanKey, List<WSmilePurchaseOutputFile>> renbanMap = modifiedPurchaseList.stream()
                 .collect(Collectors.groupingBy(
-                        file -> file.getShoriRenban() + "_" + file.getShopNo()
+                        file -> new ShoriRenbanKey(file.getShopNo(), file.getShoriRenban())
                 ));
 
-        for (Map.Entry<String, List<WSmilePurchaseOutputFile>> entry : renbanAndShopNoMap.entrySet()) {
-            String[] keys = entry.getKey().split("_");
-            Long shoriRenban = Long.parseLong(keys[0]); // 処理連番
-            int shopNo = Integer.parseInt(keys[1]);     // ショップ番号
+        for (Map.Entry<ShoriRenbanKey, List<WSmilePurchaseOutputFile>> entry : renbanMap.entrySet()) {
+            ShoriRenbanKey key = entry.getKey();
             int entrySize = entry.getValue().size();
 
             // 進捗の更新と表示
             updateProgress(entrySize);
 
             try {
-                smilePurchaseUpdateService.updatePurchase(shopNo, shoriRenban, entry.getValue());
+                smilePurchaseUpdateService.updatePurchase(key.getShopNo(), key.getShorirenban(), entry.getValue());
             } catch (Exception e) {
-                log.error("エラーが発生しました。店舗番号: {}, 処理連番: {}, エントリーサイズ: {}", shopNo, shoriRenban, entrySize, e);
+                log.error("エラーが発生しました。店舗番号: {}, 処理連番: {}, エントリーサイズ: {}", key.getShopNo(), key.getShorirenban(), entrySize, e);
                 throw e; // 必要に応じて再スロー
             }
         }

@@ -102,6 +102,12 @@ export interface MfSupplierLedgerResponse {
   mfStartDate?: string
   /** MF /journals fetch 終了日 (= toMonth)。 */
   mfEndDate?: string
+  /**
+   * 前期繰越 (supplier 単位期首残)。m_supplier_opening_balance から取得。
+   * MF cumulative の初期値に使用 (journal #1 自体は accumulation から除外)。
+   * 未登録 supplier は 0。
+   */
+  openingBalance?: number
 }
 
 // ---- UI 用ラベル ----

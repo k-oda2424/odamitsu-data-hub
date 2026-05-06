@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { memo, useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -19,8 +19,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatNumber } from '@/lib/utils'
 import { Upload, Plus } from 'lucide-react'
 import { toast } from 'sonner'
+import type { PartnerGroup } from '@/types/partner-group'
 import { InvoiceImportDialog } from './InvoiceImportDialog'
 import { PartnerGroupDialog } from './PartnerGroupDialog'
+import { AmountSourceTooltip } from '@/components/common/AmountSourceTooltip'
 
 // ==================== Types ====================
 
@@ -40,35 +42,30 @@ interface Invoice {
   paymentDate: string | null
 }
 
-interface PartnerGroup {
-  partnerGroupId: number
-  groupName: string
-  shopNo: number
-  partnerCodes: string[]
-}
-
 function formatMoney(val: number | null): string {
   if (val == null) return '-'
   return formatNumber(val)
 }
 
-// F1: Checkbox cell extracted to avoid full-table re-render on toggle
-function SelectCell({ invoiceId, selectedIds, onToggle }: {
+// F1: Checkbox cell — boolean prop + React.memo で同行のみ再レンダー
+// SF-05: 旧実装は Set 全体を渡し useMemo deps を空にしていたため
+//        selectedIds 変化が UI に反映されない stale closure バグだった
+const SelectCell = memo(function SelectCell({ invoiceId, checked, onToggle }: {
   invoiceId: number
-  selectedIds: Set<number>
+  checked: boolean
   onToggle: (id: number) => void
 }) {
   return (
     <Checkbox
-      checked={selectedIds.has(invoiceId)}
+      checked={checked}
       onCheckedChange={() => onToggle(invoiceId)}
       onClick={(e) => e.stopPropagation()}
     />
   )
-}
+})
 
 // F2: Date cell with key to force remount on data refresh
-function PaymentDateCell({ invoiceId, paymentDate, onUpdate }: {
+const PaymentDateCell = memo(function PaymentDateCell({ invoiceId, paymentDate, onUpdate }: {
   invoiceId: number
   paymentDate: string | null
   onUpdate: (id: number, val: string) => void
@@ -88,7 +85,7 @@ function PaymentDateCell({ invoiceId, paymentDate, onUpdate }: {
       }}
     />
   )
-}
+})
 
 // ==================== Main Component ====================
 
@@ -189,13 +186,13 @@ export function InvoiceListPage() {
     setFilterGroupId(null)
   }
 
-  const toggleSelect = (invoiceId: number) => {
+  const toggleSelect = useCallback((invoiceId: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(invoiceId)) { next.delete(invoiceId) } else { next.add(invoiceId) }
       return next
     })
-  }
+  }, [])
 
   // F3: memoize filtered data with Set for O(1) lookup
   const allInvoices = invoiceQuery.data ?? []
@@ -244,13 +241,19 @@ export function InvoiceListPage() {
     })
   }
 
-  // F1: columns without selectedIds dependency — checkbox uses extracted SelectCell
+  // SF-05: columns に selectedIds / handlePaymentDateChange を deps として明示
+  // SelectCell は boolean のみ受け取る React.memo 化済みなので
+  // selectedIds 変化時も該当行の cell のみ再レンダーされる
   const columns: Column<Invoice>[] = useMemo(() => [
     {
       key: '_select',
       header: '',
       render: (item: Invoice) => (
-        <SelectCell invoiceId={item.invoiceId} selectedIds={selectedIds} onToggle={toggleSelect} />
+        <SelectCell
+          invoiceId={item.invoiceId}
+          checked={selectedIds.has(item.invoiceId)}
+          onToggle={toggleSelect}
+        />
       ),
     },
     {
@@ -287,7 +290,7 @@ export function InvoiceListPage() {
     },
     {
       key: 'currentBillingAmount',
-      header: '今回請求額',
+      header: <>今回請求額<AmountSourceTooltip source="AR_INVOICE" /></>,
       render: (item: Invoice) => <span className="block text-right tabular-nums font-bold">{formatMoney(item.currentBillingAmount)}</span>,
       sortable: true,
     },
@@ -298,7 +301,7 @@ export function InvoiceListPage() {
         <PaymentDateCell invoiceId={item.invoiceId} paymentDate={item.paymentDate} onUpdate={handlePaymentDateChange} />
       ),
     },
-  ], []) // eslint-disable-line react-hooks/exhaustive-deps -- render functions use closures that read latest state via SelectCell/PaymentDateCell props
+  ], [selectedIds, toggleSelect, handlePaymentDateChange])
 
   const hasSearched = searchParams !== null
 

@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import type { UseQueryResult } from '@tanstack/react-query'
 import { SearchableSelect } from '@/components/features/common/SearchableSelect'
 import { Input } from '@/components/ui/input'
@@ -53,6 +54,11 @@ interface Props {
   shopsQuery: UseQueryResult<ShopOption[]>
   partnersQuery: UseQueryResult<PartnerOption[]>
   destinationsQuery: UseQueryResult<DestinationOption[]>
+  destinationFallback?: {
+    destinationNo: number
+    destinationName: string | null
+    destinationCode: string | null
+  } | null
 }
 
 export function EstimateHeaderForm({
@@ -78,7 +84,25 @@ export function EstimateHeaderForm({
   shopsQuery,
   partnersQuery,
   destinationsQuery,
+  destinationFallback,
 }: Props) {
+  const destinationOptions = useMemo(() => {
+    const base = (destinationsQuery.data ?? []).map((d) => ({
+      value: String(d.destinationNo),
+      label: `${d.destinationCode ?? ''} ${d.destinationName}`.trim(),
+    }))
+    if (!destinationFallback) return base
+    const fallbackValue = String(destinationFallback.destinationNo)
+    if (base.some((opt) => opt.value === fallbackValue)) return base
+    return [
+      {
+        value: fallbackValue,
+        label: `${destinationFallback.destinationCode ?? ''} ${destinationFallback.destinationName ?? ''}`.trim(),
+      },
+      ...base,
+    ]
+  }, [destinationsQuery.data, destinationFallback])
+
   return (
     <Card>
       <CardContent className="pt-4">
@@ -132,10 +156,7 @@ export function EstimateHeaderForm({
             <SearchableSelect
               value={destinationNo}
               onValueChange={onDestinationNoChange}
-              options={(destinationsQuery.data ?? []).map((d) => ({
-                value: String(d.destinationNo),
-                label: `${d.destinationCode ?? ''} ${d.destinationName}`,
-              }))}
+              options={destinationOptions}
               placeholder="納品先を選択"
               searchPlaceholder="納品先を検索..."
               clearable

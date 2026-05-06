@@ -8,6 +8,14 @@ export interface MfOauthStatus {
   tokenExpiresAt: string | null
   scope: string | null
   expiresInHours: number | null
+  /**
+   * MF /api/v3/accounts への ping 結果。
+   * - true:  接続中かつ API 疎通 OK
+   * - false: 接続中だが API 疎通 NG (401 / network error 等)
+   * - null:  ping 未実行 (connected=false の時)
+   * SF-22 (backend) + MA-02 (frontend 表示)
+   */
+  apiReachable?: boolean | null
 }
 
 export interface SummaryStats {
@@ -56,8 +64,10 @@ export type HealthLevel = 'green' | 'yellow' | 'red'
  */
 export function judgeHealth(res: MfHealthResponse): HealthLevel {
   const a = res.anomalies
-  const anomalyTotal =
-    a.negativeClosingCount + a.verifyDiffCount + a.continuityBreakCount + a.monthGapCount
+  // SF-19: verifyDiff/continuityBreak/monthGap は backend (PayableAnomalyCounter) 未実装で常に 0。
+  // 0 固定値を判定に組み込むと将来実装後に挙動が静かに変わるため、現時点では negativeClosing のみで判定する。
+  // TODO: backend 実装後 (PayableAnomalyCounter) に verifyDiff/continuityBreak/monthGap を anomalyTotal に組み込む
+  const anomalyTotal = a.negativeClosingCount
   const tokenExpired = !res.mfOauth.connected || (res.mfOauth.expiresInHours ?? 0) <= 0
   if (tokenExpired || a.negativeClosingCount > 0 || anomalyTotal > 10) return 'red'
   const tokenNear = (res.mfOauth.expiresInHours ?? 9999) < 24

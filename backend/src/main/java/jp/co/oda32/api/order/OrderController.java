@@ -55,7 +55,7 @@ public class OrderController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime orderDateTimeTo,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate slipDateFrom,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate slipDateTo,
-            @PageableDefault(size = 50, sort = "orderDateTime", direction = Sort.Direction.DESC) Pageable pageable) {
+            @PageableDefault(size = 50, sort = "tOrder.orderDateTime", direction = Sort.Direction.DESC) Pageable pageable) {
         Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         log.info("受注一覧検索: shopNo={}, partnerNo={}, companyNo={}, goodsName={}, page={}", effectiveShopNo, partnerNo, companyNo, goodsName, pageable.getPageNumber());
         String[] statusArray = orderDetailStatus != null ? new String[]{orderDetailStatus} : null;

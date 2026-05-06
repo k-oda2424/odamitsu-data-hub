@@ -221,11 +221,26 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
 
   const searchGoodsByCode = useCallback(
     async (rowId: string, code: string) => {
-      if (!code.trim() || !shopNo) return
-      if (lastSearchedCodesRef.current[rowId] === code) return
-      lastSearchedCodesRef.current = { ...lastSearchedCodesRef.current, [rowId]: code }
+      const trimmed = code.trim()
+      if (!trimmed || !shopNo) return
+
+      // SMILE 商品コードは 8 桁固定 (例: 00012345)。
+      // 1〜7 桁の数字のみ入力された場合は先頭 0 埋めで 8 桁に補完する。
+      // 8 桁以上は商品コード or JAN コードとしてそのまま検索 (バックエンドで分岐)。
+      const normalized = /^\d{1,7}$/.test(trimmed) ? trimmed.padStart(8, '0') : trimmed
+
+      if (lastSearchedCodesRef.current[rowId] === normalized) return
+      lastSearchedCodesRef.current = { ...lastSearchedCodesRef.current, [rowId]: normalized }
+
+      // 入力欄に補完後コードを反映 (検索結果が無くても 0 埋め後の値が表示される)
+      if (normalized !== code) {
+        setRows((prev) =>
+          prev.map((row) => (row.id === rowId ? { ...row, goodsCode: normalized } : row)),
+        )
+      }
+
       try {
-        const params = new URLSearchParams({ shopNo, code })
+        const params = new URLSearchParams({ shopNo, code: normalized })
         if (partnerNo) params.append('partnerNo', partnerNo)
         if (destinationNo) params.append('destinationNo', destinationNo)
 
@@ -257,7 +272,7 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
           }),
         )
       } catch {
-        toast.info(`商品コード「${code}」が見つかりません。商品名・原価を手入力できます。`)
+        toast.info(`商品コード「${normalized}」が見つかりません。商品名・原価を手入力できます。`)
       }
     },
     [shopNo, partnerNo, destinationNo],
@@ -423,6 +438,17 @@ export function EstimateFormPage({ estimateNo }: EstimateFormPageProps) {
         shopsQuery={shopsQuery}
         partnersQuery={partnersQuery}
         destinationsQuery={destinationsQuery}
+        destinationFallback={
+          isEditMode &&
+          estimateQuery.data &&
+          (estimateQuery.data.destinationNo ?? 0) > 0
+            ? {
+                destinationNo: estimateQuery.data.destinationNo!,
+                destinationName: estimateQuery.data.destinationName,
+                destinationCode: estimateQuery.data.destinationCode,
+              }
+            : null
+        }
       />
 
       <EstimateDetailTable

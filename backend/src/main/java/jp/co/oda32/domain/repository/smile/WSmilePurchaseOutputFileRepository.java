@@ -31,7 +31,12 @@ public interface WSmilePurchaseOutputFileRepository extends JpaRepository<WSmile
      * ({@code 00000021} / {@code 00000023}) は SMILE に手入力される事務処理用行で、
      * 実仕入は shop_no=2 側に別途存在するため、本テーブルには入れずに除外する
      * （詳細: {@link jp.co.oda32.constant.FinanceConstants#DIVISION2_AGGREGATE_GOODS_CODES}）。
-     * ワークテーブルには CSV の内容をそのまま保持する方針のため、除外はこの検索段階で行う。
+     * <p>消費税等の行 ({@code shouhin_mei LIKE '%消費税%'}) と商品コードが空の行は
+     * {@code SmilePurchaseImportService#purchaseProcess} で {@code continue} され
+     * {@code t_purchase_detail} に挿入されない。これらを含めると、呼び出し側の
+     * {@code NewSmilePurchaseProcessor} が「結果セットが縮む前提で page 0 を繰り返す」
+     * 方式を取っているため無限ループ (最大 10000 回) となり、同一行を繰り返し
+     * スキャンする原因になる。よってスキップ対象は検索段階で除外する。
      */
     @Query(value = "SELECT wspof.* FROM w_smile_purchase_output_file wspof " +
             "LEFT JOIN t_purchase_detail tpd " +
@@ -40,6 +45,9 @@ public interface WSmilePurchaseOutputFileRepository extends JpaRepository<WSmile
             "AND tpd.shop_no = wspof.shop_no " +
             "WHERE tpd.ext_purchase_no IS NULL " +
             "AND wspof.shouhin_code NOT IN ('00000021','00000023') " +
+            "AND wspof.shouhin_code IS NOT NULL " +
+            "AND wspof.shouhin_code <> '' " +
+            "AND (wspof.shouhin_mei IS NULL OR wspof.shouhin_mei NOT LIKE '%消費税%') " +
             "ORDER BY wspof.shop_no, wspof.shori_renban",
             countQuery = "SELECT COUNT(*) FROM w_smile_purchase_output_file wspof " +
                     "LEFT JOIN t_purchase_detail tpd " +
@@ -47,13 +55,24 @@ public interface WSmilePurchaseOutputFileRepository extends JpaRepository<WSmile
                     "AND wspof.gyou = tpd.purchase_detail_no " +
                     "AND tpd.shop_no = wspof.shop_no " +
                     "WHERE tpd.ext_purchase_no IS NULL " +
-                    "AND wspof.shouhin_code NOT IN ('00000021','00000023') ",
+                    "AND wspof.shouhin_code NOT IN ('00000021','00000023') " +
+                    "AND wspof.shouhin_code IS NOT NULL " +
+                    "AND wspof.shouhin_code <> '' " +
+                    "AND (wspof.shouhin_mei IS NULL OR wspof.shouhin_mei NOT LIKE '%消費税%') ",
             nativeQuery = true)
     Page<WSmilePurchaseOutputFile> findNewPurchases(Pageable pageable);
 
     /**
      * 既存仕入のうち更新が必要なレコードを検索する。
      * 新規と同様に第2事業部集約行 (00000021/00000023) は本テーブル対象外のため除外する。
+     *
+     * <p><b>消費税 footer 行 (meisaikubun=1) の除外</b>:
+     * wspof の PK は (shori_renban, gyou, shop_no, meisaikubun) で消費税 footer は
+     * meisaikubun=1 として同じ gyou に共存する。一方 tpd は meisaikubun を持たず
+     * (shop_no, ext_purchase_no, purchase_detail_no) で一意のため、JOIN すると 1:2
+     * マッチが発生し、消費税 footer 行が常に「差分あり」として返ってしまう。
+     * 結果として update 処理が tpd の実商品データを消費税データで上書き破壊する。
+     * {@link #findNewPurchases} と同じスキップ条件で消費税 footer を除外する。
      */
     // NULL を含む列の変更検知を取りこぼさないよう、= 系列は全て PostgreSQL の
     // IS DISTINCT FROM を使って比較する ( `!=` は片側 NULL で UNKNOWN を返し除外される )。
@@ -63,6 +82,9 @@ public interface WSmilePurchaseOutputFileRepository extends JpaRepository<WSmile
             "AND tpd.shop_no = wspof.shop_no " +
             "JOIN t_purchase tp ON tpd.purchase_no = tp.purchase_no " +
             "WHERE wspof.shouhin_code NOT IN ('00000021','00000023') " +
+            "AND wspof.shouhin_code IS NOT NULL " +
+            "AND wspof.shouhin_code <> '' " +
+            "AND (wspof.shouhin_mei IS NULL OR wspof.shouhin_mei NOT LIKE '%消費税%') " +
             "AND (tpd.goods_num IS DISTINCT FROM wspof.suuryou " +
             "OR tpd.goods_code IS DISTINCT FROM wspof.shouhin_code " +
             "OR wspof.denpyou_hizuke IS DISTINCT FROM tp.purchase_date " +
@@ -78,6 +100,9 @@ public interface WSmilePurchaseOutputFileRepository extends JpaRepository<WSmile
                     "AND tpd.shop_no = wspof.shop_no " +
                     "JOIN t_purchase tp ON tpd.purchase_no = tp.purchase_no " +
                     "WHERE wspof.shouhin_code NOT IN ('00000021','00000023') " +
+                    "AND wspof.shouhin_code IS NOT NULL " +
+                    "AND wspof.shouhin_code <> '' " +
+                    "AND (wspof.shouhin_mei IS NULL OR wspof.shouhin_mei NOT LIKE '%消費税%') " +
                     "AND (tpd.goods_num IS DISTINCT FROM wspof.suuryou " +
                     "OR tpd.goods_code IS DISTINCT FROM wspof.shouhin_code " +
                     "OR wspof.denpyou_hizuke IS DISTINCT FROM tp.purchase_date " +

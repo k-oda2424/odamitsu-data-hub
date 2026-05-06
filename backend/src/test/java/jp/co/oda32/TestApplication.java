@@ -29,7 +29,8 @@ import org.springframework.context.annotation.FilterType;
                         "jp\\.co\\.oda32\\.batch\\..*",
                         "jp\\.co\\.oda32\\.api\\.(?!auth).*",
                         "jp\\.co\\.oda32\\.aop\\..*",
-                        "jp\\.co\\.oda32\\.annotation\\..*"
+                        "jp\\.co\\.oda32\\.annotation\\..*",
+                        "jp\\.co\\.oda32\\.audit\\..*"
                 }
         )
 )

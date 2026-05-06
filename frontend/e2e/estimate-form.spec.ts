@@ -253,4 +253,107 @@ test.describe('見積フォーム — 編集', () => {
 
     await expect(page).toHaveURL(/\/estimates\/570$/)
   })
+
+  test('F-09: 編集モード — 保存済み納品先がプリセレクト表示される (シナリオA: destinations APIに含まれる)', async ({ page }) => {
+    await mockAllApis(page)
+    // partnerNo=200 用の destinations を上書き（mockAllApisより後に登録: LIFOで優先）
+    await page.route(
+      (url) => url.pathname === '/api/v1/masters/destinations',
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            { destinationNo: 1, destinationName: '本社', destinationCode: 'DEST001', partnerNo: 200 },
+            { destinationNo: 2, destinationName: '第二倉庫', destinationCode: 'DEST002', partnerNo: 200 },
+          ]),
+        })
+      },
+    )
+    const estimateWithDest = {
+      ...MOCK_ESTIMATES[1],
+      destinationNo: 1,
+      destinationName: '本社',
+      destinationCode: 'DEST001',
+      details: [],
+    }
+    await page.route(
+      (url) => url.pathname === '/api/v1/estimates/2341',
+      async (route) => {
+        if (route.request().method() === 'GET') {
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(estimateWithDest) })
+        } else {
+          await route.fallback()
+        }
+      },
+    )
+    await loginAndGoto(page, '/estimates/2341/edit')
+
+    const destButton = page.locator('button:has-text("DEST001 本社")')
+    await expect(destButton).toBeVisible()
+  })
+
+  test('F-10: 編集モード — destinations API に含まれない納品先 (シナリオB: 削除済み・partner変更) でも fallback option で表示', async ({ page }) => {
+    await mockAllApis(page)
+    // 999 を含まない destinations を返す（mockAllApisより後）
+    await page.route(
+      (url) => url.pathname === '/api/v1/masters/destinations',
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            { destinationNo: 1, destinationName: '本社', destinationCode: 'DEST001', partnerNo: 200 },
+            { destinationNo: 2, destinationName: '第二倉庫', destinationCode: 'DEST002', partnerNo: 200 },
+          ]),
+        })
+      },
+    )
+    const estimateWithDeletedDest = {
+      ...MOCK_ESTIMATES[1],
+      destinationNo: 999,
+      destinationName: '旧倉庫(削除済)',
+      destinationCode: 'DEST999',
+      details: [],
+    }
+    await page.route(
+      (url) => url.pathname === '/api/v1/estimates/2341',
+      async (route) => {
+        if (route.request().method() === 'GET') {
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(estimateWithDeletedDest) })
+        } else {
+          await route.fallback()
+        }
+      },
+    )
+    await loginAndGoto(page, '/estimates/2341/edit')
+
+    const destButton = page.locator('button:has-text("DEST999 旧倉庫(削除済)")')
+    await expect(destButton).toBeVisible()
+  })
+
+  test('F-11: 編集モード — destinationNo=null の見積では fallback 注入されず placeholder 表示', async ({ page }) => {
+    await mockAllApis(page)
+    const estimateWithoutDest = {
+      ...MOCK_ESTIMATES[1],
+      destinationNo: null,
+      destinationName: null,
+      destinationCode: null,
+      details: [],
+    }
+    await page.route(
+      (url) => url.pathname === '/api/v1/estimates/2341',
+      async (route) => {
+        if (route.request().method() === 'GET') {
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(estimateWithoutDest) })
+        } else {
+          await route.fallback()
+        }
+      },
+    )
+    await loginAndGoto(page, '/estimates/2341/edit')
+
+    const placeholderButton = page.locator('button:has-text("納品先を選択")')
+    await expect(placeholderButton).toBeVisible()
+  })
 })

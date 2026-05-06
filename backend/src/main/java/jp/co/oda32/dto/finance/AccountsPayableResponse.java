@@ -36,13 +36,20 @@ public class AccountsPayableResponse {
     /** MF CSV 出力時の送金日 (支払予定日)。Excel 取込時に set される。 */
     private LocalDate mfTransferDate;
     /**
-     * 検証経路の区分（UIバッジ表示用の計算フィールド。DB には保存されていない）。
+     * 検証経路の区分（UIバッジ表示用）。G2-M1/M10 (V040) で
+     * {@code t_accounts_payable_summary.verification_source} 列由来に変更。
      * <ul>
-     *   <li>{@code BULK}   — 振込明細Excel での一括検証。{@code verification_note} が
-     *       {@link FinanceConstants#VERIFICATION_NOTE_BULK_PREFIX} で始まる行</li>
-     *   <li>{@code MANUAL} — 買掛金一覧の詳細ダイアログで手入力検証された行</li>
+     *   <li>{@code BULK}   — 振込明細Excel での一括検証。
+     *       {@link FinanceConstants#VERIFICATION_SOURCE_BULK} 由来。</li>
+     *   <li>{@code MANUAL} — 買掛金一覧の詳細ダイアログで手入力検証された行。
+     *       {@link FinanceConstants#VERIFICATION_SOURCE_MANUAL} 由来。</li>
+     *   <li>{@code MF_APPLY} — 整合性レポートで MF override された行。
+     *       {@link FinanceConstants#VERIFICATION_SOURCE_MF_OVERRIDE} 由来。</li>
      *   <li>{@code null}   — verifiedManually=false（SMILE自動検証など）</li>
      * </ul>
+     * <p>旧実装は {@code verification_note} 接頭辞文字列で BULK/MANUAL を推定していたが、
+     * ユーザが偶然 "振込明細検証 " で始まる note を手入力すると誤判定されるため、
+     * V040 で書込経路 enum 列に切替。
      */
     private String verificationSource;
 
@@ -90,11 +97,25 @@ public class AccountsPayableResponse {
     public static AccountsPayableResponse from(TAccountsPayableSummary ap, MPaymentSupplier ps,
                                                  boolean includeBalance) {
         boolean isManuallyVerified = Boolean.TRUE.equals(ap.getVerifiedManually());
+        // G2-M1/M10 (V040): note 接頭辞推定から source 列直接判定に切替。
+        // BULK_VERIFICATION → "BULK" / MANUAL_VERIFICATION → "MANUAL" / MF_OVERRIDE → "MF_APPLY" / NULL → null
         String source = null;
         if (isManuallyVerified) {
-            String note = ap.getVerificationNote();
-            source = (note != null && note.startsWith(FinanceConstants.VERIFICATION_NOTE_BULK_PREFIX))
-                    ? "BULK" : "MANUAL";
+            String src = ap.getVerificationSource();
+            if (FinanceConstants.VERIFICATION_SOURCE_BULK.equals(src)) {
+                source = "BULK";
+            } else if (FinanceConstants.VERIFICATION_SOURCE_MANUAL.equals(src)) {
+                source = "MANUAL";
+            } else if (FinanceConstants.VERIFICATION_SOURCE_MF_OVERRIDE.equals(src)) {
+                source = "MF_APPLY";
+            } else {
+                // verification_source が NULL のまま verified_manually=true な行は backfill 漏れ。
+                // legacy fallback: note 接頭辞で MANUAL/BULK を推定 (運用初期の暫定挙動)。
+                String note = ap.getVerificationNote();
+                @SuppressWarnings("deprecation")
+                String legacyPrefix = FinanceConstants.VERIFICATION_NOTE_BULK_PREFIX;
+                source = (note != null && note.startsWith(legacyPrefix)) ? "BULK" : "MANUAL";
+            }
         }
         AccountsPayableResponseBuilder b = AccountsPayableResponse.builder()
                 .shopNo(ap.getShopNo())

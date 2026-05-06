@@ -3,6 +3,7 @@ package jp.co.oda32.batch.finance;
 import jp.co.oda32.batch.finance.service.PayableMonthlyAggregator;
 import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
+import jp.co.oda32.domain.service.finance.MfPeriodConstants;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
 import jp.co.oda32.domain.service.finance.mf.MfPaymentAggregator;
 import lombok.extern.log4j.Log4j2;
@@ -23,8 +24,10 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 買掛金累積残 opening / payment_settled の過去データ再集計 Tasklet。
@@ -60,8 +63,6 @@ public class AccountsPayableBackfillTasklet implements Tasklet {
     @Value("#{jobParameters['allowPartialResume'] ?: 'false'}")
     private String allowPartialResumeParam;
 
-    private static final LocalDate EXPECTED_FROM_MONTH = LocalDate.of(2025, 6, 20);
-
     public AccountsPayableBackfillTasklet(
             TAccountsPayableSummaryService summaryService,
             PayableMonthlyAggregator monthlyAggregator,
@@ -84,12 +85,12 @@ public class AccountsPayableBackfillTasklet implements Tasklet {
                     "fromMonth (" + fromMonth + ") が toMonth (" + toMonth + ") より後です");
         }
         boolean allowPartial = "true".equalsIgnoreCase(allowPartialResumeParam);
-        if (!from.equals(EXPECTED_FROM_MONTH) && !allowPartial) {
+        if (!from.equals(MfPeriodConstants.SELF_BACKFILL_START) && !allowPartial) {
             throw new IllegalArgumentException(
-                    "fromMonth は " + EXPECTED_FROM_MONTH + " 固定です (Phase B' 整合性)。"
+                    "fromMonth は " + MfPeriodConstants.SELF_BACKFILL_START + " 固定です (Phase B' 整合性)。"
                             + "途中月から再開する場合は allowPartialResume=true を指定してください。");
         }
-        if (allowPartial && !from.equals(EXPECTED_FROM_MONTH)) {
+        if (allowPartial && !from.equals(MfPeriodConstants.SELF_BACKFILL_START)) {
             log.warn("[backfill] 途中再開モード: fromMonth={}, 前月 closing が Phase A 旧式の可能性あり。"
                     + " 実データ検証後に再実行を推奨します。", fromMonth);
         }
@@ -133,9 +134,16 @@ public class AccountsPayableBackfillTasklet implements Tasklet {
         List<TAccountsPayableSummary> generated = monthlyAggregator.generatePaymentOnlyRows(
                 prev, current, periodEndDate, currMap);
 
+        // O(N) 重複判定: rowKey の Set で生成済みを判定 (R: List.contains による O(N²) 解消)
         List<TAccountsPayableSummary> toSave = new ArrayList<>(current);
+        Set<String> existingKeys = new HashSet<>();
+        for (TAccountsPayableSummary r : current) {
+            existingKeys.add(PayableMonthlyAggregator.rowKey(r));
+        }
         for (TAccountsPayableSummary po : generated) {
-            if (!toSave.contains(po)) toSave.add(po);
+            if (existingKeys.add(PayableMonthlyAggregator.rowKey(po))) {
+                toSave.add(po);
+            }
         }
 
         if (!toSave.isEmpty()) {

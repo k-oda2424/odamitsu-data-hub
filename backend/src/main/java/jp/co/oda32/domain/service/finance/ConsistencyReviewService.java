@@ -1,5 +1,7 @@
 package jp.co.oda32.domain.service.finance;
 
+import jp.co.oda32.audit.AuditLog;
+import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.embeddable.TConsistencyReviewPK;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.model.finance.TConsistencyReview;
@@ -52,6 +54,9 @@ public class ConsistencyReviewService {
     private final TAccountsPayableSummaryRepository summaryRepository;
     private final LoginUserRepository loginUserRepository;
 
+    @AuditLog(table = "t_consistency_review", operation = "upsert",
+            pkExpression = "{'shopNo': #a0.shopNo, 'entryType': #a0.entryType, 'entryKey': #a0.entryKey, 'transactionMonth': #a0.transactionMonth}",
+            captureArgsAsAfter = true)
     public ConsistencyReviewResponse upsert(ConsistencyReviewRequest req, Integer userNo) {
         validateRequest(req);
 
@@ -59,14 +64,18 @@ public class ConsistencyReviewService {
                 req.getShopNo(), req.getEntryType(), req.getEntryKey(), req.getTransactionMonth());
 
         Optional<TConsistencyReview> existingOpt = reviewRepository.findById(pk);
-        // 旧 review が MF_APPLY なら先にロールバック (副作用を剥がす)
-        existingOpt.ifPresent(old -> {
-            if (ACTION_MF_APPLY.equals(old.getActionType())) {
+        // 旧 review に previous snapshot が残っていれば先にロールバック (副作用を剥がす)。
+        // SF-04: action 種別ではなく snapshot 有無で判定 (IGNORE で previous 残置時もロールバック可能)。
+        if (existingOpt.isPresent()) {
+            TConsistencyReview old = existingOpt.get();
+            if (old.getPreviousVerifiedAmounts() != null && !old.getPreviousVerifiedAmounts().isEmpty()) {
                 rollbackVerifiedAmounts(req.getShopNo(), req.getEntryKey(),
                         req.getTransactionMonth(), old.getPreviousVerifiedAmounts());
             }
-        });
+        }
 
+        // SF-04 補足: IGNORE 経路では previous=null を明示的に保存し、過去の MF_APPLY snapshot を完全クリア。
+        // (上の rollback で副作用は剥がしてあるので、再ロールバックを誘発しないよう null で上書き)
         Map<String, BigDecimal> previous = null;
         boolean verifiedUpdated = false;
         if (ACTION_MF_APPLY.equals(req.getActionType())) {
@@ -79,7 +88,7 @@ public class ConsistencyReviewService {
                 .actionType(req.getActionType())
                 .selfSnapshot(req.getSelfSnapshot())
                 .mfSnapshot(req.getMfSnapshot())
-                .previousVerifiedAmounts(previous)
+                .previousVerifiedAmounts(previous) // IGNORE 時は null (snapshot クリア)
                 .reviewedBy(userNo)
                 .reviewedAt(Instant.now())
                 .note(req.getNote())
@@ -89,12 +98,16 @@ public class ConsistencyReviewService {
         return buildResponse(review, verifiedUpdated);
     }
 
+    @AuditLog(table = "t_consistency_review", operation = "delete",
+            pkExpression = "{'shopNo': #a0, 'entryType': #a1, 'entryKey': #a2, 'transactionMonth': #a3}",
+            captureArgsAsAfter = true)
     public void delete(Integer shopNo, String entryType, String entryKey, LocalDate transactionMonth) {
         TConsistencyReviewPK pk = new TConsistencyReviewPK(shopNo, entryType, entryKey, transactionMonth);
         Optional<TConsistencyReview> existing = reviewRepository.findById(pk);
         if (existing.isEmpty()) return;
         TConsistencyReview r = existing.get();
-        if (ACTION_MF_APPLY.equals(r.getActionType())) {
+        // SF-04: action 種別ではなく snapshot 有無で判定 (IGNORE で previous 残置時もロールバック可能)。
+        if (r.getPreviousVerifiedAmounts() != null && !r.getPreviousVerifiedAmounts().isEmpty()) {
             rollbackVerifiedAmounts(shopNo, entryKey, transactionMonth, r.getPreviousVerifiedAmounts());
         }
         reviewRepository.deleteById(pk);
@@ -178,8 +191,16 @@ public class ConsistencyReviewService {
                 r.setVerifiedManually(true);
                 r.setVerificationResult(1);
                 r.setMfExportEnabled(false);
-                summaryRepository.save(r);
+                // SF-03: V026 列の振込明細 Excel 由来 stale 値をクリア (UI バッジ誤表示防止)。
+                r.setAutoAdjustedAmount(BigDecimal.ZERO);
+                r.setMfTransferDate(null);
+                // G2-M1/M10 (V040): 書込経路を MF_OVERRIDE として明示記録。
+                r.setVerificationSource(FinanceConstants.VERIFICATION_SOURCE_MF_OVERRIDE);
+                // paymentDifference = verifiedAmount(=0) - taxIncludedAmountChange
+                r.setPaymentDifference(BigDecimal.ZERO.subtract(nz(r.getTaxIncludedAmountChange())));
             }
+            // SF-15: ループ後に saveAll で 1 回だけ永続化
+            summaryRepository.saveAll(rows);
         } else if (ENTRY_AMOUNT_MISMATCH.equals(req.getEntryType())) {
             // 税率別 change 比で target 按分
             BigDecimal paymentSettled = rows.stream()
@@ -214,6 +235,11 @@ public class ConsistencyReviewService {
                 r.setVerifiedManually(true);
                 r.setVerificationResult(1);
                 r.setMfExportEnabled(true);
+                // SF-03: V026 列の振込明細 Excel 由来 stale 値をクリア (UI バッジ誤表示防止)。
+                r.setAutoAdjustedAmount(BigDecimal.ZERO);
+                r.setMfTransferDate(null);
+                // G2-M1/M10 (V040): 書込経路を MF_OVERRIDE として明示記録。
+                r.setVerificationSource(FinanceConstants.VERIFICATION_SOURCE_MF_OVERRIDE);
             }
             // 端数誤差は最大行で吸収
             BigDecimal diff = target.subtract(assigned);
@@ -224,7 +250,13 @@ public class ConsistencyReviewService {
                         largest.getVerifiedAmount().multiply(BigDecimal.valueOf(100))
                                 .divide(divisor, 0, RoundingMode.DOWN));
             }
-            for (TAccountsPayableSummary r : rows) summaryRepository.save(r);
+            // SF-03: paymentDifference を上書き後の verifiedAmount で再計算
+            // (式は TAccountsPayableSummaryService と同一: verifiedAmount - taxIncludedAmountChange)
+            for (TAccountsPayableSummary r : rows) {
+                r.setPaymentDifference(nz(r.getVerifiedAmount()).subtract(nz(r.getTaxIncludedAmountChange())));
+            }
+            // SF-15: ループ後に saveAll で 1 回だけ永続化 (端数吸収も含めて漏れなし)
+            summaryRepository.saveAll(rows);
         }
         log.info("[consistency-review] MF_APPLY shopNo={} supplier={} month={} type={} target={}",
                 req.getShopNo(), supplierNo, req.getTransactionMonth(), req.getEntryType(), req.getMfSnapshot());
@@ -251,10 +283,17 @@ public class ConsistencyReviewService {
                             prev.multiply(BigDecimal.valueOf(100)).divide(divisor, 0, RoundingMode.DOWN));
                 } else {
                     r.setVerifiedAmountTaxExcluded(null);
+                    // G2-M1/M10 (V040): 復元値が 0/null = 元々未検証 だったとみなし、source も NULL に戻す。
+                    // 元の経路 (BULK/MANUAL/NULL) は previous snapshot に含まれないため、
+                    // 非ゼロ復元時は source 列を MF_OVERRIDE のまま残す (best-effort)。
+                    // 厳密に元の source を復元するには previous_verification_sources 列を追加する
+                    // 必要があり、そこまで踏み込まない (レアケース、ユーザが再 verify で上書き可能)。
+                    r.setVerificationSource(null);
                 }
-                summaryRepository.save(r);
             }
         }
+        // SF-15: ループ後に saveAll で 1 回だけ永続化
+        summaryRepository.saveAll(rows);
         log.info("[consistency-review] ROLLBACK shopNo={} supplier={} month={} rows={}",
                 shopNo, supplierNo, month, rows.size());
     }

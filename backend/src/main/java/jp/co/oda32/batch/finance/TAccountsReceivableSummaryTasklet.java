@@ -5,6 +5,7 @@ import jp.co.oda32.batch.finance.service.InvoiceVerifier;
 import jp.co.oda32.constant.Flag;
 import jp.co.oda32.constant.PaymentType;
 import jp.co.oda32.constant.TaxType;
+import jp.co.oda32.domain.model.finance.CutoffType;
 import jp.co.oda32.domain.model.finance.TAccountsReceivableSummary;
 import jp.co.oda32.domain.model.master.MPartner;
 import jp.co.oda32.domain.model.order.TOrderDetail;
@@ -59,11 +60,8 @@ public class TAccountsReceivableSummaryTasklet implements Tasklet {
             ))
     );
 
-    // 締め日タイプ（ジョブパラメータ）
-    public static final String CUTOFF_TYPE_ALL = "all";
-    public static final String CUTOFF_TYPE_15 = "15";
-    public static final String CUTOFF_TYPE_20 = "20";
-    public static final String CUTOFF_TYPE_MONTH_END = "month_end";
+    // 締め日タイプ ({@link CutoffType}) はジョブパラメータ "cutoffType" として渡される。
+    // SF-E10 で文字列定数 CUTOFF_TYPE_* を {@link CutoffType} enum に集約。
 
     private final TAccountsReceivableSummaryService tAccountsReceivableSummaryService;
     private final TOrderDetailService tOrderDetailService;
@@ -88,32 +86,30 @@ public class TAccountsReceivableSummaryTasklet implements Tasklet {
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) {
-        String effectiveCutoffType = (cutoffType == null || cutoffType.isBlank()) ? CUTOFF_TYPE_ALL : cutoffType;
-        log.info("売掛金集計バッチ処理を開始します。 targetDate={}, cutoffType={}", targetDate, effectiveCutoffType);
-        try {
-            initializeCache();
-            LocalDate targetDateAsDate = LocalDate.parse(targetDate, DateTimeFormatter.ofPattern("yyyyMMdd"));
-            log.info("処理対象年月: {}", YearMonth.from(targetDateAsDate));
+        // SF-E10: cutoffType を enum に変換 (null/空は ALL にフォールバック)。
+        CutoffType effectiveCutoffType = CutoffType.fromCode(cutoffType);
+        log.info("売掛金集計バッチ処理を開始します。 targetDate={}, cutoffType={}", targetDate, effectiveCutoffType.getCode());
 
-            preloadPartnerData();
+        // SF-E12: 二重例外ハンドリング (try/catch + setExitStatus + throw new RuntimeException) を撤去。
+        // Spring Batch framework が tasklet 内例外を捕捉して自動的に ExitStatus.FAILED をセットする。
+        initializeCache();
+        LocalDate targetDateAsDate = LocalDate.parse(targetDate, DateTimeFormatter.ofPattern("yyyyMMdd"));
+        log.info("処理対象年月: {}", YearMonth.from(targetDateAsDate));
 
-            boolean all = CUTOFF_TYPE_ALL.equals(effectiveCutoffType);
-            if (all || CUTOFF_TYPE_MONTH_END.equals(effectiveCutoffType)) {
-                processMonthEndCutoffPartners(targetDateAsDate);
-            }
-            if (all || CUTOFF_TYPE_20.equals(effectiveCutoffType)) {
-                process20thCutoffPartners(targetDateAsDate);
-            }
-            if (all || CUTOFF_TYPE_15.equals(effectiveCutoffType)) {
-                process15thCutoffPartners(targetDateAsDate);
-            }
+        preloadPartnerData();
 
-            log.info("売掛金集計バッチ処理が正常に完了しました。");
-        } catch (Exception e) {
-            log.error("売掛金集計バッチ処理中に致命的なエラーが発生しました。", e);
-            contribution.setExitStatus(org.springframework.batch.core.ExitStatus.FAILED);
-            throw new RuntimeException("売掛金集計バッチ処理がエラーで終了しました。", e);
+        boolean all = effectiveCutoffType == CutoffType.ALL;
+        if (all || effectiveCutoffType == CutoffType.MONTH_END) {
+            processMonthEndCutoffPartners(targetDateAsDate);
         }
+        if (all || effectiveCutoffType == CutoffType.DAY_20) {
+            process20thCutoffPartners(targetDateAsDate);
+        }
+        if (all || effectiveCutoffType == CutoffType.DAY_15) {
+            process15thCutoffPartners(targetDateAsDate);
+        }
+
+        log.info("売掛金集計バッチ処理が正常に完了しました。");
         return RepeatStatus.FINISHED;
     }
 

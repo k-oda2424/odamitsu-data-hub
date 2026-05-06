@@ -59,8 +59,11 @@ public class CashBookController {
                     .header(HttpHeaders.CONTENT_DISPOSITION,
                             "attachment; filename=\"" + fileName + "\"; filename*=UTF-8''" + encoded)
                     .body(csv);
-        } catch (IllegalStateException e) {
-            return ResponseEntity.unprocessableEntity().body(Map.of("message", e.getMessage()));
+            // MJ-B01: IllegalStateException の local catch を撤去。
+            // MfTaxResolver の未知 tax_resolver code など内部設定異常は FinanceExceptionHandler#handleIllegalState
+            // で 422 + 汎用メッセージ (内部詳細を露出しない) に翻訳される。
+            // ユーザ起因の actionable error (「エラーが残存しています…N件」) は CashBookConvertService#convert
+            // で IllegalArgumentException に格上げ済みなので 400 + 元メッセージで client に返る。
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }

@@ -1,5 +1,6 @@
 package jp.co.oda32.domain.service.finance;
 
+import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.finance.MMfOauthClient;
 import jp.co.oda32.domain.model.finance.MfAccountMaster;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
@@ -10,6 +11,9 @@ import jp.co.oda32.domain.service.finance.mf.MfJournal;
 import jp.co.oda32.domain.service.finance.mf.MfJournalCacheService;
 import jp.co.oda32.domain.service.finance.mf.MfJournalFetcher;
 import jp.co.oda32.domain.service.finance.mf.MfOauthService;
+import jp.co.oda32.domain.service.finance.mf.MfOpeningBalanceService;
+import jp.co.oda32.domain.service.finance.mf.MfReAuthRequiredException;
+import jp.co.oda32.domain.service.finance.mf.MfScopeInsufficientException;
 import jp.co.oda32.domain.service.master.MPaymentSupplierService;
 import jp.co.oda32.dto.finance.IntegrityReportResponse;
 import jp.co.oda32.dto.finance.IntegrityReportResponse.AmountMismatchEntry;
@@ -63,8 +67,6 @@ public class AccountsPayableIntegrityService {
 
     private static final int MAX_PERIOD_MONTHS = 12;
     private static final String MF_ACCOUNT_PAYABLE = "買掛金";
-    /** MATCH 許容差: ±¥100 以下は一致とみなす (既存 SmilePaymentVerifier 準拠)。 */
-    private static final BigDecimal MATCH_TOLERANCE = BigDecimal.valueOf(100);
     /** MINOR 上限: 100 < diff ≤ 1000 → MINOR、1000 超 → MAJOR。 */
     private static final BigDecimal MINOR_UPPER = BigDecimal.valueOf(1000);
 
@@ -75,6 +77,13 @@ public class AccountsPayableIntegrityService {
     private final MPaymentSupplierService paymentSupplierService;
     private final SupplierBalancesService supplierBalancesService;
     private final ConsistencyReviewService consistencyReviewService;
+    /**
+     * P1-02 (DD-BGH-01): 期首残 (m_supplier_opening_balance) を整合性レポートの cumulative diff にも
+     * 反映させるための明示依存。実値の注入は {@link SupplierBalancesService#generate} 経由
+     * (両サービスで同じ {@code openingBalanceService.getEffectiveBalanceMap} を呼び出すため diff 値が一致) で行うが、
+     * 整合性レポートが期首残を「使っている」契約を本依存で表面化させ、検証ログに opening 件数を出力する。
+     */
+    private final MfOpeningBalanceService openingBalanceService;
 
     public IntegrityReportResponse generate(Integer shopNo, LocalDate fromMonth, LocalDate toMonth, boolean refresh) {
         // --- 入力検証 ---
@@ -144,6 +153,7 @@ public class AccountsPayableIntegrityService {
         Map<String, Map<LocalDate, MonthBucket>> mfBySubAccount = new HashMap<>();
         for (MfJournal j : allJournals) {
             if (j.transactionDate() == null || j.branches() == null) continue;
+            if (MfJournalFetcher.isPayableOpeningJournal(j)) continue; // 期首残高仕訳は除外 (前期繰越として別管理)
             LocalDate monthKey = MfJournalFetcher.toClosingMonthDay20(j.transactionDate());
             if (monthKey.isBefore(fromMonth) || monthKey.isAfter(toMonth)) continue;
 
@@ -199,7 +209,7 @@ public class AccountsPayableIntegrityService {
         List<UnmatchedSupplierEntry> unmatchedSuppliers = new ArrayList<>();
 
         // ---- 1) self 側 supplier × 月 を走査 ----
-        Set<String> processedSubNames = new HashSet<>();
+        Set<SubNameMonthKey> processedSubNames = new HashSet<>();
         for (Integer supplierNo : selfSupplierNos) {
             MPaymentSupplier sup = supplierByNo.get(supplierNo);
             if (sup == null) continue;
@@ -262,7 +272,7 @@ public class AccountsPayableIntegrityService {
                     mfDebit = mfDebit.add(b.debit);
                     mfBranchCount += b.branchCount;
                     mfJournalNumbers.addAll(b.journalNumbers);
-                    processedSubNames.add(sn + "|" + month);
+                    processedSubNames.add(new SubNameMonthKey(sn, month));
                 }
                 BigDecimal mfDelta = mfCredit.subtract(mfDebit);
                 boolean selfHasActivity = !rows.isEmpty()
@@ -314,7 +324,7 @@ public class AccountsPayableIntegrityService {
                 // 両方 activity あり: 金額比較
                 BigDecimal diff = selfDelta.subtract(mfDelta);
                 BigDecimal diffAbs = diff.abs();
-                if (diffAbs.compareTo(MATCH_TOLERANCE) <= 0) {
+                if (diffAbs.compareTo(FinanceConstants.MATCH_TOLERANCE) <= 0) {
                     continue; // MATCH (Entry 無し)
                 }
                 String severity = diffAbs.compareTo(MINOR_UPPER) <= 0 ? "MINOR" : "MAJOR";
@@ -349,7 +359,7 @@ public class AccountsPayableIntegrityService {
             for (Map.Entry<LocalDate, MonthBucket> me : e.getValue().entrySet()) {
                 LocalDate month = me.getKey();
                 // 既に self 側ループで処理されたなら skip
-                if (processedSubNames.contains(subName + "|" + month)) continue;
+                if (processedSubNames.contains(new SubNameMonthKey(subName, month))) continue;
                 MonthBucket b = me.getValue();
                 BigDecimal mfDelta = b.credit.subtract(b.debit);
                 if (b.branchCount == 0 || (b.credit.signum() == 0 && b.debit.signum() == 0)) continue;
@@ -469,8 +479,6 @@ public class AccountsPayableIntegrityService {
 
     // ==================== 差分確認履歴の付与 (案 X+Y) ====================
 
-    private static final BigDecimal STALE_TOLERANCE = BigDecimal.valueOf(100);
-
     private void attachReviewToMfOnly(List<MfOnlyEntry> list,
             Map<ConsistencyReviewService.ReviewKey, ConsistencyReviewService.ReviewInfo> reviewMap) {
         for (MfOnlyEntry e : list) {
@@ -485,7 +493,7 @@ public class AccountsPayableIntegrityService {
                 e.setReviewNote(info.note());
                 BigDecimal currentMf = nz(e.getPeriodDelta());
                 BigDecimal diff = currentMf.subtract(nz(info.mfSnapshot())).abs();
-                e.setSnapshotStale(diff.compareTo(STALE_TOLERANCE) > 0);
+                e.setSnapshotStale(diff.compareTo(FinanceConstants.MATCH_TOLERANCE) > 0);
             } else {
                 e.setSnapshotStale(false);
             }
@@ -504,7 +512,7 @@ public class AccountsPayableIntegrityService {
                 e.setReviewedByName(info.reviewedByName());
                 e.setReviewNote(info.note());
                 BigDecimal diff = nz(e.getSelfDelta()).subtract(nz(info.selfSnapshot())).abs();
-                e.setSnapshotStale(diff.compareTo(STALE_TOLERANCE) > 0);
+                e.setSnapshotStale(diff.compareTo(FinanceConstants.MATCH_TOLERANCE) > 0);
             } else {
                 e.setSnapshotStale(false);
             }
@@ -524,8 +532,8 @@ public class AccountsPayableIntegrityService {
                 e.setReviewNote(info.note());
                 BigDecimal selfDiff = nz(e.getSelfDelta()).subtract(nz(info.selfSnapshot())).abs();
                 BigDecimal mfDiff = nz(e.getMfDelta()).subtract(nz(info.mfSnapshot())).abs();
-                e.setSnapshotStale(selfDiff.compareTo(STALE_TOLERANCE) > 0
-                                || mfDiff.compareTo(STALE_TOLERANCE) > 0);
+                e.setSnapshotStale(selfDiff.compareTo(FinanceConstants.MATCH_TOLERANCE) > 0
+                                || mfDiff.compareTo(FinanceConstants.MATCH_TOLERANCE) > 0);
             } else {
                 e.setSnapshotStale(false);
             }
@@ -533,14 +541,35 @@ public class AccountsPayableIntegrityService {
     }
 
     /**
-     * 軸 D (SupplierBalancesService) を呼び、toMonth 時点での supplier 単位累積 diff (self - mf) を map で返す。
-     * このマップは各 entry に supplierCumulativeDiff として併記され、UI に「累積差: ¥25」のように表示される。
+     * 軸 D ({@link SupplierBalancesService}) を呼び、toMonth 時点での supplier 単位累積 diff (self.closing - mfBalance) を
+     * map で返す。このマップは各 entry に supplierCumulativeDiff として併記され、UI に「累積差: ¥25」のように表示される。
      * 加えて diff == 0 の supplier は reconciledAtPeriodEnd=true 扱い (ノイズ抑制)。
+     * <p>
+     * <b>P1-02 (DD-BGH-01) 期首残注入方針:</b>
+     * {@link SupplierBalancesService#generate} は内部で {@link MfOpeningBalanceService#getEffectiveBalanceMap}
+     * (shopNo, {@code SELF_BACKFILL_START}=2025-06-20) を呼び self.opening / self.closing に加算する。
+     * したがって本メソッドが返す cumulative diff は <strong>累積残一覧 ({@code /finance/supplier-balances})
+     * と同じ値</strong>になる (整合性レポートと累積残一覧で同 supplier の累積差が一致することを保証)。
+     * <ul>
+     *   <li>self 側: {@code m_supplier_opening_balance.effectiveBalance} を期首残として注入</li>
+     *   <li>MF 側: journal #1 (期首残高仕訳) は {@link MfJournalFetcher#isPayableOpeningJournal} で
+     *       accumulation から除外 (SF-G01)。opening 二重計上を防止</li>
+     * </ul>
+     * 整合性レポート本体の per-month delta 比較 (selfDelta vs mfDelta) は期間内の差分のみを評価するため
+     * opening は不要だが、reconciledAtPeriodEnd 判定と UI 併記用途で本メソッドの累積 diff を使用する。
      * <p>
      * MF /journals は {@link MfJournalCacheService} 共有のため、既に integrity 側で取得済み期間と重複する部分はキャッシュヒット。
      */
     private Map<Integer, BigDecimal> buildSupplierCumulativeDiffMap(Integer shopNo, LocalDate toMonth, boolean refresh) {
         try {
+            // P1-02: 期首残ありの supplier 数を事前ログ出力 (注入経路の可視化)。
+            // 実際の self.closing への加算は SupplierBalancesService.generate() 内部で行われる
+            // (両サービスで openingBalanceService.getEffectiveBalanceMap を呼ぶため値は一致する)。
+            Map<Integer, BigDecimal> openingMap = openingBalanceService.getEffectiveBalanceMap(
+                    shopNo, MfPeriodConstants.SELF_BACKFILL_START);
+            log.info("[integrity] opening 注入確認: shopNo={} openingDate={} supplier 数={}",
+                    shopNo, MfPeriodConstants.SELF_BACKFILL_START, openingMap.size());
+
             SupplierBalancesResponse bal = supplierBalancesService.generate(shopNo, toMonth, refresh);
             Map<Integer, BigDecimal> map = new HashMap<>();
             for (SupplierBalanceRow r : bal.getRows()) {
@@ -549,9 +578,12 @@ public class AccountsPayableIntegrityService {
                 }
             }
             long reconciled = map.values().stream().filter(d -> d.signum() == 0).count();
-            log.info("[integrity] cumulativeDiff @ toMonth={} : {} supplier, うち diff=0 が {} 件",
+            log.info("[integrity] cumulativeDiff @ toMonth={} : {} supplier, うち diff=0 が {} 件 (累積残一覧と同値)",
                     toMonth, map.size(), reconciled);
             return map;
+        } catch (MfReAuthRequiredException | MfScopeInsufficientException e) {
+            // MF 認可系は上位 (FinanceExceptionHandler) で 401/403 に変換させるため握りつぶさない (SF-27)
+            throw e;
         } catch (Exception e) {
             log.warn("[integrity] 期末累積残判定スキップ (計算失敗): {}", e.getMessage());
             return Map.of();
@@ -564,4 +596,7 @@ public class AccountsPayableIntegrityService {
         int branchCount = 0;
         final List<Integer> journalNumbers = new ArrayList<>();
     }
+
+    /** processedSubNames の key (旧: "subName|month" 連結文字列を record 化)。 */
+    private record SubNameMonthKey(String subName, LocalDate month) {}
 }

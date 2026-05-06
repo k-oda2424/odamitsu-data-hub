@@ -12,14 +12,24 @@ import java.time.LocalDateTime;
 
 /**
  * 買掛仕入MF 補助行 Entity。
- * <p>振込明細 Excel を {@code applyVerification} した際、PAYABLE(買掛金) 以外の
- * EXPENSE / SUMMARY / DIRECT_PURCHASE 行を永続化する。検証済みCSV出力時に
- * {@code t_accounts_payable_summary}(PAYABLE) と結合して完全な MF 仕訳 CSV を
+ * <p>振込明細 Excel を {@code applyVerification} した際、PAYABLE(買掛金) 主行 <b>以外</b> の
+ * 全行を永続化する:
+ * <ul>
+ *   <li>EXPENSE / SUMMARY 主行</li>
+ *   <li>DIRECT_PURCHASE 主行</li>
+ *   <li>PAYABLE_FEE / PAYABLE_DISCOUNT / PAYABLE_EARLY / PAYABLE_OFFSET 副行 (C2 で追加)</li>
+ *   <li>DIRECT_PURCHASE_FEE / DISCOUNT / EARLY / OFFSET 副行 (C2 で追加)</li>
+ * </ul>
+ * 検証済みCSV出力 ({@code exportVerifiedCsv}, DB-only 経路) で
+ * {@code t_accounts_payable_summary}(PAYABLE 主行) と結合して完全な MF 仕訳 CSV を
  * Excel 再アップロードなしで再生成するための拠り所となる。
  *
  * <p>PK は {@code aux_row_id}（サロゲート）。論理的な一意性は
  * (shop_no, transaction_month, transfer_date) 単位で物理削除→再挿入で保持する。
- * 設計書: {@code claudedocs/design-payment-mf-aux-rows.md}
+ *
+ * <p>設計書: {@code claudedocs/design-payment-mf-aux-rows.md},
+ *           {@code claudedocs/design-payment-mf-import.md} §5.4 / §5.5.6
+ * <p>関連 migration: V016 (新規作成), V038 (rule_kind CHECK 拡張)
  */
 @Data
 @Builder
@@ -45,8 +55,15 @@ public class TPaymentMfAuxRow {
     @Column(name = "transfer_date", nullable = false)
     private LocalDate transferDate;
 
-    /** EXPENSE / SUMMARY / DIRECT_PURCHASE */
-    @Column(name = "rule_kind", nullable = false, length = 20)
+    /**
+     * 行種別。
+     * EXPENSE / SUMMARY / DIRECT_PURCHASE 主行、
+     * PAYABLE_FEE / PAYABLE_DISCOUNT / PAYABLE_EARLY / PAYABLE_OFFSET 副行 (C2 で追加)、
+     * DIRECT_PURCHASE_FEE / DIRECT_PURCHASE_DISCOUNT / DIRECT_PURCHASE_EARLY / DIRECT_PURCHASE_OFFSET 副行 (C2 で追加)。
+     * PAYABLE 主行は本テーブルに保存しない (t_accounts_payable_summary 由来のため重複排除)。
+     * V038 で chk_payment_mf_aux_rule_kind 制約拡張。
+     */
+    @Column(name = "rule_kind", nullable = false, length = 30)
     private String ruleKind;
 
     /** Excel 内の出現順。CSV 出力順序を保つため保存。 */

@@ -24,6 +24,7 @@ export interface EstimateResponse {
   partnerName: string | null
   destinationNo: number | null
   destinationName: string | null
+  destinationCode: string | null
   estimateDate: string | null
   priceChangeDate: string | null
   estimateStatus: string | null

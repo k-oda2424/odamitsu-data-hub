@@ -12,6 +12,9 @@ import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.util.DigestUtils;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * 仕入れファイル取込バッチProcessorクラス
  *
@@ -25,7 +28,12 @@ import org.springframework.util.DigestUtils;
 public class PurchaseFileProcessor implements ItemProcessor<PurchaseFile, ExtPurchaseFile> {
     @NonNull
     private MCompanyService mCompanyService;
-    private Integer companyNo;
+    /**
+     * shopNo → companyNo のキャッシュ。{@link jp.co.oda32.batch.purchase.ShopNoAwareItemReader}
+     * が shop_no=1 の CSV と shop_no=2 の CSV を同一 chunk に混在させ得るため、
+     * 最初に見た shop の companyNo を固定化するとダブル shop データで取り違えが起きる。
+     */
+    private final Map<Integer, Integer> companyNoByShop = new HashMap<>();
 
     /**
      * Process the provided item, returning a potentially modified or new item for continued
@@ -38,17 +46,20 @@ public class PurchaseFileProcessor implements ItemProcessor<PurchaseFile, ExtPur
      */
     @Override
     public ExtPurchaseFile process(PurchaseFile item) throws Exception {
-        if (this.companyNo == null) {
-            MCompany company = this.mCompanyService.getByShopNo(item.getShopNo());
+        Integer shopNo = item.getShopNo();
+        Integer companyNo = companyNoByShop.get(shopNo);
+        if (companyNo == null) {
+            MCompany company = this.mCompanyService.getByShopNo(shopNo);
             if (company == null) {
-                throw new Exception(String.format("ショップ番号に紐づく会社が見つかりません。ショップ番号:%s", item.getShopNo()));
+                throw new Exception(String.format("ショップ番号に紐づく会社が見つかりません。ショップ番号:%s", shopNo));
             }
-            this.companyNo = company.getCompanyNo();
+            companyNo = company.getCompanyNo();
+            companyNoByShop.put(shopNo, companyNo);
         }
         ExtPurchaseFile extPurchaseFile = new ExtPurchaseFile();
         BeanUtils.copyProperties(item, extPurchaseFile);
         extPurchaseFile.set伝票日付(item.get伝票日付Str());
-        extPurchaseFile.setCompanyNo(this.companyNo);
+        extPurchaseFile.setCompanyNo(companyNo);
 
         if (Constants.FIXED_PRODUCT_CODE.equals(item.get商品コード())) {
             // 商品コード99999999は手打ち商品なので商品名を16進数文字列でMD5値を取得する

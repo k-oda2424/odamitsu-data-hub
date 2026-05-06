@@ -67,7 +67,19 @@ public class CashBookConvertService {
     public CashBookPreviewResponse preview(MultipartFile file) throws IOException {
         validateFile(file);
 
-        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+        // SF-B11: XSSFWorkbook 構築時の異常 (壊れた xlsx 等) は 400 に翻訳。
+        // 旧実装では POI の RuntimeException がそのまま 500 になっていた。
+        // POI 5.x: NotOfficeXmlFileException extends IllegalArgumentException、
+        // OpenXML4JRuntimeException extends RuntimeException として throw されるため
+        // RuntimeException 系をまとめて受けて 400 に翻訳する (IOException は throws 経由で上位に伝播)。
+        Workbook workbook;
+        try {
+            workbook = new XSSFWorkbook(file.getInputStream());
+        } catch (IllegalArgumentException | org.apache.poi.openxml4j.exceptions.OpenXML4JRuntimeException
+                | java.util.zip.ZipException e) {
+            throw new IllegalArgumentException("xlsxファイルとして読み取れません: " + e.getMessage(), e);
+        }
+        try (workbook) {
             if (workbook.getNumberOfSheets() > MAX_SHEETS) {
                 throw new IllegalArgumentException("シート数上限を超過しています: " + workbook.getNumberOfSheets());
             }
@@ -99,6 +111,7 @@ public class CashBookConvertService {
 
     private String extractPeriodLabel(Workbook workbook) {
         // Sheet2のR4に期間ラベルがある（例: "2026   1/21 ～  2/20"）
+        // SF-B06: 全角チルダ "～" (U+FF5E) と波ダッシュ "〜" (U+301C) の両方を許容。
         for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
             String name = workbook.getSheetName(i);
             if ("Sheet2".equals(name) || (name != null && name.contains("Sheet"))) {
@@ -108,7 +121,7 @@ public class CashBookConvertService {
                     if (row == null) continue;
                     for (int c = 0; c < 5; c++) {
                         String v = readStringCell(row.getCell(c));
-                        if (v != null && v.contains("～")) {
+                        if (v != null && (v.contains("～") || v.contains("〜"))) {
                             return v.strip().replaceAll("\\s+", " ");
                         }
                     }
@@ -124,13 +137,16 @@ public class CashBookConvertService {
     }
 
     /**
-     * エラー0件ならCSVバイト列を返す。エラーが残存する場合は IllegalStateException。
+     * エラー0件ならCSVバイト列を返す。エラーが残存する場合は IllegalArgumentException (ユーザ起因の入力不備、
+     * client にメッセージそのまま返却したい actionable error)。
+     * MfTaxResolver 等の内部設定異常 ({@link IllegalStateException}) は
+     * {@link FinanceExceptionHandler#handleIllegalState} で 422 + 汎用メッセージに翻訳される。
      */
     public byte[] convert(String uploadId) {
         CachedUpload cached = getCached(uploadId);
         CashBookPreviewResponse preview = buildPreview(uploadId, cached);
         if (preview.getErrorCount() > 0) {
-            throw new IllegalStateException("エラーが残存しています。マッピングを追加してください: " + preview.getErrorCount() + "件");
+            throw new IllegalArgumentException("エラーが残存しています。マッピングを追加してください: " + preview.getErrorCount() + "件");
         }
         byte[] csvBytes = toCsvBytes(preview.getRows());
 
@@ -141,9 +157,13 @@ public class CashBookConvertService {
 
     private void saveHistory(CachedUpload cached, CashBookPreviewResponse preview, String csvContent) {
         try {
+            // SF-B06: period が抽出できなかった場合は履歴を保存しない (ファイル名フォールバックを撤去)。
+            // 旧実装は ファイル名 を period_label にフォールバックしていたため、UNIQUE 制約衝突や
+            // 「期間ラベル別の最新履歴」表示が不正確になっていた。
             String period = cached.getPeriodLabel();
             if (period == null || period.isEmpty()) {
-                period = cached.getFileName();
+                log.warn("現金出納帳取込履歴を保存しません (period 未抽出): file={}", cached.getFileName());
+                return;
             }
 
             int totalIncome = cached.getRows().stream().mapToInt(ParsedRow::getIncome).sum();
@@ -172,8 +192,14 @@ public class CashBookConvertService {
 
     @Scheduled(fixedDelay = 5 * 60 * 1000)
     void cleanExpired() {
-        long now = System.currentTimeMillis();
-        cache.entrySet().removeIf(e -> e.getValue().getExpiresAt() < now);
+        // SF-B12 / MJ-B02: enforceCacheLimit と同一ロックで保護し add/evict の TOCTOU を完全に回避。
+        // 早期 return もロック取得後に行い、ロック外で isEmpty を観測した瞬間に他スレッドが put する
+        // 競合を排除する (実害は cache 1 個分の clean delay だが、コメントと実装意図を整合させる)。
+        synchronized (this) {
+            if (cache.isEmpty()) return;
+            long now = System.currentTimeMillis();
+            cache.entrySet().removeIf(e -> e.getValue().getExpiresAt() < now);
+        }
     }
 
     // ---- Internal ----
@@ -234,11 +260,9 @@ public class CashBookConvertService {
         if (exactKinyu != null) return exactKinyu;
         if (partialKinyu != null) return partialKinyu;
         if (partialCashBook != null) return partialCashBook;
-        // フォールバック: 先頭シート（MFを除く）
-        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
-            String name = workbook.getSheetName(i);
-            if (name != null && !name.contains("MF")) return workbook.getSheetAt(i);
-        }
+        // SF-B07: 先頭シートへのフォールバックを撤去 (silent 誤データ取込防止)。
+        // 期待シート名 (記入 / 現金出納帳) が見つからない場合は null を返し、
+        // 呼び出し側 (preview) で IllegalArgumentException("現金出納帳シートが見つかりません") に倒す。
         return null;
     }
 
@@ -517,13 +541,14 @@ public class CashBookConvertService {
                     if (kw == null || kw.isEmpty()) return true;
                     return p.getDescD() != null && p.getDescD().contains(kw);
                 })
-                // 優先度計算: priority が小さいほど先。同priorityならキーワード一致ルールを優先
-                // (priority*2 の空間に kwBonus 0/1 を差し込む → priority=5+kw(0)=10 < priority=5+nokw(1)=11 < priority=10)
-                .min(Comparator.comparingInt(r -> {
-                    String kw = r.getDescriptionDKeyword();
-                    int kwBonus = (kw == null || kw.isEmpty()) ? 1 : 0;
-                    return r.getPriority() * 2 + kwBonus;
-                }))
+                // SF-B08: priority * 2 + kwBonus の数値合成を Comparator チェーンに分解。
+                // 1) priority 小さい順、2) 同 priority ならキーワード一致ルールを先 (kwBonus 0 < 1)
+                // オーバーフロー余地を排除し、可読性を確保。
+                .min(Comparator.comparingInt(MMfJournalRule::getPriority)
+                        .thenComparingInt(r -> {
+                            String kw = r.getDescriptionDKeyword();
+                            return (kw == null || kw.isEmpty()) ? 1 : 0;
+                        }))
                 .orElse(null);
     }
 

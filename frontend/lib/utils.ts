@@ -31,3 +31,24 @@ export function formatCurrency(num: number): string {
 export function normalizeForSearch(str: string): string {
   return str.normalize('NFKC')
 }
+
+/**
+ * 金額入力を正規化して数値化する。
+ * - 前後の空白を除去
+ * - 半角/全角カンマを除去
+ * - 全角数字 (０-９) と全角マイナス (－/−) を半角化
+ * - 空文字は 0 を返す
+ * - パース不能 (NaN) は null を返す (呼び出し側で `null` チェックして UX 制御)
+ */
+export function parseAmount(input: string | number | null | undefined): number | null {
+  if (input === null || input === undefined) return null
+  if (typeof input === 'number') return Number.isFinite(input) ? input : null
+  const trimmed = input.trim()
+  if (trimmed === '') return 0
+  const halfWidth = trimmed
+    .replace(/[,，]/g, '')
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[－−ー]/g, '-')
+  const n = Number(halfWidth)
+  return Number.isFinite(n) ? n : null
+}

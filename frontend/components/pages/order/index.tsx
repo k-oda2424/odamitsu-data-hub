@@ -123,10 +123,9 @@ interface OrderSearchState {
   slipDateTo: string
   selectedShopNo: string
   searchParams: Record<string, string> | null
-  page: number
 }
 
-const PAGE_SIZE = 50
+const MAX_FETCH_SIZE = 5000
 
 export function OrderListPage() {
   const { user } = useAuth()
@@ -144,7 +143,6 @@ export function OrderListPage() {
     slipDateTo: '',
     selectedShopNo: isAdmin ? '' : String(user?.shopNo ?? ''),
     searchParams: null,
-    page: 0,
   }
 
   const [state, setState] = useSearchParamsStorage('order-list-search', defaultState)
@@ -173,7 +171,7 @@ export function OrderListPage() {
   const partnersQuery = usePartners(effectiveShopNo)
 
   const listQuery = useQuery({
-    queryKey: ['order-details', effectiveShopNo, searchParams, state.page],
+    queryKey: ['order-details', effectiveShopNo, searchParams],
     queryFn: () => {
       const params = new URLSearchParams()
       params.append('shopNo', effectiveShopNo)
@@ -186,8 +184,8 @@ export function OrderListPage() {
       if (searchParams?.orderDateTimeTo) params.append('orderDateTimeTo', searchParams.orderDateTimeTo + ':00')
       if (searchParams?.slipDateFrom) params.append('slipDateFrom', searchParams.slipDateFrom)
       if (searchParams?.slipDateTo) params.append('slipDateTo', searchParams.slipDateTo)
-      params.append('page', String(state.page))
-      params.append('size', String(PAGE_SIZE))
+      params.append('page', '0')
+      params.append('size', String(MAX_FETCH_SIZE))
       return api.get<Paginated<OrderDetailResponse>>(`/orders/details?${params.toString()}`)
     },
     enabled: searchParams !== null && !!effectiveShopNo,
@@ -196,7 +194,6 @@ export function OrderListPage() {
   const handleSearch = () => {
     setState({
       ...state,
-      page: 0,
       searchParams: {
         partnerNo,
         slipNo,
@@ -336,19 +333,17 @@ export function OrderListPage() {
       ) : listQuery.isError ? (
         <ErrorMessage onRetry={() => listQuery.refetch()} />
       ) : (() => {
-        const page = listQuery.data ?? emptyPage<OrderDetailResponse>(PAGE_SIZE)
+        const page = listQuery.data ?? emptyPage<OrderDetailResponse>(MAX_FETCH_SIZE)
+        const isOverflow = page.totalElements > page.content.length
         return (
-          <DataTable
-            data={page.content}
-            columns={columns}
-            serverPagination={{
-              page: page.number,
-              pageSize: page.size,
-              totalElements: page.totalElements,
-              totalPages: page.totalPages,
-              onPageChange: (p) => setState({ ...state, page: p }),
-            }}
-          />
+          <div className="space-y-3">
+            {isOverflow && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                該当 {page.totalElements.toLocaleString()} 件のうち {page.content.length.toLocaleString()} 件のみ表示しています。期間や条件を絞ってください。
+              </div>
+            )}
+            <DataTable data={page.content} columns={columns} />
+          </div>
         )
       })()}
     </div>

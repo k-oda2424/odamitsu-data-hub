@@ -1,5 +1,6 @@
 package jp.co.oda32.domain.service.finance;
 
+import jp.co.oda32.audit.AuditLog;
 import jp.co.oda32.domain.model.finance.TInvoice;
 import jp.co.oda32.domain.repository.finance.TInvoiceRepository;
 import jp.co.oda32.dto.finance.InvoiceImportResult;
@@ -17,17 +18,35 @@ import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
+/**
+ * SMILE 請求実績 Excel 取込サービス。
+ *
+ * <ul>
+ *   <li>SF-07: Excel 内同一 partnerCode の重複を後勝ちで dedup (warn ログ + errors 集約)</li>
+ *   <li>SF-08: DB 既存重複 (UNIQUE 制約違反含む) も WARN ログで可視化</li>
+ *   <li>SF-12: 既存 invoice 取得を Repository derived query 化 (無名 Specification 撤去)</li>
+ *   <li>SF-13: パーサー異常を {@link InvoiceImportResult#getErrors()} に行単位集約</li>
+ *   <li>SF-14: 数値 → 文字列変換は {@link #formatNumeric(double)} に共通化 (BigDecimal#toPlainString)</li>
+ *   <li>SF-15: {@code getCellBigDecimal} の文字列セル変換失敗時は silent zero ではなく null + errors 記録</li>
+ *   <li>SF-15: {@code closing_date} の SF-01 CHECK 制約と同じ正規表現で fail-fast 検証</li>
+ *   <li>SF-18: クラスレベル {@code @Transactional(readOnly=true)} + 書込みは個別 override</li>
+ * </ul>
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
+@Transactional(readOnly = true)
 public class InvoiceImportService {
+
+    /** SF-15: SF-01 V031 の CHECK 制約と同じパターン (closing_date format)。 */
+    static final Pattern CLOSING_DATE_OUTPUT_FORMAT =
+            Pattern.compile("^\\d{4}/\\d{2}/(末|\\d{2})$");
 
     private final TInvoiceRepository tInvoiceRepository;
 
@@ -38,6 +57,9 @@ public class InvoiceImportService {
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
     @Transactional
+    @AuditLog(table = "t_invoice", operation = "import",
+            pkExpression = "{'fileName': #a0?.originalFilename, 'shopNo': #a1}",
+            captureArgsAsAfter = false, captureReturnAsAfter = true)
     public InvoiceImportResult importFromExcel(MultipartFile file, Integer shopNoParam) throws IOException {
         String originalFilename = file.getOriginalFilename();
         if (originalFilename == null || originalFilename.isBlank()) {
@@ -66,11 +88,19 @@ public class InvoiceImportService {
                 throw new IllegalArgumentException("シートが見つかりません");
             }
 
+            // SF-13: 行単位エラーを集約
+            List<String> errors = new ArrayList<>();
+
             // Row2: 締日を導出
             String closingDate = parseClosingDate(sheet.getRow(1));
+            // SF-15: SF-01 CHECK 制約と整合する正規表現で fail-fast 検証
+            if (!CLOSING_DATE_OUTPUT_FORMAT.matcher(closingDate).matches()) {
+                throw new IllegalArgumentException(
+                        "締日のフォーマットが不正です (期待: YYYY/MM/末 or YYYY/MM/DD): '" + closingDate + "'");
+            }
 
-            // Phase 1: 全行パース → エンティティリストに蓄積
-            List<TInvoice> parsedInvoices = new ArrayList<>();
+            // Phase 1: 全行パース → SF-07 dedup 用に LinkedHashMap で蓄積
+            LinkedHashMap<String, TInvoice> parsedByPartnerCode = new LinkedHashMap<>();
             int skippedRows = 0;
             int totalRows = 0;
 
@@ -79,6 +109,7 @@ public class InvoiceImportService {
                 if (row == null) {
                     continue;
                 }
+                int rowNum1 = i + 1; // 1-origin row number for error messages
 
                 // 総合計行チェック（E列 = index 4）
                 String colE = getCellStringValue(row.getCell(4));
@@ -98,12 +129,21 @@ public class InvoiceImportService {
 
                 totalRows++;
 
-                String partnerCode = convertPartnerCode(rawCode);
+                String partnerCode;
+                try {
+                    partnerCode = convertPartnerCode(rawCode);
+                } catch (IllegalArgumentException ex) {
+                    // SF-13: パース不能行は errors に集約して continue
+                    skippedRows++;
+                    errors.add(String.format("row=%d: 得意先コード変換失敗 (value='%s')", rowNum1, rawCode));
+                    log.warn("得意先コード変換失敗: row={}, value='{}'", rowNum1, rawCode);
+                    continue;
+                }
 
                 // 松山の999999はスキップ
                 if (isMatsuyama && "999999".equals(partnerCode)) {
                     skippedRows++;
-                    log.debug("松山999999スキップ: row={}", i + 1);
+                    log.debug("松山999999スキップ: row={}", rowNum1);
                     continue;
                 }
 
@@ -111,39 +151,66 @@ public class InvoiceImportService {
                 String partnerName = getCellStringValue(row.getCell(1));
                 if ((partnerName == null || partnerName.isBlank()) && !"999999".equals(partnerCode)) {
                     skippedRows++;
-                    log.debug("得意先名なしスキップ: row={}, code={}", i + 1, partnerCode);
+                    log.debug("得意先名なしスキップ: row={}, code={}", rowNum1, partnerCode);
                     continue;
                 }
                 if (partnerName == null || partnerName.isBlank()) {
                     partnerName = "上様";
                 }
 
+                // SF-15: 金額セルの変換失敗は errors に集約
+                BigDecimal previousBalance = getCellBigDecimalOrError(row.getCell(5), rowNum1, "F", errors);
+                BigDecimal totalPayment = getCellBigDecimalOrError(row.getCell(6), rowNum1, "G", errors);
+                BigDecimal carryOverBalance = getCellBigDecimalOrError(row.getCell(8), rowNum1, "I", errors);
+                BigDecimal netSales = getCellBigDecimalOrError(row.getCell(9), rowNum1, "J", errors);
+                BigDecimal taxPrice = getCellBigDecimalOrError(row.getCell(10), rowNum1, "K", errors);
+                BigDecimal netSalesIncludingTax = getCellBigDecimalOrError(row.getCell(11), rowNum1, "L", errors);
+                BigDecimal currentBillingAmount = getCellBigDecimalOrError(row.getCell(12), rowNum1, "M", errors);
+
                 TInvoice invoice = TInvoice.builder()
                         .partnerCode(partnerCode)
                         .partnerName(partnerName)
                         .closingDate(closingDate)
-                        .previousBalance(getCellBigDecimal(row.getCell(5)))
-                        .totalPayment(getCellBigDecimal(row.getCell(6)))
-                        .carryOverBalance(getCellBigDecimal(row.getCell(8)))
-                        .netSales(getCellBigDecimal(row.getCell(9)))
-                        .taxPrice(getCellBigDecimal(row.getCell(10)))
-                        .netSalesIncludingTax(getCellBigDecimal(row.getCell(11)))
-                        .currentBillingAmount(getCellBigDecimal(row.getCell(12)))
+                        .previousBalance(previousBalance)
+                        .totalPayment(totalPayment)
+                        .carryOverBalance(carryOverBalance)
+                        .netSales(netSales)
+                        .taxPrice(taxPrice)
+                        .netSalesIncludingTax(netSalesIncludingTax)
+                        .currentBillingAmount(currentBillingAmount)
                         .shopNo(shopNo)
                         .build();
 
-                parsedInvoices.add(invoice);
+                // SF-07: Excel 内同一 partnerCode の重複を後勝ちで dedup + warn
+                TInvoice prev = parsedByPartnerCode.put(partnerCode, invoice);
+                if (prev != null) {
+                    skippedRows++;
+                    String msg = String.format(
+                            "row=%d: Excel内で partnerCode=%s が重複しています (後勝ちで採用)",
+                            rowNum1, partnerCode);
+                    errors.add(msg);
+                    log.warn("Excel 内 partnerCode 重複: row={}, partnerCode={}, prevName={}, newName={}",
+                            rowNum1, partnerCode, prev.getPartnerName(), partnerName);
+                }
             }
 
-            // Phase 2: 既存レコードを一括取得してUPSERT
-            List<TInvoice> existingInvoices = tInvoiceRepository
-                    .findAll((root, query, cb) -> cb.and(
-                            cb.equal(root.get("shopNo"), shopNo),
-                            cb.equal(root.get("closingDate"), closingDate)
-                    ));
+            List<TInvoice> parsedInvoices = new ArrayList<>(parsedByPartnerCode.values());
 
-            Map<String, TInvoice> existingMap = existingInvoices.stream()
-                    .collect(Collectors.toMap(TInvoice::getPartnerCode, Function.identity(), (a, b) -> a));
+            // Phase 2: 既存レコードを一括取得してUPSERT
+            // SF-12: Repository derived query で無名 Specification を撤去
+            List<TInvoice> existingInvoices =
+                    tInvoiceRepository.findByShopNoAndClosingDate(shopNo, closingDate);
+
+            // SF-08: DB 既存重複 (本来 UNIQUE 制約で防がれるが念のため) を WARN
+            Map<String, TInvoice> existingMap = new java.util.HashMap<>();
+            for (TInvoice ex : existingInvoices) {
+                TInvoice clash = existingMap.put(ex.getPartnerCode(), ex);
+                if (clash != null) {
+                    log.warn("DB に partnerCode={} の重複あり (closingDate={}, shopNo={}): keep id={}, drop id={}",
+                            ex.getPartnerCode(), closingDate, shopNo,
+                            clash.getInvoiceId(), ex.getInvoiceId());
+                }
+            }
 
             int insertedRows = 0;
             int updatedRows = 0;
@@ -172,8 +239,8 @@ public class InvoiceImportService {
             // 一括永続化
             tInvoiceRepository.saveAll(toSave);
 
-            log.info("請求実績インポート完了: closingDate={}, shopNo={}, total={}, inserted={}, updated={}, skipped={}",
-                    closingDate, shopNo, totalRows, insertedRows, updatedRows, skippedRows);
+            log.info("請求実績インポート完了: closingDate={}, shopNo={}, total={}, inserted={}, updated={}, skipped={}, errors={}",
+                    closingDate, shopNo, totalRows, insertedRows, updatedRows, skippedRows, errors.size());
 
             return InvoiceImportResult.builder()
                     .closingDate(closingDate)
@@ -182,7 +249,7 @@ public class InvoiceImportService {
                     .insertedRows(insertedRows)
                     .updatedRows(updatedRows)
                     .skippedRows(skippedRows)
-                    .errors(List.of())
+                    .errors(errors)
                     .build();
         }
     }
@@ -249,23 +316,13 @@ public class InvoiceImportService {
         if (cell == null) return null;
         return switch (cell.getCellType()) {
             case STRING -> cell.getStringCellValue();
-            case NUMERIC -> {
-                double val = cell.getNumericCellValue();
-                if (val == Math.floor(val) && !Double.isInfinite(val)) {
-                    yield String.valueOf((long) val);
-                }
-                yield String.valueOf(val);
-            }
+            case NUMERIC -> formatNumeric(cell.getNumericCellValue());
             case FORMULA -> {
                 try {
                     yield cell.getStringCellValue();
                 } catch (IllegalStateException e) {
                     try {
-                        double val = cell.getNumericCellValue();
-                        if (val == Math.floor(val) && !Double.isInfinite(val)) {
-                            yield String.valueOf((long) val);
-                        }
-                        yield String.valueOf(val);
+                        yield formatNumeric(cell.getNumericCellValue());
                     } catch (Exception e2) {
                         yield null;
                     }
@@ -275,29 +332,69 @@ public class InvoiceImportService {
         };
     }
 
+    /**
+     * SF-14: 数値 (double) → 文字列の共通ヘルパ。
+     * - 整数値: 後ろ桁無し ("123")
+     * - 小数値: BigDecimal#toPlainString で "1.23" ("1.0E2" 表記回避)
+     */
+    static String formatNumeric(double val) {
+        if (Double.isNaN(val) || Double.isInfinite(val)) {
+            return null;
+        }
+        if (val == Math.floor(val)) {
+            return String.valueOf((long) val);
+        }
+        return BigDecimal.valueOf(val).toPlainString();
+    }
+
+    /**
+     * SF-15: 文字列セルが数値変換失敗時、silent zero ではなく null を返す。
+     * 数値変換失敗時は呼び出し側でログ + errors 記録すること。
+     */
     private BigDecimal getCellBigDecimal(Cell cell) {
         if (cell == null) return BigDecimal.ZERO;
         return switch (cell.getCellType()) {
-            case NUMERIC -> {
-                double val = cell.getNumericCellValue();
-                yield BigDecimal.valueOf(val).setScale(0, RoundingMode.HALF_UP);
-            }
+            case NUMERIC -> BigDecimal.valueOf(cell.getNumericCellValue()).setScale(0, RoundingMode.HALF_UP);
             case STRING -> {
-                try {
-                    yield new BigDecimal(cell.getStringCellValue().trim()).setScale(0, RoundingMode.HALF_UP);
-                } catch (NumberFormatException e) {
+                String raw = cell.getStringCellValue();
+                if (raw == null || raw.trim().isEmpty()) {
                     yield BigDecimal.ZERO;
+                }
+                try {
+                    yield new BigDecimal(raw.trim()).setScale(0, RoundingMode.HALF_UP);
+                } catch (NumberFormatException e) {
+                    // SF-15: silent zero フォールバック撤去 → null で異常を伝播
+                    yield null;
                 }
             }
             case FORMULA -> {
                 try {
-                    double val = cell.getNumericCellValue();
-                    yield BigDecimal.valueOf(val).setScale(0, RoundingMode.HALF_UP);
+                    yield BigDecimal.valueOf(cell.getNumericCellValue()).setScale(0, RoundingMode.HALF_UP);
                 } catch (Exception e) {
-                    yield BigDecimal.ZERO;
+                    yield null;
                 }
             }
             default -> BigDecimal.ZERO;
         };
+    }
+
+    /**
+     * SF-15: {@link #getCellBigDecimal(Cell)} のラッパ。
+     * null (= 数値変換失敗) なら errors に記録してから {@link BigDecimal#ZERO} を返す
+     * (Entity の column が NULL 不可のケースに備えて 0 補正)。
+     */
+    private BigDecimal getCellBigDecimalOrError(
+            Cell cell, int rowNum, String colLabel, List<String> errors) {
+        BigDecimal v = getCellBigDecimal(cell);
+        if (v == null) {
+            String raw = getCellStringValue(cell);
+            String msg = String.format(
+                    "row=%d, col=%s: 金額として解釈できません (value='%s') → 0 円扱い",
+                    rowNum, colLabel, raw);
+            errors.add(msg);
+            log.warn(msg);
+            return BigDecimal.ZERO;
+        }
+        return v;
     }
 }

@@ -1,8 +1,12 @@
 import { test, expect, type Page } from '@playwright/test'
 import { loginAndGoto } from './helpers/auth'
 import { mockAllApis } from './helpers/mock-api'
+// NOTE: backend SF-H06 で AccountingStatusResponse record が新設されたら
+// `import type { AccountingStatusResponse } from '@/types/finance'` に切り替える。
+// 当面は components 側で export している型を参照して shape の同期を保つ。
+import type { AccountingStatus } from '@/components/pages/finance/accounting-workflow'
 
-const MOCK_STATUS = {
+const MOCK_STATUS: AccountingStatus = {
   cashbookHistory: [
     {
       periodLabel: '2026-03',

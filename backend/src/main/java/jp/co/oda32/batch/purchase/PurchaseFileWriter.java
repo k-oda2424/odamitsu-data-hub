@@ -37,10 +37,11 @@ public class PurchaseFileWriter implements ItemWriter<ExtPurchaseFile> {
     @Override
     public void write(Chunk<? extends ExtPurchaseFile> items) {
         for (ExtPurchaseFile item : items) {
-            log.info(String.format("shop_no:%d 伝票日付:%s,伝票番号:%s,明細番号:%s,仕入先：%s,商品名：%s", item.getShopNo(), item.get伝票日付(), item.get伝票番号(), item.get行(), item.get仕入先名略称(), item.get商品名()));
+            log.debug("shop_no:{} 伝票日付:{} 伝票番号:{} 明細番号:{} 仕入先:{} 商品名:{}", item.getShopNo(), item.get伝票日付(), item.get伝票番号(), item.get行(), item.get仕入先名略称(), item.get商品名());
             WSmilePurchaseOutputFile wSmilePurchaseOutputFile = WSmilePurchaseOutputFile.convertSmilePurchaseFile(item);
             wSmilePurchaseOutputFileService.save(wSmilePurchaseOutputFile);
         }
+        log.info("w_smile_purchase_output_file に {} 件を書き込みました", items.size());
     }
 
 }

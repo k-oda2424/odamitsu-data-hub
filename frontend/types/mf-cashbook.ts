@@ -46,21 +46,38 @@ export interface MfClientMappingRequest {
   mfClientName: string
 }
 
+export const TAX_RESOLVERS = [
+  'OUTSIDE',
+  'OUTSIDE_PURCHASE_FULL',
+  'OUTSIDE_PURCHASE_SHORT',
+  'SALES_10',
+  'PURCHASE_10',
+  'PURCHASE_10_TRAVEL',
+  'SALES_AUTO',
+  'PURCHASE_AUTO',
+  'PURCHASE_AUTO_WIDE',
+] as const
+
+export type TaxResolver = (typeof TAX_RESOLVERS)[number]
+
+export const AMOUNT_SOURCES = ['INCOME', 'PAYMENT'] as const
+export type AmountSource = (typeof AMOUNT_SOURCES)[number]
+
 export interface MfJournalRule {
   id: number
   descriptionC: string
   descriptionDKeyword: string | null
   priority: number
-  amountSource: 'INCOME' | 'PAYMENT'
+  amountSource: AmountSource
   debitAccount: string
   debitSubAccount: string
   debitDepartment: string
-  debitTaxResolver: string
+  debitTaxResolver: TaxResolver
   creditAccount: string
   creditSubAccount: string
   creditSubAccountTemplate: string
   creditDepartment: string
-  creditTaxResolver: string
+  creditTaxResolver: TaxResolver
   summaryTemplate: string
   requiresClientMapping: boolean
 }
@@ -74,28 +91,16 @@ export interface MfJournalRuleRequest {
   descriptionC: string
   descriptionDKeyword: string
   priority: number
-  amountSource: 'INCOME' | 'PAYMENT'
+  amountSource: AmountSource
   debitAccount: string
   debitSubAccount: string
   debitDepartment: string
-  debitTaxResolver: string
+  debitTaxResolver: TaxResolver
   creditAccount: string
   creditSubAccount: string
   creditSubAccountTemplate: string
   creditDepartment: string
-  creditTaxResolver: string
+  creditTaxResolver: TaxResolver
   summaryTemplate: string
   requiresClientMapping: boolean
 }
-
-export const TAX_RESOLVERS = [
-  'OUTSIDE',
-  'OUTSIDE_PURCHASE_FULL',
-  'OUTSIDE_PURCHASE_SHORT',
-  'SALES_10',
-  'PURCHASE_10',
-  'PURCHASE_10_TRAVEL',
-  'SALES_AUTO',
-  'PURCHASE_AUTO',
-  'PURCHASE_AUTO_WIDE',
-] as const

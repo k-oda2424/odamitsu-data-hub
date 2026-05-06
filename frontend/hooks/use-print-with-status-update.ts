@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import { api } from '@/lib/api-client'
 import { getEstimateStatusLabel, getNotifiedStatus } from '@/types/estimate'
@@ -26,6 +27,9 @@ export function usePrintWithStatusUpdate(
   const execute = useCallback(async () => {
     const status = currentStatus ?? null
     const notified = getNotifiedStatus(status)
+    // window.print() blocks until the preview closes. flushSync forces the
+    // confirm dialog to unmount first so it isn't captured in the preview.
+    flushSync(() => setPendingNotified(null))
     window.print()
     if (notified !== null && notified !== status) {
       try {

@@ -3,6 +3,7 @@ package jp.co.oda32.domain.service.finance;
 import jp.co.oda32.batch.finance.MFJournalCsv;
 import jp.co.oda32.domain.model.finance.MfAccountMaster;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
+import jp.co.oda32.exception.FinanceInternalException;
 import jp.co.oda32.util.BigDecimalUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -190,7 +191,8 @@ public class PurchaseJournalCsvService {
 
     private void validateIntegerAmount(BigDecimal amount) {
         if (amount != null && amount.stripTrailingZeros().scale() > 0) {
-            throw new IllegalStateException("金額に小数点以下が含まれています: " + amount);
+            // T5: 集計結果の不整合 (内部状態異常)。
+            throw new FinanceInternalException("金額に小数点以下が含まれています: " + amount);
         }
     }
 

@@ -93,12 +93,20 @@ export default function MfClientMappingsPage() {
       <PageHeader
         title="MF得意先マッピング"
         actions={
-          <Button onClick={openCreate}>
-            <Plus className="mr-1 h-4 w-4" />
-            新規追加
-          </Button>
+          isAdmin && (
+            <Button onClick={openCreate}>
+              <Plus className="mr-1 h-4 w-4" />
+              新規追加
+            </Button>
+          )
         }
       />
+
+      {!isAdmin && (
+        <div className="rounded border bg-amber-50 p-3 text-sm text-amber-800">
+          編集・追加・削除は管理者（shop_no=0）のみ可能です
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         <Input
@@ -132,9 +140,11 @@ export default function MfClientMappingsPage() {
                 <td className="p-2">{m.mfClientName}</td>
                 <td className="p-2">
                   <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => openEdit(m)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
+                    {isAdmin && (
+                      <Button size="sm" variant="ghost" onClick={() => openEdit(m)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     {isAdmin && (
                       <Button
                         size="sm"

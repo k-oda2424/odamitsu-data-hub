@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api-client'
+import { handleApiError } from '@/lib/api-error-handler'
 import { useAuth } from '@/lib/auth'
 import { useShops, usePaymentSuppliers } from '@/hooks/use-master-data'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
@@ -28,6 +29,7 @@ import { PaymentMfAuxRowsTable } from './PaymentMfAuxRowsTable'
 import { VerifyDialog } from './VerifyDialog'
 import { VerifiedCsvExportDialog } from './VerifiedCsvExportDialog'
 import { PurchaseJournalCsvExportDialog } from './PurchaseJournalCsvExportDialog'
+import { AmountSourceTooltip } from '@/components/common/AmountSourceTooltip'
 import {
   type AccountsPayable,
   type AccountsPayableSummary,
@@ -105,7 +107,13 @@ function BatchButton({
 }) {
   return (
     <div className="flex items-center gap-1">
-      <Button variant="outline" size="sm" onClick={onClick} disabled={running}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onClick}
+        disabled={running}
+        data-testid={`batch-button-${job}`}
+      >
         {running ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : icon}
         {running ? '実行中...' : label}
       </Button>
@@ -247,7 +255,7 @@ export function AccountsPayablePage() {
       setDialogRow(null)
       invalidate()
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e, { fallbackMessage: '検証結果の更新に失敗しました' }),
   })
 
   const releaseManualMutation = useMutation({
@@ -260,7 +268,7 @@ export function AccountsPayablePage() {
       setDialogRow(null)
       invalidate()
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e, { fallbackMessage: '手動確定の解除に失敗しました' }),
   })
 
   const mfExportMutation = useMutation({
@@ -272,7 +280,7 @@ export function AccountsPayablePage() {
       toast.success('MF出力可否を更新しました')
       invalidate()
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e, { fallbackMessage: 'MF出力可否の更新に失敗しました' }),
   })
 
   const [pollingJobs, setPollingJobs] = useState<Set<BatchJobName>>(new Set())
@@ -350,9 +358,9 @@ export function AccountsPayablePage() {
       })
       if (e instanceof ApiError && e.status === 429) {
         toast.error('他のバッチが実行中です。しばらく待ってから再実行してください')
-      } else {
-        toast.error(e.message)
+        return
       }
+      handleApiError(e, { fallbackMessage: 'バッチ起動に失敗しました' })
     },
   })
 
@@ -363,7 +371,7 @@ export function AccountsPayablePage() {
   const balanceColumns: Column<AccountsPayable>[] = [
     {
       key: 'openingBalanceTaxIncluded',
-      header: '前月繰越',
+      header: <>前月繰越<AmountSourceTooltip source="OPENING_BALANCE" /></>,
       render: (r) => {
         if (!hasBalance(r)) return <span className="text-muted-foreground">-</span>
         const v = r.openingBalanceTaxIncluded
@@ -373,7 +381,7 @@ export function AccountsPayablePage() {
     },
     {
       key: 'paymentSettledTaxIncluded',
-      header: '当月支払',
+      header: <>当月支払<AmountSourceTooltip source="VERIFIED_AMOUNT" /></>,
       render: (r) => {
         if (!hasBalance(r)) return <span className="text-muted-foreground">-</span>
         const v = r.paymentSettledTaxIncluded
@@ -390,7 +398,7 @@ export function AccountsPayablePage() {
     },
     {
       key: 'closingBalanceTaxIncluded',
-      header: '累積残',
+      header: <>累積残<AmountSourceTooltip source="CLOSING_CALC" /></>,
       render: (r) => {
         if (!hasBalance(r)) return <span className="text-muted-foreground">-</span>
         const v = r.closingBalanceTaxIncluded
@@ -476,12 +484,12 @@ export function AccountsPayablePage() {
     },
     {
       key: 'taxIncludedAmountChange',
-      header: '買掛金額(税込)',
+      header: <>買掛金額(税込)<AmountSourceTooltip source="PAYABLE_SUMMARY" /></>,
       render: (r) => <span className="tabular-nums">{formatCurrency(r.taxIncludedAmountChange ?? 0)}</span>,
     },
     {
       key: 'verifiedAmount',
-      header: '振込明細額',
+      header: <>振込明細額<AmountSourceTooltip source="VERIFIED_AMOUNT" /></>,
       render: (r) => (
         <span className="tabular-nums">
           {r.verifiedAmount == null ? '-' : formatCurrency(r.verifiedAmount)}

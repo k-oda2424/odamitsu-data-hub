@@ -54,11 +54,53 @@ public final class FinanceConstants {
     public static final int PAYMENT_DATE_MIDMONTH_CUTOFF = 15;
 
     /**
-     * 買掛金一覧における一括検証由来の備考接頭辞。
-     * <p>{@code PaymentMfImportService#applyVerification} が書き込む備考の先頭文字列で、
-     * UI/DTO 側で "BULK" (一括検証) と "MANUAL" (UI 手入力) を判別するために使う。
+     * 買掛金一覧における一括検証由来の備考接頭辞 (UI 表示用)。
+     * <p>{@code PaymentMfImportService#applyVerification} が書き込む備考の先頭文字列。
+     *
+     * @deprecated G2-M10 (2026-05-06): 「BULK か MANUAL か」の判定には本接頭辞ではなく
+     *     {@code t_accounts_payable_summary.verification_source} 列
+     *     ({@link #VERIFICATION_SOURCE_BULK} / {@link #VERIFICATION_SOURCE_MANUAL}) を使うこと。
+     *     ユーザが偶然この接頭辞で始まる note を手入力すると bulk と誤判定され、
+     *     再 upload による上書き保護が外れるリスクがある (V040 で source 列を追加済)。
+     *     本定数は note の <b>表示用接頭辞生成</b>のみに使い、判定には使用しないこと。
      */
+    @Deprecated
     public static final String VERIFICATION_NOTE_BULK_PREFIX = "振込明細検証 ";
+
+    // -------------------------------------------------------------
+    // G2-M1 / G2-M10 (2026-05-06): 検証値の書込経路 enum (V040 で列追加)
+    // -------------------------------------------------------------
+
+    /**
+     * 検証値 (verified_amount / verified_amount_tax_excluded) の書込経路: 振込明細 Excel 一括検証由来。
+     * <p>{@code PaymentMfImportService#applyVerification} が書込時にセット。
+     * 同 (shop, supplier, transactionMonth) の全税率行に同値の集約値が冗長保持される。
+     * read 側 ({@code sumVerifiedAmountForGroup}) で「全行 BULK → 代表値 1 度」と扱う。
+     */
+    public static final String VERIFICATION_SOURCE_BULK = "BULK_VERIFICATION";
+
+    /**
+     * 検証値の書込経路: UI 手入力単一 PK 更新由来。
+     * <p>{@code TAccountsPayableSummaryService#verify} が書込時にセット。
+     * 単一 (shop, supplier, txMonth, taxRate) 行のみ更新するため、税率別に異なる値が入りうる。
+     * read 側で SUM 集計する。1 行でも本値を含むグループは bulk 集約値とみなさない。
+     */
+    public static final String VERIFICATION_SOURCE_MANUAL = "MANUAL_VERIFICATION";
+
+    /**
+     * 検証値の書込経路: 整合性レポート MF override 由来 (税率別按分)。
+     * <p>{@code ConsistencyReviewService#applyMfOverride} が書込時にセット。
+     * 税率別 change 比で按分するため税率別に異なる値が入る。read 側で SUM 集計する。
+     */
+    public static final String VERIFICATION_SOURCE_MF_OVERRIDE = "MF_OVERRIDE";
+
+    /**
+     * G2-M2 (2026-05-06): 買掛仕入 MF 振込明細の per-supplier 1 円整合性違反を示すエラーコード。
+     * <p>{@code FinanceBusinessException(message, code)} で投げ、
+     * {@code FinanceExceptionHandler} がこのコードを検出して 422 + 業務メッセージで応答する。
+     * <p>クライアント側はこのコードで「force=true で再実行」UI 分岐を表示する。
+     */
+    public static final String ERROR_CODE_PER_SUPPLIER_MISMATCH = "PER_SUPPLIER_MISMATCH";
 
     /**
      * 買掛金 vs SMILE 支払額の差額が「自動一致」とみなせる円未満の境界 (exclusive)。
@@ -81,4 +123,21 @@ public final class FinanceConstants {
      * 買掛金照合レポートで「中程度の差額」として強調表示する境界 (inclusive)。
      */
     public static final BigDecimal PAYMENT_REPORT_MEDIUM_DIFFERENCE = new BigDecimal(1000);
+
+    /**
+     * 買掛 / 売掛 verified_amount 突合の許容差 (税込円)。
+     * <p>設計書 D §3.6 / 整合性 §3.2 で定義。これより大きい絶対値の差額は「不一致」と判定し、
+     * verification_result=0 とする。{@link #PAYMENT_REPORT_MINOR_DIFFERENCE} と同値だが
+     * 用途 (照合判定 vs UI 強調表示) が異なるため別名で公開。
+     */
+    public static final BigDecimal MATCH_TOLERANCE = BigDecimal.valueOf(100);
+
+    /**
+     * 売掛金 / 請求書 (t_invoice) 突合の許容誤差 (税込円) のデフォルト値 (SF-E07)。
+     * <p>{@code application.yml} の {@code batch.accounts-receivable.invoice-amount-tolerance} で
+     * 個別環境では上書きでき、未指定時は本値 (3 円) が採用される
+     * ({@code InvoiceVerifier#invoiceAmountTolerance} の {@code @Value} デフォルト参照先)。
+     * <p>{@link #MATCH_TOLERANCE} (買掛 100 円) と用途・閾値が異なるため別名で公開。
+     */
+    public static final BigDecimal INVOICE_AMOUNT_TOLERANCE_DEFAULT = BigDecimal.valueOf(3);
 }

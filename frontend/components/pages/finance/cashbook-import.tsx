@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
+import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,7 +19,8 @@ import type {
 } from '@/types/mf-cashbook'
 
 export default function CashBookImportPage() {
-  const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const isAdmin = user?.shopNo === 0
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<CashBookPreviewResponse | null>(null)
   const [mappingDialog, setMappingDialog] = useState<{ alias: string } | null>(null)
@@ -54,11 +56,14 @@ export default function CashBookImportPage() {
       return api.post<MfClientMapping>('/finance/mf-client-mappings', req)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mf-client-mappings'] })
       toast.success('マッピングを追加しました')
       setMappingDialog(null)
       setMfName('')
-      if (preview) rePreviewMutation.mutate(preview.uploadId)
+      // この画面では mf-client-mappings を useQuery していないため
+      // invalidate は不要 (再プレビューでサーバ側マッピングが再評価される)。
+      if (preview && !rePreviewMutation.isPending) {
+        rePreviewMutation.mutate(preview.uploadId)
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -154,12 +159,23 @@ export default function CashBookImportPage() {
                 {preview.unmappedClients.map((c) => (
                   <div key={c} className="flex items-center justify-between gap-2 text-sm">
                     <code className="rounded bg-white px-2 py-0.5">{c}</code>
-                    <Button size="sm" variant="outline" onClick={() => { setMappingDialog({ alias: c }); setMfName('') }}>
-                      マッピング追加
-                    </Button>
+                    {isAdmin ? (
+                      <Button size="sm" variant="outline" onClick={() => { setMappingDialog({ alias: c }); setMfName('') }}>
+                        マッピング追加
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-orange-700">
+                        管理者にマッピング追加を依頼してください
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
+              {!isAdmin && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  未マッピング得意先があります。管理者に追加を依頼してください。
+                </p>
+              )}
             </div>
           )}
 

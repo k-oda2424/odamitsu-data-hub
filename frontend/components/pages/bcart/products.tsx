@@ -1,15 +1,64 @@
 'use client'
 
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
-import { Package, Eye, EyeOff, Search } from 'lucide-react'
+import { Package, Eye, EyeOff, Search, RefreshCw, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import type { BCartProduct, BCartCategory } from '@/types/bcart'
 import { api } from '@/lib/api-client'
+
+interface JobStatus {
+  jobName: string
+  status: string
+  exitCode?: string
+  startTime?: string
+  endTime?: string
+  exitMessage?: string
+}
+
+function useBatchWithPolling(jobName: string, label: string) {
+  const queryClient = useQueryClient()
+  const [polling, setPolling] = useState(false)
+  const [launchedAt, setLaunchedAt] = useState<string | null>(null)
+
+  const statusQuery = useQuery({
+    queryKey: ['batch-status', jobName],
+    queryFn: () => api.get<JobStatus>(`/batch/status/${jobName}`),
+    enabled: polling,
+    refetchInterval: polling ? 3000 : false,
+  })
+
+  useEffect(() => {
+    if (!polling || !statusQuery.data || !launchedAt) return
+    const s = statusQuery.data
+    if (s.startTime && new Date(s.startTime).getTime() < new Date(launchedAt).getTime()) return
+    if (s.status === 'COMPLETED') {
+      toast.success(`${label}が完了しました`)
+      setPolling(false)
+      queryClient.invalidateQueries({ queryKey: ['bcart', 'products'] })
+    } else if (s.status === 'FAILED') {
+      toast.error(`${label}が失敗しました${s.exitMessage ? ': ' + s.exitMessage : ''}`)
+      setPolling(false)
+    }
+  }, [statusQuery.data, polling, launchedAt, label, queryClient])
+
+  const mutation = useMutation({
+    mutationFn: () => api.post<{ message: string }>(`/batch/execute/${jobName}`),
+    onSuccess: () => {
+      toast.info(`${label}を起動しました...`)
+      setLaunchedAt(new Date().toISOString())
+      setPolling(true)
+    },
+    onError: () => toast.error(`${label}の起動に失敗しました`),
+  })
+
+  return { mutate: mutation.mutate, isRunning: mutation.isPending || polling }
+}
 
 export default function BCartProductsPage() {
   const router = useRouter()
@@ -44,6 +93,8 @@ export default function BCartProductsPage() {
     setParams(p)
   }
 
+  const sync = useBatchWithPolling('bCartProductsImport', '商品同期')
+
   // カテゴリをフラットに（親+子）
   const allCategories = categories
     ? categories.flatMap((c) => [c, ...(c.children ?? [])])
@@ -51,7 +102,15 @@ export default function BCartProductsPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-2xl font-bold">B-CART商品マスタ</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">B-CART商品マスタ</h1>
+        <Button variant="outline" size="sm" onClick={() => sync.mutate()} disabled={sync.isRunning}>
+          {sync.isRunning
+            ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            : <RefreshCw className="h-4 w-4 mr-1" />}
+          {sync.isRunning ? '同期中...' : 'B-CARTから同期'}
+        </Button>
+      </div>
 
       {/* 検索フォーム */}
       <div className="flex items-end gap-4 p-4 border rounded-lg">

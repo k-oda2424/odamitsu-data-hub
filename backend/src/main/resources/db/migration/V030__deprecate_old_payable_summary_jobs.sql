@@ -1,0 +1,62 @@
+-- V030: 旧買掛金集計ジョブ (accountsPayableSummary / accountsPayableVerification) の廃止予告
+--
+-- 背景:
+--   Phase B' 移行で集計フローを以下に分離済み:
+--     - 集計処理: accountsPayableAggregation (AccountsPayableAggregationConfig)
+--     - 検証処理: SmilePaymentVerifier 経由 + accountsPayableAggregation 内に統合
+--   旧 accountsPayableSummary / accountsPayableVerification Job は
+--   Configuration クラスに @ConditionalOnProperty(name="finance.legacy-payable-job",
+--   havingValue="true", matchIfMissing=false) を付与しており、
+--   通常起動時は Bean 登録されない (緊急時のみ true に切替えて使用可能)。
+--
+-- 物理削除タイミング (DD-09):
+--   本番運用 1 ヶ月後に Configuration クラス本体および Tasklet
+--   (AccountsPayableSummaryTasklet / AccountsPayableVerificationTasklet) を削除予定。
+--   その時点で本マイグレーションに以下の DELETE を追加し、
+--   BATCH_JOB_INSTANCE / BATCH_JOB_EXECUTION 等の旧 Job メタデータも整理する:
+--
+--     DELETE FROM BATCH_JOB_EXECUTION_PARAMS
+--      WHERE JOB_EXECUTION_ID IN (
+--        SELECT JOB_EXECUTION_ID FROM BATCH_JOB_EXECUTION
+--         WHERE JOB_INSTANCE_ID IN (
+--           SELECT JOB_INSTANCE_ID FROM BATCH_JOB_INSTANCE
+--            WHERE JOB_NAME IN ('accountsPayableSummary', 'accountsPayableVerification')
+--         )
+--      );
+--     DELETE FROM BATCH_STEP_EXECUTION_CONTEXT
+--      WHERE STEP_EXECUTION_ID IN (
+--        SELECT STEP_EXECUTION_ID FROM BATCH_STEP_EXECUTION
+--         WHERE JOB_EXECUTION_ID IN (
+--           SELECT JOB_EXECUTION_ID FROM BATCH_JOB_EXECUTION
+--            WHERE JOB_INSTANCE_ID IN (
+--              SELECT JOB_INSTANCE_ID FROM BATCH_JOB_INSTANCE
+--               WHERE JOB_NAME IN ('accountsPayableSummary', 'accountsPayableVerification')
+--            )
+--         )
+--      );
+--     DELETE FROM BATCH_STEP_EXECUTION
+--      WHERE JOB_EXECUTION_ID IN (
+--        SELECT JOB_EXECUTION_ID FROM BATCH_JOB_EXECUTION
+--         WHERE JOB_INSTANCE_ID IN (
+--           SELECT JOB_INSTANCE_ID FROM BATCH_JOB_INSTANCE
+--            WHERE JOB_NAME IN ('accountsPayableSummary', 'accountsPayableVerification')
+--         )
+--      );
+--     DELETE FROM BATCH_JOB_EXECUTION_CONTEXT
+--      WHERE JOB_EXECUTION_ID IN (
+--        SELECT JOB_EXECUTION_ID FROM BATCH_JOB_EXECUTION
+--         WHERE JOB_INSTANCE_ID IN (
+--           SELECT JOB_INSTANCE_ID FROM BATCH_JOB_INSTANCE
+--            WHERE JOB_NAME IN ('accountsPayableSummary', 'accountsPayableVerification')
+--         )
+--      );
+--     DELETE FROM BATCH_JOB_EXECUTION
+--      WHERE JOB_INSTANCE_ID IN (
+--        SELECT JOB_INSTANCE_ID FROM BATCH_JOB_INSTANCE
+--         WHERE JOB_NAME IN ('accountsPayableSummary', 'accountsPayableVerification')
+--      );
+--     DELETE FROM BATCH_JOB_INSTANCE
+--      WHERE JOB_NAME IN ('accountsPayableSummary', 'accountsPayableVerification');
+--
+-- 本マイグレーションは Flyway 履歴に記録するための論理プレースホルダ (no-op) です。
+SELECT 1;

@@ -38,6 +38,18 @@ public class PaymentMfPreviewResponse {
     /** 振込金額整合性チェック結果 (一致/不一致 + 差額)。 */
     private AmountReconciliation amountReconciliation;
 
+    /**
+     * P1-08 L1: 同一 SHA-256 ハッシュの Excel が過去に取込済の場合の警告。
+     * null = 重複なし (初回取込)。
+     */
+    private DuplicateWarning duplicateWarning;
+
+    /**
+     * P1-08 L2: 同 (shop, transferDate) で applyVerification 実行済の場合の警告。
+     * null = 未確定 (初回確定)。
+     */
+    private AppliedWarning appliedWarning;
+
     @Data
     @Builder
     @AllArgsConstructor
@@ -69,5 +81,27 @@ public class PaymentMfPreviewResponse {
 
         /** DIRECT_PURCHASE / 別振込 の請求額合計（合計行後セクション。参考）。 */
         private long directPurchaseTotal;
+
+        // --- P1-03 案 D チェック3: per-supplier 振込金額合計 == E(合計行 振込金額) ---
+        /** per-supplier の振込金額合計 (= 請求額 - 送料相手 - 値引 - 早払 - 相殺 の合計)。 */
+        private long perSupplierTransferSum;
+        /** チェック3 差額 = perSupplierTransferSum - summaryTransferAmount。0 なら整合。 */
+        private long perSupplierTransferDiff;
+        /** チェック3 OK = perSupplierTransferDiff == 0 */
+        private boolean perSupplierTransferMatched;
+        /** per-supplier 送料相手合計 (参考: summaryFee と一致するべき)。 */
+        private long perSupplierFeeSum;
+        /** per-supplier 値引合計。 */
+        private long perSupplierDiscountSum;
+        /** per-supplier 早払合計 (参考: summaryEarly と一致するべき)。 */
+        private long perSupplierEarlySum;
+        /** per-supplier 相殺合計。 */
+        private long perSupplierOffsetSum;
+        /**
+         * per-supplier の 1 円整合性 (請求 = 振込 + 控除合計) に違反した行のメッセージ一覧。
+         * Excel 入力ミス検知用。空なら全行 OK。
+         */
+        @lombok.Builder.Default
+        private List<String> perSupplierMismatches = java.util.Collections.emptyList();
     }
 }

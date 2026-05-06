@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/v1/quote-imports")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("@loginUserSecurityBean.isAdmin()")
 public class QuoteImportController {
 
     private final QuoteImportService quoteImportService;

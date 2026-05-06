@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/features/common/PageHeader'
 import { SearchableSelect } from '@/components/features/common/SearchableSelect'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { CheckCircle2, AlertTriangle, XCircle, RefreshCw, Trash2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -101,9 +102,10 @@ export function MfHealthPage() {
             <CardHeader><CardTitle className="text-sm">MF OAuth 状態</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               <Row label="接続">
-                {data.mfOauth.connected
-                  ? <span className="text-green-600">接続中</span>
-                  : <span className="text-red-600">未接続</span>}
+                <ConnectionBadge
+                  connected={data.mfOauth.connected}
+                  apiReachable={data.mfOauth.apiReachable ?? null}
+                />
               </Row>
               <Row label="Scope">
                 <span className="font-mono text-xs">{data.mfOauth.scope ?? '-'}</span>
@@ -141,7 +143,7 @@ export function MfHealthPage() {
             <CardHeader><CardTitle className="text-sm">アノマリー</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               <Row label="負 closing"><span className={data.anomalies.negativeClosingCount > 0 ? 'text-red-600 font-medium' : ''}>{data.anomalies.negativeClosingCount}</span></Row>
-              <Row label="未検証 (当月)"><span className={data.anomalies.unverifiedCount > 0 ? 'text-amber-600' : ''}>{data.anomalies.unverifiedCount}</span></Row>
+              {/* SF-18: 未検証 (当月) は summary カード側に統一表示。anomaly 側からは削除。 */}
               <Row label="検証差 (予定)">{data.anomalies.verifyDiffCount}</Row>
               <Row label="連続性断絶 (予定)">{data.anomalies.continuityBreakCount}</Row>
               <Row label="月ギャップ (予定)">{data.anomalies.monthGapCount}</Row>
@@ -195,6 +197,32 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-sm">{children}</span>
     </div>
   )
+}
+
+/**
+ * MA-02: OAuth 接続 + MF /accounts ping (apiReachable) の状態を 1 つの Badge で表示。
+ * - connected=true && apiReachable=true  → 緑 「接続中 (API 疎通 OK)」
+ * - connected=true && apiReachable=false → 黄 「接続中 (API 疎通 NG)」
+ * - connected=true && apiReachable=null  → グレー 「接続中 (ping 未実行)」
+ * - connected=false                       → 赤 「未接続」
+ */
+function ConnectionBadge({
+  connected,
+  apiReachable,
+}: {
+  connected: boolean
+  apiReachable: boolean | null
+}) {
+  if (!connected) {
+    return <Badge variant="destructive">未接続</Badge>
+  }
+  if (apiReachable === true) {
+    return <Badge className="bg-green-600 text-white">接続中 (API 疎通 OK)</Badge>
+  }
+  if (apiReachable === false) {
+    return <Badge className="bg-amber-500 text-white">接続中 (API 疎通 NG)</Badge>
+  }
+  return <Badge variant="secondary">接続中 (ping 未実行)</Badge>
 }
 
 function HealthBadge({ level }: { level: HealthLevel }) {

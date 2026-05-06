@@ -1,6 +1,7 @@
 package jp.co.oda32.domain.model.finance;
 
 import jakarta.persistence.*;
+import jp.co.oda32.audit.AuditExclude;
 import lombok.*;
 
 import java.sql.Timestamp;
@@ -34,6 +35,7 @@ public class TCashbookImportHistory {
     @Column(name = "total_payment", nullable = false)
     private int totalPayment;
 
+    @AuditExclude
     @Column(name = "csv_content", columnDefinition = "TEXT")
     private String csvContent;
 }

@@ -19,13 +19,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Trash2, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
-
-interface PartnerGroup {
-  partnerGroupId: number
-  groupName: string
-  shopNo: number
-  partnerCodes: string[]
-}
+import type { PartnerGroup, PartnerGroupRequest, PartnerGroupSavePayload } from '@/types/partner-group'
 
 interface PartnerGroupDialogProps {
   open: boolean
@@ -51,8 +45,12 @@ export function PartnerGroupDialog({ open, onOpenChange, groups, shopNo, editing
   }, [open, initialEditingGroup])
 
   const saveMutation = useMutation({
-    mutationFn: (data: { id?: number; groupName: string; shopNo: number; partnerCodes: string[] }) => {
-      const body = { groupName: data.groupName, shopNo: data.shopNo, partnerCodes: data.partnerCodes }
+    mutationFn: (data: PartnerGroupSavePayload) => {
+      const body: PartnerGroupRequest = {
+        groupName: data.groupName,
+        shopNo: data.shopNo,
+        partnerCodes: data.partnerCodes,
+      }
       return data.id
         ? api.put<PartnerGroup>(`/finance/partner-groups/${data.id}`, body)
         : api.post<PartnerGroup>('/finance/partner-groups', body)

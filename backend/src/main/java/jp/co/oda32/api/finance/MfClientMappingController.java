@@ -24,19 +24,22 @@ public class MfClientMappingController {
         return ResponseEntity.ok(service.findAll().stream().map(MfClientMappingResponse::from).toList());
     }
 
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping
     public ResponseEntity<MfClientMappingResponse> create(@Valid @RequestBody MfClientMappingRequest req) {
-        // 一般ユーザでも追加可（現金出納帳取込のマッピング補正UX）
+        // SF-B01: write 系 (POST/PUT/DELETE) を admin 限定で統一。
+        // 旧仕様の「一般ユーザ追加可」は cashbook 取込 UX 起点だったが、
+        // マスタ汚染リスク回避のため admin 限定化 (運用は admin に依頼で対応)。
         return ResponseEntity.ok(MfClientMappingResponse.from(service.create(req)));
     }
 
-    @PreAuthorize("authentication.principal.shopNo == 0")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PutMapping("/{id}")
     public ResponseEntity<MfClientMappingResponse> update(@PathVariable Integer id, @Valid @RequestBody MfClientMappingRequest req) {
         return ResponseEntity.ok(MfClientMappingResponse.from(service.update(id, req)));
     }
 
-    @PreAuthorize("authentication.principal.shopNo == 0")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable Integer id) {
         service.delete(id);

@@ -1,6 +1,7 @@
 package jp.co.oda32.domain.model.finance;
 
 import jakarta.persistence.*;
+import jp.co.oda32.audit.AuditExclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -51,8 +52,21 @@ public class TPaymentMfImportHistory {
     @Builder.Default
     private Integer unmatchedCount = 0;
 
+    @AuditExclude
     @Column(name = "csv_body")
     private byte[] csvBody;
+
+    /** P1-08: 取込元 Excel の SHA-256 (hex)。同一 hash 再取込時に preview で L1 警告。 */
+    @Column(name = "source_file_hash", length = 64)
+    private String sourceFileHash;
+
+    /** P1-08: applyVerification 実行タイムスタンプ。NULL=未確定。non-NULL=確定済 (L2 警告対象)。 */
+    @Column(name = "applied_at")
+    private LocalDateTime appliedAt;
+
+    /** P1-08: applyVerification 実行ユーザー (m_user.user_no)。 */
+    @Column(name = "applied_by_user_no")
+    private Integer appliedByUserNo;
 
     @Column(name = "del_flg", nullable = false, length = 1)
     @Builder.Default

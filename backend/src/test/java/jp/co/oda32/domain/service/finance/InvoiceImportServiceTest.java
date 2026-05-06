@@ -134,7 +134,7 @@ class InvoiceImportServiceTest {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     excelBytes);
 
-            when(tInvoiceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+            when(tInvoiceRepository.findByShopNoAndClosingDate(any(Integer.class), any(String.class)))
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -169,7 +169,7 @@ class InvoiceImportServiceTest {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     excelBytes);
 
-            when(tInvoiceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+            when(tInvoiceRepository.findByShopNoAndClosingDate(any(Integer.class), any(String.class)))
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -191,7 +191,7 @@ class InvoiceImportServiceTest {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     excelBytes);
 
-            when(tInvoiceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+            when(tInvoiceRepository.findByShopNoAndClosingDate(any(Integer.class), any(String.class)))
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -213,7 +213,7 @@ class InvoiceImportServiceTest {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     excelBytes);
 
-            when(tInvoiceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+            when(tInvoiceRepository.findByShopNoAndClosingDate(any(Integer.class), any(String.class)))
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -257,7 +257,7 @@ class InvoiceImportServiceTest {
                     .paymentDate(java.time.LocalDate.of(2026, 3, 15))
                     .build();
 
-            when(tInvoiceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+            when(tInvoiceRepository.findByShopNoAndClosingDate(any(Integer.class), any(String.class)))
                     .thenReturn(List.of(existingInvoice));
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -301,7 +301,7 @@ class InvoiceImportServiceTest {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     excelBytes);
 
-            when(tInvoiceRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+            when(tInvoiceRepository.findByShopNoAndClosingDate(any(Integer.class), any(String.class)))
                     .thenReturn(List.of());
             when(tInvoiceRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 

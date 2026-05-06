@@ -40,6 +40,8 @@ import {
   ArrowLeftRight,
   BookOpen,
   Link2,
+  Diff,
+  ShieldCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
@@ -90,9 +92,11 @@ const menuGroups: MenuGroup[] = [
       { title: '買掛帳', icon: BookOpen, href: '/finance/accounts-payable-ledger' },
       { title: '整合性レポート', icon: BookOpen, href: '/finance/accounts-payable-ledger/integrity' },
       { title: 'supplier 累積残', icon: BookOpen, href: '/finance/accounts-payable-ledger/supplier-balances' },
+      { title: '前期繰越', icon: BookOpen, href: '/finance/supplier-opening-balance', adminOnly: true },
       { title: '売掛金', icon: BarChart3, href: '/finance/accounts-receivable' },
       { title: 'MF連携状況', icon: Link2, href: '/finance/mf-integration', adminOnly: true },
       { title: 'MF ヘルスチェック', icon: Link2, href: '/finance/mf-health', adminOnly: true },
+      { title: 'OFFSET仕訳マスタ', icon: BookOpen, href: '/admin/offset-journal-rule', adminOnly: true },
     ],
   },
   {
@@ -127,9 +131,17 @@ const menuGroups: MenuGroup[] = [
       { title: '販売商品マスタ', icon: ShoppingCart, href: '/sales-goods' },
       { title: '販売商品ワーク', icon: ClipboardList, href: '/sales-goods/work' },
       { title: '得意先商品', icon: ClipboardList, href: '/partner-goods' },
-      { title: 'B-CART出荷情報入力', icon: Globe, href: '/bcart/shipping' },
+    ],
+  },
+  {
+    label: 'B-CART',
+    icon: Globe,
+    collapsible: true,
+    items: [
+      { title: 'B-CART出荷情報入力', icon: Truck, href: '/bcart/shipping' },
       { title: 'B-CARTカテゴリ', icon: Database, href: '/bcart/categories' },
       { title: 'B-CART商品', icon: Package, href: '/bcart/products' },
+      { title: 'B-CART変更点一覧', icon: Diff, href: '/bcart/pending-changes' },
     ],
   },
   {
@@ -143,6 +155,7 @@ const menuGroups: MenuGroup[] = [
       { title: '得意先', icon: ClipboardList, href: '/masters/partners' },
       { title: '連携ファイル設定', icon: FileText, href: '/masters/linked-files' },
       { title: 'ユーザー管理', icon: Users, href: '/masters/users', adminOnly: true },
+      { title: '監査ログ', icon: ShieldCheck, href: '/admin/audit-log', adminOnly: true },
       { title: 'バッチ管理', icon: Cog, href: '/batch' },
     ],
   },

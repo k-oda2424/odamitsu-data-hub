@@ -3,6 +3,7 @@ package jp.co.oda32.domain.service.finance;
 import jp.co.oda32.batch.finance.MFJournalCsv;
 import jp.co.oda32.domain.model.finance.MfAccountMaster;
 import jp.co.oda32.domain.model.finance.TAccountsReceivableSummary;
+import jp.co.oda32.exception.FinanceInternalException;
 import jp.co.oda32.util.StringUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.io.Writer;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.Charset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -35,6 +37,18 @@ public class SalesJournalCsvService {
 
     private static final String CLEAN_LAB_PARTNER_CODE = "301491";
     private static final long DEFAULT_INITIAL_TRANSACTION_NO = 1001L;
+
+    /**
+     * MF (マネーフォワード) 仕訳 CSV の文字コード。
+     * <p>
+     * Tasklet ({@link jp.co.oda32.batch.finance.AccountsReceivableToSalesJournalTasklet})
+     * とブラウザ DL Controller ({@code AccountsReceivableController#exportMfCsv}) の双方で
+     * 同一エンコーディングを使用するため、本 Service に集約する (SF-E04)。
+     * <p>
+     * Java の {@code FileWriter} はプラットフォーム既定 charset を使うため Linux/Windows で挙動差が出る。
+     * 必ず本定数で {@code OutputStreamWriter} をラップして使用すること。
+     */
+    public static final Charset CP932 = Charset.forName("windows-31j");
 
     private final MfAccountMasterService mfAccountMasterService;
 
@@ -185,7 +199,8 @@ public class SalesJournalCsvService {
         for (MfAccountMaster master : list) {
             String key = master.getSearchKey();
             if (map.containsKey(key)) {
-                throw new IllegalStateException(String.format(
+                // T5: 内部マスタ不整合 (機微情報含む可能性: master の toString に内部 ID 等)。
+                throw new FinanceInternalException(String.format(
                         "%sのアカウントマスタで重複キー: %s (%s / %s)", label, key, map.get(key), master));
             }
             map.put(key, master);
@@ -223,13 +238,17 @@ public class SalesJournalCsvService {
      * CSV出力対象の売掛金サマリーに CSV出力済みマーカーを付ける。
      * {@code tax_included_amount} / {@code tax_excluded_amount} に {@code *_change} の値をコピーする。
      * （買掛側と同じ仕様: CSV出力済みの確定金額を保持）
+     * <p>
+     * SF-E02: 旧実装は {@code *_amount == null} のときだけコピーしていたため、再 DL 時に
+     * 古い焼付け値がそのまま残る経年バグがあった。null guard は {@code *_change} 側だけに残し、
+     * 既存の {@code *_amount} があっても最新の {@code *_change} で必ず上書きする。
      */
     public void markExported(List<TAccountsReceivableSummary> summaries) {
         for (TAccountsReceivableSummary s : summaries) {
-            if (s.getTaxIncludedAmount() == null && s.getTaxIncludedAmountChange() != null) {
+            if (s.getTaxIncludedAmountChange() != null) {
                 s.setTaxIncludedAmount(s.getTaxIncludedAmountChange());
             }
-            if (s.getTaxExcludedAmount() == null && s.getTaxExcludedAmountChange() != null) {
+            if (s.getTaxExcludedAmountChange() != null) {
                 s.setTaxExcludedAmount(s.getTaxExcludedAmountChange());
             }
         }

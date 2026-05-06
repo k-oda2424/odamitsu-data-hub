@@ -39,6 +39,13 @@ public class MfSupplierLedgerResponse {
     private LocalDate mfStartDate;
     /** MF /journals 取得の終了日 (= toMonth)。 */
     private LocalDate mfEndDate;
+    /**
+     * 前期繰越 (supplier 単位期首残)。
+     * MF journal #1 (期首残高仕訳) から取得 + 手動補正を加算した値。
+     * 当該 supplier の mfCumulativeBalance の初期値に使われる (journal #1 自体は accumulation から除外)。
+     * m_supplier_opening_balance に未登録の supplier は 0。
+     */
+    private BigDecimal openingBalance;
 
     @Data
     @Builder

@@ -523,36 +523,39 @@ public class BCartOrderConvertSmileOrderFileTasklet implements Tasklet {
     }
 
     /**
-     * b-cart の納品先名を SMILE納品先コードに変換する。
-     * 既存の DeliveryMapping に登録が無ければ作成し、既存と同一でなければ更新する。
+     * b-cart の納品先を SMILE 納品先コードに変換する。
+     *
+     * <p>業務ルール: B-CART の destination_code (運用者が新規登録時に手動採番) を、
+     * SMILE 側の納品先コードと 1:1 で同値にする。SMILE マスタへの登録は
+     * {@link SmileDestinationFileOutPutTasklet} が x_delivery_mapping.smile_delivery_code を
+     * CSV 出力することで行うため、`smile_delivery_code = destination_code` として保存する。</p>
+     *
+     * <p>destination_code は運用上必須。空 (null/空白) の場合は採番ルール違反として例外を投げる。</p>
      */
     private String deliveryCodeMapper(BCartLogistics bCartLogistics,
                                       Long bCartCustomerId,
                                       String deliveryName,
                                       String customerCode) {
-        // 同一の bCartCustomerId に紐づく 納品先マッピング一覧を取得
-        List<DeliveryMapping> deliveryMappingList = deliveryMappingService.findBybCartCustomerId(bCartCustomerId);
-
-        // 1. 既に bCartLogistics.getDestinationCode() があるかを確認
-        if (bCartLogistics.getDestinationCode() != null) {
-            Optional<DeliveryMapping> existingOpt = deliveryMappingList.stream()
-                    .filter(dm -> StringUtil.isEqual(dm.getSmileDeliveryCode(), bCartLogistics.getDestinationCode()))
-                    .findFirst();
-            if (existingOpt.isPresent()) {
-                return existingOpt.get().getSmileDeliveryCode();
-            }
+        String destinationCode = bCartLogistics.getDestinationCode();
+        if (destinationCode == null || destinationCode.isBlank()) {
+            throw new IllegalStateException(String.format(
+                    "B-CART destination_code が未設定のため SMILE 納品先コードを採番できません。"
+                            + " 出荷ID:%s 配送先名:%s — B-CART で配送先コードを設定してください。",
+                    bCartLogistics.getId(), deliveryName));
         }
 
-        // 2. b_cart_logistics.destinationCode が未登録 or nullの場合、deliveryName と一致するかを確認
+        // smile_delivery_code = destination_code を一意キーとして既存マッピングを検索
+        List<DeliveryMapping> deliveryMappingList = deliveryMappingService.findBybCartCustomerId(bCartCustomerId);
         DeliveryMapping existingMapping = deliveryMappingList.stream()
-                .filter(dm -> dm.getDeliveryName().equals(deliveryName))
+                .filter(dm -> StringUtil.isEqual(dm.getSmileDeliveryCode(), destinationCode))
                 .findFirst()
                 .orElse(null);
 
-        // 3. 新たに DeliveryMapping を作成して比較
+        // 新規 / 更新用の DeliveryMapping を組み立て
         DeliveryMapping saveMapping = new DeliveryMapping();
         saveMapping.setBCartCustomerId(bCartCustomerId);
-        saveMapping.setBCartDestinationCode(bCartLogistics.getDestinationCode());
+        saveMapping.setBCartDestinationCode(destinationCode);
+        saveMapping.setSmileDeliveryCode(destinationCode);
         saveMapping.setDeliveryName(deliveryName);
         saveMapping.setZip(bCartLogistics.getZip());
         saveMapping.setAddress1(bCartLogistics.getPref() + bCartLogistics.getAddress1());
@@ -563,9 +566,8 @@ public class BCartOrderConvertSmileOrderFileTasklet implements Tasklet {
         saveMapping.setRecipientName1(bCartLogistics.getName());
         saveMapping.setPhoneNumber(bCartLogistics.getTel());
 
-        // 4. 既に存在するマッピングがあれば、実データに差分がある場合のみ更新
-        //    Lombok @Data の equals は id も含めて比較してしまう（saveMapping.id=null vs existing.id=設定値）ため、
-        //    常に unequal になり毎回 save が走る。ここではビジネスデータフィールドのみを比較する。
+        // 既存マッピングがあれば、業務データ差分があるときだけ更新
+        // (id 込みの equals は常に unequal となるため、ビジネスフィールドのみ手動比較)
         if (existingMapping != null) {
             boolean dataChanged =
                     !java.util.Objects.equals(existingMapping.getBCartDestinationCode(), saveMapping.getBCartDestinationCode())
@@ -579,17 +581,16 @@ public class BCartOrderConvertSmileOrderFileTasklet implements Tasklet {
                     || !java.util.Objects.equals(existingMapping.getPhoneNumber(), saveMapping.getPhoneNumber());
             if (dataChanged) {
                 saveMapping.setId(existingMapping.getId());
-                saveMapping.setSmileDeliveryCode(existingMapping.getSmileDeliveryCode());
                 saveMapping.setSmileCsvOutputted(false);
                 deliveryMappingService.save(saveMapping);
             }
-            return existingMapping.getSmileDeliveryCode();
+            return destinationCode;
         }
 
-        // 5. 新規登録 (6桁の連番コードを割り振る)
-        // MAX(code)+1 の race condition を吸収するため、衝突時は MAX を引き直して
-        // 次の空き番号にリトライする allocate メソッドを使う。
-        return deliveryMappingService.allocateSmileDeliveryCodeAndSave(saveMapping, bCartCustomerId);
+        // 新規登録: smile_csv_outputted=false で SMILE マスタ連携対象にする
+        saveMapping.setSmileCsvOutputted(false);
+        deliveryMappingService.save(saveMapping);
+        return destinationCode;
     }
 
     /**

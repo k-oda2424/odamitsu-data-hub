@@ -92,7 +92,10 @@ public class SmileDestinationFileOutPutTasklet implements Tasklet {
                     .collect(Collectors.toList());
             this.deliveryMappingService.saveAll(updatedOutputList);
         } catch (IOException e) {
-            e.printStackTrace();
+            // 書き込み失敗時は smile_csv_outputted=true を保存させずに停止する。
+            // (旧実装: e.printStackTrace() で握り潰すと部分書き込み後に CSV 出力済み扱いとなり再連携漏れが発生する)
+            log.error("Smile用納品先マスタCSV出力に失敗しました: {}", outputFilePath, e);
+            throw new RuntimeException("Smile用納品先マスタCSV出力に失敗しました: " + outputFilePath, e);
         }
     }
 }

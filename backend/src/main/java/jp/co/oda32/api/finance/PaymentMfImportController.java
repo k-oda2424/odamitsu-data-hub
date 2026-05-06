@@ -1,9 +1,11 @@
 package jp.co.oda32.api.finance;
 
 import jakarta.validation.Valid;
+import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.service.data.LoginUser;
 import jp.co.oda32.domain.service.finance.PaymentMfImportService;
 import jp.co.oda32.domain.service.finance.PaymentMfRuleService;
+import jp.co.oda32.dto.finance.paymentmf.PaymentMfApplyRequest;
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfAuxRowResponse;
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfHistoryResponse;
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfPreviewResponse;
@@ -63,37 +65,61 @@ public class PaymentMfImportController {
         }
     }
 
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping("/convert/{uploadId}")
     public ResponseEntity<?> convert(@PathVariable String uploadId,
                                      @AuthenticationPrincipal LoginUser user) {
         try {
+            // SF-C20: ファイル名は payment_mf_${yyyymmdd}.csv / 買掛仕入MFインポートファイル_${yyyymmdd}.csv
+            // (cached.transferDate ベース) で /export-verified と統一する。
+            java.time.LocalDate transferDate = importService.getCachedTransferDate(uploadId);
             byte[] csv = importService.convert(uploadId, user == null ? null : user.getUser().getLoginUserNo());
-            String fileName = "買掛仕入MFインポートファイル.csv";
+            String yyyymmdd = transferDate == null ? "unknown"
+                    : transferDate.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+            String fileName = "買掛仕入MFインポートファイル_" + yyyymmdd + ".csv";
+            String asciiName = "payment_mf_" + yyyymmdd + ".csv";
             String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType("text/csv; charset=Shift_JIS"))
                     .header(HttpHeaders.CONTENT_DISPOSITION,
-                            "attachment; filename=\"payment_mf.csv\"; filename*=UTF-8''" + encoded)
+                            "attachment; filename=\"" + asciiName + "\"; filename*=UTF-8''" + encoded)
                     .body(csv);
-        } catch (IllegalStateException e) {
-            return ResponseEntity.unprocessableEntity().body(Map.of("message", e.getMessage()));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
+        // IllegalStateException は FinanceExceptionHandler#handleIllegalState で 422 + 汎用メッセージ統一
     }
 
     // ---- 買掛金一覧への一括検証反映 ----
 
+    /**
+     * 振込明細 Excel の検証結果を t_accounts_payable_summary に一括反映する。
+     *
+     * <p>G2-M2 (2026-05-06): リクエストボディで {@code force} フラグを受ける。
+     * <ul>
+     *   <li>ボディ省略 / {@code force=false}: per-supplier 1 円不一致が 1 件でもあれば
+     *       422 + {@code PER_SUPPLIER_MISMATCH} で拒否 ({@link FinanceExceptionHandler})。
+     *       client は preview で違反を確認し、Excel 修正 → 再アップロードする運用。</li>
+     *   <li>{@code force=true}: 違反を許容して反映。{@code finance_audit_log} に
+     *       {@code FORCE_APPLIED: per-supplier mismatches=...} の補足 row が記録される。</li>
+     * </ul>
+     */
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping("/verify/{uploadId}")
     public ResponseEntity<?> verify(@PathVariable String uploadId,
+                                    @RequestBody(required = false) PaymentMfApplyRequest request,
                                     @AuthenticationPrincipal LoginUser user) {
         try {
+            boolean force = request != null && request.isForce();
             var result = importService.applyVerification(
-                    uploadId, user == null ? null : user.getUser().getLoginUserNo());
+                    uploadId,
+                    user == null ? null : user.getUser().getLoginUserNo(),
+                    force);
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
+        // FinanceBusinessException (PER_SUPPLIER_MISMATCH 含む) は FinanceExceptionHandler で処理
     }
 
     // ---- 検証済み買掛金から MF CSV 出力（Excel 再アップロード不要）----
@@ -106,7 +132,7 @@ public class PaymentMfImportController {
      *
      * @param transactionMonth 対象取引月 (yyyy-MM-dd, 例 2026-01-20)
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @GetMapping("/export-verified")
     public ResponseEntity<?> exportVerified(
             @RequestParam("transactionMonth") String transactionMonth,
@@ -118,6 +144,7 @@ public class PaymentMfImportController {
 
             String yyyymmdd = txMonth.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
             String fileName = "買掛仕入MFインポートファイル_" + yyyymmdd + ".csv";
+            String asciiName = "payment_mf_" + yyyymmdd + ".csv"; // SF-C20: 日付付きで統一
             String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
             // X-Skipped-Suppliers: 各 supplier 名を個別に encodeURIComponent し "|" で連結する。
             // supplier 名に "," が含まれるケースでパース崩れを起こさないよう、区切り文字はカンマ以外にする。
@@ -131,7 +158,7 @@ public class PaymentMfImportController {
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType("text/csv; charset=Shift_JIS"))
                     .header(HttpHeaders.CONTENT_DISPOSITION,
-                            "attachment; filename=\"payment_mf.csv\"; filename*=UTF-8''" + encoded)
+                            "attachment; filename=\"" + asciiName + "\"; filename*=UTF-8''" + encoded)
                     .header("X-Row-Count", String.valueOf(result.getRowCount()))
                     .header("X-Total-Amount", String.valueOf(result.getTotalAmount()))
                     .header("X-Skipped-Count", String.valueOf(suppliers.size()))
@@ -139,17 +166,16 @@ public class PaymentMfImportController {
                     .body(result.getCsv());
         } catch (java.time.format.DateTimeParseException e) {
             return ResponseEntity.badRequest().body(Map.of("message", "日付形式が不正です (yyyy-MM-dd)"));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.unprocessableEntity().body(Map.of("message", e.getMessage()));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
+        // IllegalStateException は FinanceExceptionHandler#handleIllegalState で 422 + 汎用メッセージ統一
     }
 
     /**
      * 検証済みCSV出力のプレビュー。ダイアログで件数確認 + 警告表示用。
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @GetMapping("/export-verified/preview")
     public ResponseEntity<?> exportVerifiedPreview(
             @RequestParam("transactionMonth") String transactionMonth) {
@@ -168,7 +194,7 @@ public class PaymentMfImportController {
      * 指定取引月の MF 補助行 (EXPENSE/SUMMARY/DIRECT_PURCHASE) 一覧を返す。
      * 買掛金一覧の「MF補助行」タブ表示用。
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @GetMapping("/aux-rows")
     public ResponseEntity<?> auxRows(
             @RequestParam("transactionMonth") String transactionMonth) {
@@ -188,7 +214,8 @@ public class PaymentMfImportController {
     @GetMapping("/history")
     public ResponseEntity<List<PaymentMfHistoryResponse>> history() {
         return ResponseEntity.ok(
-                historyRepository.findByShopNoAndDelFlgOrderByTransferDateDescIdDesc(1, "0")
+                historyRepository.findByShopNoAndDelFlgOrderByTransferDateDescIdDesc(
+                        FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO, "0")
                         .stream().map(PaymentMfHistoryResponse::from).toList());
     }
 
@@ -196,12 +223,15 @@ public class PaymentMfImportController {
     public ResponseEntity<?> historyCsv(@PathVariable Integer id) {
         try {
             byte[] csv = importService.getHistoryCsv(id);
-            String fileName = "買掛仕入MFインポートファイル.csv";
+            String yyyymmdd = importService.getHistoryTransferDate(id)
+                    .map(d -> d.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")))
+                    .orElse("history");
+            String fileName = "買掛仕入MFインポートファイル_" + yyyymmdd + ".csv";
             String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType("text/csv; charset=Shift_JIS"))
                     .header(HttpHeaders.CONTENT_DISPOSITION,
-                            "attachment; filename=\"payment_mf.csv\"; filename*=UTF-8''" + encoded)
+                            "attachment; filename=\"payment_mf_" + yyyymmdd + ".csv\"; filename*=UTF-8''" + encoded)
                     .body(csv);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
@@ -224,7 +254,7 @@ public class PaymentMfImportController {
                 ruleService.create(req, user == null ? null : user.getUser().getLoginUserNo())));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PutMapping("/rules/{id}")
     public ResponseEntity<PaymentMfRuleResponse> updateRule(@PathVariable Integer id,
                                                             @Valid @RequestBody PaymentMfRuleRequest req,
@@ -233,7 +263,7 @@ public class PaymentMfImportController {
                 ruleService.update(id, req, user == null ? null : user.getUser().getLoginUserNo())));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @DeleteMapping("/rules/{id}")
     public ResponseEntity<?> deleteRule(@PathVariable Integer id,
                                         @AuthenticationPrincipal LoginUser user) {
@@ -245,7 +275,7 @@ public class PaymentMfImportController {
      * PAYABLE ルールの payment_supplier_code を m_payment_supplier から一括補完。
      * dryRun=true でプレビューのみ、false で実際にDB更新。
      */
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping("/rules/backfill-codes")
     public ResponseEntity<?> backfillCodes(
             @RequestParam(defaultValue = "true") boolean dryRun,

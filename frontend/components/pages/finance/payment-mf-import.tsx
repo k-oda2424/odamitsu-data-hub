@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
+import { handleApiError } from '@/lib/api-error-handler'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,7 +15,9 @@ import {
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
-import { Download, Upload, AlertCircle, Scale, History, CheckCheck } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Download, Upload, AlertCircle, AlertTriangle, Scale, History, CheckCheck, ShieldAlert } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import type {
@@ -23,6 +26,7 @@ import type {
   PaymentMfVerifyResult,
 } from '@/types/payment-mf'
 import { RULE_KINDS, TAX_CATEGORIES } from '@/types/payment-mf'
+import { AmountSourceTooltip } from '@/components/common/AmountSourceTooltip'
 
 type RuleDialogState = { sourceName: string; amount: number | null } | null
 
@@ -33,6 +37,8 @@ export default function PaymentMfImportPage() {
   const [ruleDialog, setRuleDialog] = useState<RuleDialogState>(null)
   const [form, setForm] = useState<PaymentMfRuleRequest>(blankRuleRequest())
   const [confirmVerify, setConfirmVerify] = useState(false)
+  // G2-M2: per-supplier 1 円不一致がある時に「強制実行に同意」のチェック必須
+  const [forceAcknowledged, setForceAcknowledged] = useState(false)
 
   const previewMut = useMutation({
     mutationFn: async (f: File) => {
@@ -45,7 +51,7 @@ export default function PaymentMfImportPage() {
       if (r.errorCount === 0) toast.success(`プレビュー成功: ${r.totalRows}件`)
       else toast.warning(`マスタ未登録 ${r.errorCount} 件。登録後に再プレビューしてください`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e, { fallbackMessage: 'プレビュー失敗' }),
   })
 
   const rePreviewMut = useMutation({
@@ -55,7 +61,7 @@ export default function PaymentMfImportPage() {
       setPreview(r)
       if (r.errorCount === 0) toast.success('すべてのエラーが解消されました')
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e, { fallbackMessage: '再プレビュー失敗' }),
   })
 
   const createRuleMut = useMutation({
@@ -69,18 +75,34 @@ export default function PaymentMfImportPage() {
       // 再プレビューが既に走っている場合はスキップ（連続ルール追加時のフリッカ防止）
       if (preview && !rePreviewMut.isPending) rePreviewMut.mutate(preview.uploadId)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e, { fallbackMessage: 'ルール登録失敗' }),
   })
 
   const verifyMut = useMutation({
-    mutationFn: async (uploadId: string) =>
-      api.post<PaymentMfVerifyResult>(`/finance/payment-mf/verify/${uploadId}`),
-    onSuccess: (r) => {
-      toast.success(
+    mutationFn: async (args: { uploadId: string; force: boolean }) =>
+      api.post<PaymentMfVerifyResult>(`/finance/payment-mf/verify/${args.uploadId}`, {
+        force: args.force,
+      }),
+    onSuccess: (r, vars) => {
+      const baseMsg =
         `買掛金一覧に反映しました（一致 ${r.matchedCount} / 差異 ${r.diffCount} / 買掛金なし ${r.notFoundCount}）`
-      )
+      // P1-08 Q3-(ii): 手動確定保護でスキップされた supplier があれば別途通知
+      if (r.skippedManuallyVerifiedCount > 0) {
+        toast.success(baseMsg)
+        toast.warning(
+          `手動確定済の ${r.skippedManuallyVerifiedCount} 件は保護のため上書きしませんでした`
+        )
+      } else {
+        toast.success(baseMsg)
+      }
+      if (vars.force) {
+        toast.warning('per-supplier 1 円不一致を強制反映しました（audit log に記録済）')
+      }
+      // 反映成功後は force 同意状態をリセット
+      setForceAcknowledged(false)
     },
-    onError: (e: Error) => toast.error(`反映失敗: ${e.message}`),
+    // G3-M12: PER_SUPPLIER_MISMATCH 等の business code は handleApiError で個別誘導
+    onError: (e) => handleApiError(e, { fallbackMessage: '反映失敗' }),
   })
 
   const download = async () => {
@@ -102,7 +124,7 @@ export default function PaymentMfImportPage() {
       setTimeout(() => URL.revokeObjectURL(url), 1000)
       toast.success('CSVをダウンロードしました')
     } catch (e) {
-      toast.error(`ダウンロード失敗: ${(e as Error).message}`)
+      handleApiError(e, { fallbackMessage: 'ダウンロード失敗' })
     }
   }
 
@@ -198,6 +220,93 @@ export default function PaymentMfImportPage() {
 
       {preview && (
         <>
+          {/* P1-08 L1: 同一ハッシュ Excel 過去取込の警告 */}
+          {preview.duplicateWarning && (
+            <Alert className="border-amber-500 bg-amber-50">
+              <AlertTriangle className="h-4 w-4 text-amber-700" />
+              <AlertTitle className="text-amber-800">
+                同一内容のファイルが既に取込済です
+              </AlertTitle>
+              <AlertDescription className="text-amber-900/90">
+                <div>
+                  前回取込: {formatDateTime(preview.duplicateWarning.previousUploadedAt)}
+                  {preview.duplicateWarning.previousFilename && (
+                    <> （ファイル: <code className="rounded bg-white px-1">{preview.duplicateWarning.previousFilename}</code>）</>
+                  )}
+                </div>
+                <div>
+                  ハッシュが一致しているため <b>内容が完全に同じ</b> です。
+                  修正版でない場合は重複取込の可能性があります。
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* P1-08 L2: 同 (shop, transferDate) 確定済の警告 */}
+          {preview.appliedWarning && (
+            <Alert variant="destructive" className="border-red-400 bg-red-50">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>この月は既に確定済です</AlertTitle>
+              <AlertDescription>
+                <div>
+                  確定日時: {formatDateTime(preview.appliedWarning.appliedAt)}
+                  （取引月: <b>{preview.appliedWarning.transactionMonth}</b> / 振込日: <b>{preview.appliedWarning.transferDate}</b>）
+                </div>
+                <div>
+                  再確定すると <b>確定済の値を上書き</b> します。
+                  ただし単一仕入先で <code>verified_manually=true</code> で個別確定された行は <b>保護のため上書きされません</b>。
+                </div>
+                <div>
+                  続行する場合は下の「買掛金一覧へ反映」を確認した上で実行してください。
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/*
+            G2-M2 (2026-05-06): per-supplier 1 円整合性違反の警告 + 強制実行同意 UI。
+            違反 1 件以上で「買掛金一覧へ反映」「CSVダウンロード」をブロックし、
+            checkbox にチェック後にのみ force=true で実行可能。
+          */}
+          {(preview.amountReconciliation?.perSupplierMismatches?.length ?? 0) > 0 && (
+            <Alert variant="destructive" className="border-red-500 bg-red-50">
+              <ShieldAlert className="h-4 w-4" />
+              <AlertTitle>
+                per-supplier 1 円整合性違反 (
+                {preview.amountReconciliation!.perSupplierMismatches.length} 件)
+              </AlertTitle>
+              <AlertDescription>
+                <div className="mb-2">
+                  以下の仕入先で <b>請求額 ≠ 振込 + 送料 + 値引 + 早払 + 相殺</b> となっています。
+                  Excel 入力ミスの可能性が高いため、原則は経理に連絡し
+                  <b>振込明細 Excel を修正してから再アップロード</b> してください。
+                </div>
+                <div className="max-h-48 overflow-auto rounded border border-red-200 bg-white p-2 font-mono text-xs leading-snug">
+                  {preview.amountReconciliation!.perSupplierMismatches.slice(0, 100).map((m, i) => (
+                    <div key={i} className="break-all">{m}</div>
+                  ))}
+                  {preview.amountReconciliation!.perSupplierMismatches.length > 100 && (
+                    <div className="text-muted-foreground">
+                      ...（残り {preview.amountReconciliation!.perSupplierMismatches.length - 100} 件は省略）
+                    </div>
+                  )}
+                </div>
+                <div className="mt-3 flex items-start gap-2 rounded border border-red-300 bg-red-100 p-2 text-xs">
+                  <Checkbox
+                    id="force-acknowledge"
+                    checked={forceAcknowledged}
+                    onCheckedChange={(v) => setForceAcknowledged(v === true)}
+                    className="mt-0.5"
+                  />
+                  <Label htmlFor="force-acknowledge" className="cursor-pointer">
+                    Excel 修正不能/業務承認済 のため <b>強制反映</b> する。
+                    実行内容と全違反明細は <code>finance_audit_log</code> に記録されます。
+                  </Label>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-4 rounded border bg-card p-4">
             <div className="space-y-1 text-sm">
               <div>ファイル: <span className="font-medium">{preview.fileName}</span></div>
@@ -222,14 +331,34 @@ export default function PaymentMfImportPage() {
             </div>
             <div className="flex gap-2">
               <Button
-                variant="outline"
-                disabled={preview.errorCount > 0 || verifyMut.isPending}
+                variant={hasPerSupplierMismatch(preview) ? 'destructive' : 'outline'}
+                disabled={
+                  preview.errorCount > 0
+                  || verifyMut.isPending
+                  || (hasPerSupplierMismatch(preview) && !forceAcknowledged)
+                }
                 onClick={() => setConfirmVerify(true)}
               >
                 <CheckCheck className="mr-1 h-4 w-4" />
-                {verifyMut.isPending ? '反映中...' : '買掛金一覧へ反映'}
+                {verifyMut.isPending
+                  ? '反映中...'
+                  : hasPerSupplierMismatch(preview)
+                    ? '強制反映 (force=true)'
+                    : '買掛金一覧へ反映'}
               </Button>
-              <Button onClick={download} disabled={preview.errorCount > 0}>
+              {/*
+                G2-M2: CSV ダウンロード経路には force 上書きを設けない (Excel 修正が正しい運用)。
+                per-supplier 不一致がある間は無効化する。
+              */}
+              <Button
+                onClick={download}
+                disabled={preview.errorCount > 0 || hasPerSupplierMismatch(preview)}
+                title={
+                  hasPerSupplierMismatch(preview)
+                    ? 'per-supplier 1 円不一致のため CSV 出力は不可。Excel を修正してください'
+                    : undefined
+                }
+              >
                 <Download className="mr-1 h-4 w-4" />
                 CSVダウンロード
               </Button>
@@ -289,8 +418,8 @@ export default function PaymentMfImportPage() {
                   <th className="p-1">行</th>
                   <th className="p-1">コード</th>
                   <th className="p-1">送り先</th>
-                  <th className="p-1 text-right">請求額</th>
-                  <th className="p-1 text-right">買掛金</th>
+                  <th className="p-1 text-right">請求額<AmountSourceTooltip source="INVOICE" /></th>
+                  <th className="p-1 text-right">買掛金<AmountSourceTooltip source="PAYABLE_SUMMARY" /></th>
                   <th className="p-1 text-right">差額</th>
                   <th className="p-1">状態</th>
                   <th className="p-1">借方</th>
@@ -404,13 +533,62 @@ export default function PaymentMfImportPage() {
       <ConfirmDialog
         open={confirmVerify}
         onOpenChange={setConfirmVerify}
-        title="買掛金一覧へ反映"
-        description="この突合結果で買掛金一覧を検証確定します。よろしいですか？（verified_manually=true として手動確定扱いになります）"
-        confirmLabel="反映する"
-        onConfirm={() => preview && verifyMut.mutate(preview.uploadId)}
+        title={
+          preview && hasPerSupplierMismatch(preview)
+            ? '強制反映 (force=true) を実行'
+            : preview?.appliedWarning
+              ? '既に確定済の月を再確定'
+              : '買掛金一覧へ反映'
+        }
+        description={
+          preview && hasPerSupplierMismatch(preview)
+            ? `per-supplier 1 円整合性違反 ${preview.amountReconciliation!.perSupplierMismatches.length} 件を許容して反映します。違反詳細はサーバー側 audit log に記録されます。実行してよろしいですか？`
+            : preview?.appliedWarning
+              ? `この月は ${formatDateTime(preview.appliedWarning.appliedAt)} に既に確定済です。再確定すると確定済の値を上書きします（手動確定 verified_manually=true 行は保護されます）。続行しますか？`
+              : 'この突合結果で買掛金一覧を検証確定します。よろしいですか？（verified_manually=true として手動確定扱いになります）'
+        }
+        confirmLabel={
+          preview && hasPerSupplierMismatch(preview)
+            ? '強制反映する (force=true)'
+            : preview?.appliedWarning
+              ? '上書きして再確定する'
+              : '反映する'
+        }
+        onConfirm={() => {
+          // ダイアログを即座に閉じることで二重起動を防止する（mutation 完了前の連打対策）。
+          setConfirmVerify(false)
+          if (preview && !verifyMut.isPending) {
+            verifyMut.mutate({
+              uploadId: preview.uploadId,
+              force: hasPerSupplierMismatch(preview) && forceAcknowledged,
+            })
+          }
+        }}
       />
     </div>
   )
+}
+
+/**
+ * P1-08: ISO 8601 OffsetDateTime を `yyyy-MM-dd HH:mm` (JST 表示) にフォーマットする。
+ * パース失敗時は元文字列をそのまま返す (UX を壊さない)。
+ */
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/**
+ * G2-M2: per-supplier 1 円整合性違反が 1 件でもあるか判定する。
+ * preview / amountReconciliation / perSupplierMismatches のいずれかが null なら false。
+ */
+function hasPerSupplierMismatch(preview: PaymentMfPreviewResponse | null): boolean {
+  if (!preview || !preview.amountReconciliation) return false
+  const mm = preview.amountReconciliation.perSupplierMismatches
+  return Array.isArray(mm) && mm.length > 0
 }
 
 function blankRuleRequest(): PaymentMfRuleRequest {
@@ -433,6 +611,13 @@ function blankRuleRequest(): PaymentMfRuleRequest {
 function rowBgClass(r: PaymentMfPreviewRow): string {
   if (r.errorType === 'UNREGISTERED') return 'bg-red-50'
   if (r.ruleKind === 'SUMMARY') return 'bg-slate-50'
+  // P1-03 案 D / P1-07 案 D: 副行 (PAYABLE_*/DIRECT_PURCHASE_* FEE/DISCOUNT/EARLY/OFFSET) は
+  // 薄い indigo で親 (PAYABLE/DIRECT_PURCHASE) と区別。5日払い・20日払いとも同色で構造を強調。
+  if (
+    r.ruleKind &&
+    (r.ruleKind.startsWith('PAYABLE_') || r.ruleKind.startsWith('DIRECT_PURCHASE_'))
+  )
+    return 'bg-indigo-50'
   if (r.matchStatus === 'DIFF') return 'bg-amber-50'
   if (r.matchStatus === 'UNMATCHED' && r.ruleKind === 'PAYABLE') return 'bg-red-50'
   return ''

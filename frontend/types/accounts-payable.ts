@@ -80,13 +80,13 @@ export const VERIFICATION_FILTER_LABELS: Record<VerificationFilter, string> = {
 }
 
 /** 累積残の符号フィルタ（検証フィルタとは独立軸）。 */
-export type BalanceFilter = 'all' | 'negative' | 'positive'
-
-export const BALANCE_FILTER_LABELS: Record<BalanceFilter, string> = {
+export const BALANCE_FILTER_LABELS = {
   all: 'すべて',
   negative: '累積負残のみ',
   positive: '正残のみ',
-}
+} as const
+
+export type BalanceFilter = keyof typeof BALANCE_FILTER_LABELS
 
 export interface VerifyRequest {
   verifiedAmount: number

@@ -9,16 +9,19 @@ import jp.co.oda32.dto.finance.paymentmf.PaymentMfRuleRequest;
 import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.text.Normalizer;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +29,15 @@ public class PaymentMfRuleService {
 
     private final MPaymentMfRuleRepository repository;
     private final MPaymentSupplierService paymentSupplierService;
+
+    /**
+     * 自己注入。dryRun の有無で readOnly / read-write の {@link Transactional} を切り替えるため、
+     * AOP プロキシ経由で別メソッドを呼ぶ必要がある (同一 Bean 内の直接呼出しは AOP が効かない)。
+     * {@code @Lazy} は循環依存回避用 (SF-C11)。
+     */
+    @Autowired
+    @Lazy
+    private PaymentMfRuleService self;
 
     public List<MPaymentMfRule> findAll() {
         return repository.findByDelFlgOrderByPriorityAscIdAsc("0");
@@ -49,7 +61,7 @@ public class PaymentMfRuleService {
                 .tag(blankToNull(req.getTag()))
                 .priority(req.getPriority() == null ? 100 : req.getPriority())
                 .delFlg("0")
-                .addDateTime(LocalDateTime.now())
+                .addDateTime(new Timestamp(System.currentTimeMillis()))
                 .addUserNo(userNo)
                 .build();
         return repository.save(rule);
@@ -73,7 +85,7 @@ public class PaymentMfRuleService {
         r.setSummaryTemplate(req.getSummaryTemplate());
         r.setTag(blankToNull(req.getTag()));
         if (req.getPriority() != null) r.setPriority(req.getPriority());
-        r.setModifyDateTime(LocalDateTime.now());
+        r.setModifyDateTime(new Timestamp(System.currentTimeMillis()));
         r.setModifyUserNo(userNo);
         return repository.save(r);
     }
@@ -83,7 +95,7 @@ public class PaymentMfRuleService {
         MPaymentMfRule r = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("ルールが見つかりません: " + id));
         r.setDelFlg("1");
-        r.setModifyDateTime(LocalDateTime.now());
+        r.setModifyDateTime(new Timestamp(System.currentTimeMillis()));
         r.setModifyUserNo(userNo);
         repository.save(r);
     }
@@ -91,11 +103,28 @@ public class PaymentMfRuleService {
     /**
      * PAYABLE ルールのうち payment_supplier_code 未設定のものを、
      * m_payment_supplier の payment_supplier_name と名寄せして一括補完する。
+     * <p>SF-C11: dryRun=true は readOnly tx、dryRun=false は read-write tx の専用メソッドへ
+     * 自己注入経由で振り分ける。tx 種別を実行時引数で変えるためにディスパッチが必要。
      *
      * @param dryRun true の場合はDBを更新せず、マッチ結果のみ返す
      */
-    @Transactional
     public BackfillResult backfillPaymentSupplierCodes(boolean dryRun, Integer userNo) {
+        return dryRun
+                ? self.backfillDryRun(userNo)
+                : self.backfillApply(userNo);
+    }
+
+    @Transactional(readOnly = true)
+    public BackfillResult backfillDryRun(Integer userNo) {
+        return doBackfill(true, userNo);
+    }
+
+    @Transactional
+    public BackfillResult backfillApply(Integer userNo) {
+        return doBackfill(false, userNo);
+    }
+
+    private BackfillResult doBackfill(boolean dryRun, Integer userNo) {
         List<MPaymentMfRule> rules = repository.findByDelFlgOrderByPriorityAscIdAsc("0");
         List<MPaymentSupplier> suppliers = paymentSupplierService.findByShopNo(FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO);
 
@@ -153,7 +182,7 @@ public class PaymentMfRuleService {
                 matched++;
                 if (!dryRun) {
                     rule.setPaymentSupplierCode(pick.getPaymentSupplierCode());
-                    rule.setModifyDateTime(LocalDateTime.now());
+                    rule.setModifyDateTime(new Timestamp(System.currentTimeMillis()));
                     rule.setModifyUserNo(userNo);
                     repository.save(rule);
                 }
@@ -178,6 +207,19 @@ public class PaymentMfRuleService {
                 .build();
     }
 
+    // SF-C09: normalizeCompanyName の正規表現を Pattern にプリコンパイルして再利用。
+    // 各呼び出しで Pattern.compile() コストを払わないようにする。
+    /** [20], [5], [20竹], [20手] など店舗・支払サイト注記。 */
+    private static final Pattern BRACKETS = Pattern.compile("\\[[^\\]]*\\]");
+    /** 会社種別語。 */
+    private static final Pattern COMPANY_TYPE =
+            Pattern.compile("株式会社|有限会社|合同会社|合資会社|合名会社");
+    /** 支店種別（末尾一文字のみ; 単語中の過剰マッチを避ける）。 */
+    private static final Pattern BRANCH_SUFFIX = Pattern.compile("[松竹梅手]\\s*$");
+    /** 空白・記号。 */
+    private static final Pattern WHITESPACE_AND_PUNCT =
+            Pattern.compile("[\\s\\u3000,.\\-・。、]");
+
     /**
      * 会社名表記ゆれ（全半角・株式会社/㈱・支店記号[20]など）を吸収した正規化名を返す。
      * マスタ名寄せ専用。UI上の検索正規化よりも厳しめ。
@@ -185,18 +227,13 @@ public class PaymentMfRuleService {
     static String normalizeCompanyName(String raw) {
         if (raw == null) return "";
         String s = Normalizer.normalize(raw, Normalizer.Form.NFKC);
-        // [20], [5], [20竹], [20手] など店舗・支払サイト注記を除去
-        s = s.replaceAll("\\[[^\\]]*\\]", "");
+        s = BRACKETS.matcher(s).replaceAll("");
         // 全角括弧 → 半角扱いは NFKC でされる。(株)/(有) 表記を除去
         s = s.replace("(株)", "").replace("(有)", "")
              .replace("㈱", "").replace("㈲", "");
-        // 会社種別語を除去
-        s = s.replaceAll("株式会社|有限会社|合同会社|合資会社|合名会社", "");
-        // 支店種別を除去（松/竹/梅/手 — 末尾一文字のみ）
-        // 単語中に現れると過剰マッチになるため、末尾一致のみ削る
-        s = s.replaceAll("[松竹梅手]\\s*$", "");
-        // 空白と記号を除去
-        s = s.replaceAll("[\\s\\u3000,.\\-・。、]", "");
+        s = COMPANY_TYPE.matcher(s).replaceAll("");
+        s = BRANCH_SUFFIX.matcher(s).replaceAll("");
+        s = WHITESPACE_AND_PUNCT.matcher(s).replaceAll("");
         return s.trim().toLowerCase();
     }
 

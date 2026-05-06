@@ -16,7 +16,11 @@ import { normalizeForSearch } from '@/lib/utils'
 
 export interface Column<T> {
   key: string
-  header: string
+  /**
+   * 列ヘッダー。文字列または ReactNode を受け取る。
+   * AmountSourceTooltip 等のアイコン併記時は ReactNode 形式 (<>...</>) で渡す。
+   */
+  header: React.ReactNode
   render?: (item: T) => React.ReactNode
   sortable?: boolean
 }

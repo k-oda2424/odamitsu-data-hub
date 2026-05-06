@@ -34,6 +34,12 @@ public class MfHealthResponse {
         private String scope;
         /** token 残り時間 (時間単位)。null なら未接続 */
         private Long expiresInHours;
+        /**
+         * SF-22: MF API への軽量 ping (listAccounts) が成功するか。
+         * connected=true でも scope/key 切れ等で API に到達できないケースがあるため
+         * 実通信を 1 回試行した結果を持つ。null = 未接続のためスキップ。
+         */
+        private Boolean apiReachable;
     }
 
     @Data

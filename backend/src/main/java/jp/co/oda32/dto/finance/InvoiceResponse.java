@@ -12,6 +12,13 @@ public class InvoiceResponse {
     private Integer invoiceId;
     private String partnerCode;
     private String partnerName;
+    /**
+     * 締日。フォーマットは <code>YYYY/MM/末</code> または <code>YYYY/MM/DD</code> の文字列。
+     * (DB CHECK 制約: V031 {@code chk_t_invoice_closing_date_format})
+     *
+     * <p>SF-24 / DD-13: 中期では {@code LocalDate + is_month_end:boolean} に分割する予定 (DEF-05)。
+     * 当面は文字列のまま返却する。
+     */
     private String closingDate;
     private BigDecimal previousBalance;
     private BigDecimal totalPayment;

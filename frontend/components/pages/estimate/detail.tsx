@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useCallback, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
@@ -106,6 +107,9 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
   const executePrint = useCallback(async () => {
     const currentStatus = estimateQuery.data?.estimateStatus ?? null
     const notified = getNotifiedStatus(currentStatus)
+    // window.print() blocks until the preview closes. flushSync forces the
+    // confirm dialog to unmount first so it isn't captured in the preview.
+    flushSync(() => setPendingOutput(null))
     window.print()
     if (notified !== null && notified !== currentStatus) {
       await updateStatusOnOutput(currentStatus)
@@ -210,7 +214,7 @@ export function EstimateDetailPage({ estimateNo }: EstimateDetailPageProps) {
                 <Download className="mr-2 h-4 w-4" />
                 PDF
               </Button>
-              <Button variant="outline" onClick={() => router.back()}>
+              <Button variant="outline" onClick={() => router.push('/estimates')}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 戻る
               </Button>

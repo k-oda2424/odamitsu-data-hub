@@ -24,8 +24,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * SMILEからの新規受注データを処理するクラス
@@ -55,28 +53,21 @@ public class SmilePurchaseImportService extends AbstractSmilePurchaseImportServi
         List<TPurchaseDetail> tPurchaseDetailList = new ArrayList<>();
         newPurchaseFileList.sort(Comparator.comparing(WSmilePurchaseOutputFile::getGyou));
         for (WSmilePurchaseOutputFile newPurchaseFile : newPurchaseFileList) {
-            log.info(String.format("新規仕入処理 shop_no:%d 伝票日付:%s 処理連番:%d 行番号:%d 仕入先名:%s 商品コード:%s 商品名:%s ", newPurchaseFile.getShopNo(), newPurchaseFile.getDenpyouHizuke(), newPurchaseFile.getShoriRenban(), newPurchaseFile.getGyou(), newPurchaseFile.getShiiresakiMei1(), newPurchaseFile.getShouhinCode(), newPurchaseFile.getShouhinMei()));
-            List<WSmilePurchaseOutputFile> list = this.wSmilePurchaseOutputFileService.findByShopNoAndShoriRenban(newPurchaseFile.getShopNo(), newPurchaseFile.getShoriRenban());
-            if (!list.isEmpty()) {
-                list = list.stream().filter(wSmilePurchaseOutputFile -> Objects.equals(wSmilePurchaseOutputFile.getGyou(), newPurchaseFile.getGyou())).collect(Collectors.toList());
-                if (list.isEmpty()) {
-                    log.warn(String.format("shopNo:%d shoriRenban:%d gyou:%d は存在しません。", newPurchaseFile.getShopNo(), newPurchaseFile.getShoriRenban(), newPurchaseFile.getGyou()));
-                    continue;
-                }
-            }
+            log.debug("新規仕入処理 shop_no:{} 伝票日付:{} 処理連番:{} 行番号:{} 仕入先名:{} 商品コード:{} 商品名:{}", newPurchaseFile.getShopNo(), newPurchaseFile.getDenpyouHizuke(), newPurchaseFile.getShoriRenban(), newPurchaseFile.getGyou(), newPurchaseFile.getShiiresakiMei1(), newPurchaseFile.getShouhinCode(), newPurchaseFile.getShouhinMei());
             if (shopNo != newPurchaseFile.getShopNo()) {
-                log.warn(String.format("shopNoが異なります。処理中のshopNo:%d newPurchaseのshopNo:%d", shopNo, newPurchaseFile.getShopNo()));
+                log.warn("shopNoが異なります。処理中のshopNo:{} newPurchaseのshopNo:{}", shopNo, newPurchaseFile.getShopNo());
             }
 
-            // 商品名に「消費税」が含まれる場合は請求時に登録されるのでスキップする
+            // 商品名に「消費税」が含まれる場合は請求時に登録されるのでスキップする。
+            // 通常 findNewPurchases のクエリで除外済みだが、別経路で渡された場合の保険として残す。
             if (newPurchaseFile.getShouhinMei() != null && newPurchaseFile.getShouhinMei().contains("消費税")) {
-                log.info(String.format("消費税関連の商品「%s」はスキップします。請求時に登録されます。", newPurchaseFile.getShouhinMei()));
+                log.debug("消費税関連の商品「{}」はスキップします。請求時に登録されます。", newPurchaseFile.getShouhinMei());
                 continue;
             }
 
-            // 商品コードが空の場合は、この仕入明細をスキップ
+            // 商品コードが空の場合は、この仕入明細をスキップ (同上、通常クエリ側で除外済み)
             if (StringUtil.isEmpty(newPurchaseFile.getShouhinCode())) {
-                log.warn(String.format("商品コードが空のため、商品「%s」の仕入明細処理をスキップします。", newPurchaseFile.getShouhinMei()));
+                log.warn("商品コードが空のため、商品「{}」の仕入明細処理をスキップします。", newPurchaseFile.getShouhinMei());
                 continue;
             }
             

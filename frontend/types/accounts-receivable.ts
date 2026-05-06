@@ -87,14 +87,17 @@ export interface AggregateResponse {
 
 /**
  * デフォルト期間: 直近の 20日締め期間を返す。
- * - 当月20日までなら前月21日〜当月20日
+ * - 当月20日（含む）までなら前月21日〜当月20日
  * - 当月21日以降なら当月21日〜翌月20日（ただし未来なので通常は当月20日基準）
+ *
+ * SF-E16: 20日当日に画面を開いたら「当月締め」期間を初期表示するため、
+ * 境界判定を `< 20` から `<= 20` に変更。
  */
 export function defaultDateRange(today = new Date()): { fromDate: string; toDate: string } {
   const d = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   let toY = d.getFullYear()
   let toM = d.getMonth()
-  if (d.getDate() < 20) {
+  if (d.getDate() <= 20) {
     toM -= 1
     if (toM < 0) {
       toM = 11
@@ -112,7 +115,23 @@ export function toYyyyMmDd(isoDate: string): string {
   return isoDate.replaceAll('-', '')
 }
 
-/** PK を URL 経路に変換（手動確定/MF切替エンドポイント用） */
+/**
+ * PK を URL 経路に変換（手動確定/MF切替エンドポイント用）。
+ *
+ * - SF-E17: `taxRate` はバックエンド `BigDecimal scale=2` と URL 表現を揃えるため
+ *   常に `Number(rate).toFixed(2)` で正規化（例: 8 → "8.00", 10.0 → "10.00"）。
+ *   scale 違いの行が複数あった場合の取違いを防止する。
+ * - SF-E20: 各 PK 要素を `encodeURIComponent` でラップ。現状 `transactionMonth` は
+ *   `yyyy-MM-dd` 形式で URL 安全だが、partnerCode 等 special char が混入したときの
+ *   URL injection 防止と将来形式変更耐性のため。
+ */
 export function pkToPath(ar: AccountsReceivable): string {
-  return `${ar.shopNo}/${ar.partnerNo}/${ar.transactionMonth}/${ar.taxRate}/${ar.isOtakeGarbageBag}`
+  const seg = (v: string | number | boolean) => encodeURIComponent(String(v))
+  return [
+    seg(ar.shopNo),
+    seg(ar.partnerNo),
+    seg(ar.transactionMonth),
+    seg(Number(ar.taxRate).toFixed(2)),
+    seg(ar.isOtakeGarbageBag),
+  ].join('/')
 }

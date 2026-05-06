@@ -1,12 +1,13 @@
 package jp.co.oda32.domain.model.finance;
 
 import jakarta.persistence.*;
+import jp.co.oda32.domain.model.IEntity;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
+import java.sql.Timestamp;
 
 @Data
 @Builder
@@ -14,7 +15,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @NoArgsConstructor
 @Table(name = "m_payment_mf_rule")
-public class MPaymentMfRule {
+public class MPaymentMfRule implements IEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -70,14 +71,23 @@ public class MPaymentMfRule {
     private String delFlg = "0";
 
     @Column(name = "add_date_time")
-    private LocalDateTime addDateTime;
+    private Timestamp addDateTime;
 
     @Column(name = "add_user_no")
     private Integer addUserNo;
 
     @Column(name = "modify_date_time")
-    private LocalDateTime modifyDateTime;
+    private Timestamp modifyDateTime;
 
     @Column(name = "modify_user_no")
     private Integer modifyUserNo;
+
+    /**
+     * このマスタは shop に依存しない (全社共通の MF 仕訳ルール) ため null を返す。
+     * IEntity 規約上 getter が必須なので {@code null} で実装する (SF-C13)。
+     */
+    @Override
+    public Integer getShopNo() {
+        return null;
+    }
 }

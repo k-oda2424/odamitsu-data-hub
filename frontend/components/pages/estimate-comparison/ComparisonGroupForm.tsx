@@ -49,9 +49,23 @@ export function ComparisonGroupForm({ group, groupIndex, shopNo, isAdmin, onUpda
   }, [onUpdate])
 
   const searchGoodsByCode = useCallback(async (code: string, target: 'base' | string) => {
-    if (!code || !shopNo) return
+    const trimmed = code.trim()
+    if (!trimmed || !shopNo) return
+
+    // SMILE 商品コードは 8 桁固定。1〜7 桁数字のみは頭 0 埋めで 8 桁に補完してから検索する。
+    const normalized = /^\d{1,7}$/.test(trimmed) ? trimmed.padStart(8, '0') : trimmed
+
+    // 入力欄に補完後コードを反映 (検索結果が無くても 0 埋め後の値が表示される)
+    if (normalized !== code) {
+      if (target === 'base') {
+        onUpdate((prev) => ({ ...prev, baseGoodsCode: normalized }))
+      } else {
+        updateDetail(target, { goodsCode: normalized })
+      }
+    }
+
     try {
-      const result = await api.get<EstimateGoodsSearchResponse>(`/estimates/goods-search?shopNo=${shopNo}&code=${encodeURIComponent(code)}`)
+      const result = await api.get<EstimateGoodsSearchResponse>(`/estimates/goods-search?shopNo=${shopNo}&code=${encodeURIComponent(normalized)}`)
       if (!result) return
       if (target === 'base') {
         onUpdate((prev) => ({

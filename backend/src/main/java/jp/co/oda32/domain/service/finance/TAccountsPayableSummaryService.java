@@ -2,9 +2,13 @@ package jp.co.oda32.domain.service.finance;
 
 import jakarta.persistence.criteria.Predicate;
 import jp.co.oda32.annotation.SkipShopCheck;
+import jp.co.oda32.audit.AuditLog;
+import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
 import jp.co.oda32.domain.repository.finance.TAccountsPayableSummaryRepository;
+import jp.co.oda32.dto.finance.AccountsPayableSummaryProjection;
 import jp.co.oda32.dto.finance.AccountsPayableSummaryResponse;
+import jp.co.oda32.exception.FinanceInternalException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,17 +31,11 @@ import java.util.List;
 @Service
 public class TAccountsPayableSummaryService {
 
-    private static final BigDecimal MATCH_THRESHOLD = new BigDecimal("100");
-
     private final TAccountsPayableSummaryRepository repository;
 
     @Autowired
     public TAccountsPayableSummaryService(TAccountsPayableSummaryRepository repository) {
         this.repository = repository;
-    }
-
-    public List<TAccountsPayableSummary> findAll() {
-        return repository.findAll();
     }
 
     @SkipShopCheck
@@ -53,16 +51,15 @@ public class TAccountsPayableSummaryService {
 
     @SkipShopCheck
     public AccountsPayableSummaryResponse summary(Integer shopNo, LocalDate transactionMonth) {
-        Specification<TAccountsPayableSummary> spec = buildSpec(shopNo, null, transactionMonth, "all");
-        List<TAccountsPayableSummary> list = repository.findAll(spec);
-        long total = list.size();
-        long unverified = list.stream().filter(s -> s.getVerificationResult() == null).count();
-        long unmatched = list.stream().filter(s -> s.getVerificationResult() != null && s.getVerificationResult() == 0).count();
-        long matched = list.stream().filter(s -> s.getVerificationResult() != null && s.getVerificationResult() == 1).count();
-        BigDecimal diffSum = list.stream()
-                .filter(s -> s.getVerificationResult() != null && s.getVerificationResult() == 0)
-                .map(s -> s.getPaymentDifference() != null ? s.getPaymentDifference() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // SF-24: 旧実装 (findAll(spec) → アプリ側集計) を JPQL aggregate に置換。
+        // 行数増加に対する性能劣化を回避し、互換 Response 構造を維持する。
+        AccountsPayableSummaryProjection p = repository.aggregateSummary(shopNo, transactionMonth);
+        long total = p != null && p.totalCount() != null ? p.totalCount() : 0L;
+        long unverified = p != null && p.unverifiedCount() != null ? p.unverifiedCount() : 0L;
+        long unmatched = p != null && p.unmatchedCount() != null ? p.unmatchedCount() : 0L;
+        long matched = p != null && p.matchedCount() != null ? p.matchedCount() : 0L;
+        BigDecimal diffSum = p != null && p.unmatchedDifferenceSum() != null
+                ? p.unmatchedDifferenceSum() : BigDecimal.ZERO;
         return AccountsPayableSummaryResponse.builder()
                 .transactionMonth(transactionMonth)
                 .totalCount(total)
@@ -116,6 +113,9 @@ public class TAccountsPayableSummaryService {
      * verifiedManually=true をセットし、次回 SMILE 再検証バッチで上書きされないようにします。
      */
     @Transactional
+    @AuditLog(table = "t_accounts_payable_summary", operation = "verify",
+            pkExpression = "{'shopNo': #a0, 'supplierNo': #a1, 'transactionMonth': #a2, 'taxRate': #a3}",
+            captureArgsAsAfter = true)
     public TAccountsPayableSummary verify(
             int shopNo, int supplierNo, LocalDate transactionMonth, BigDecimal taxRate,
             BigDecimal verifiedAmount, String note) {
@@ -126,6 +126,10 @@ public class TAccountsPayableSummaryService {
         applyVerification(summary, verifiedAmount);
         summary.setVerifiedManually(Boolean.TRUE);
         summary.setVerificationNote(note);
+        // G2-M1/M10 (V040): 書込経路を MANUAL_VERIFICATION として明示記録。
+        // 再 upload 保護判定 (PaymentMfImportService.applyVerification) と
+        // sumVerifiedAmountForGroup の SUM 経路選択で参照される。
+        summary.setVerificationSource(FinanceConstants.VERIFICATION_SOURCE_MANUAL);
         // 振込明細一括検証と同じ挙動: 一致なら MF出力=ON、不一致なら MF出力=OFF
         // ユーザーが後で Switch で明示的に上書き可能
         summary.setMfExportEnabled(Integer.valueOf(1).equals(summary.getVerificationResult()));
@@ -136,6 +140,9 @@ public class TAccountsPayableSummaryService {
      * 手動確定を解除します。次回 SMILE 再検証バッチで上書きされるようになります。
      */
     @Transactional
+    @AuditLog(table = "t_accounts_payable_summary", operation = "release_manual_lock",
+            pkExpression = "{'shopNo': #a0, 'supplierNo': #a1, 'transactionMonth': #a2, 'taxRate': #a3}",
+            captureArgsAsAfter = true)
     public TAccountsPayableSummary releaseManualLock(
             int shopNo, int supplierNo, LocalDate transactionMonth, BigDecimal taxRate) {
         TAccountsPayableSummary summary = getByPK(shopNo, supplierNo, transactionMonth, taxRate);
@@ -143,10 +150,16 @@ public class TAccountsPayableSummaryService {
             throw new IllegalArgumentException("対象の買掛金集計が見つかりません");
         }
         summary.setVerifiedManually(Boolean.FALSE);
+        // G2-M1/M10 (V040): 手動確定解除時は source 列も NULL に戻す
+        // (verified_manually=false 行は read 側で taxIncludedAmountChange にフォールバックされるため)。
+        summary.setVerificationSource(null);
         return repository.save(summary);
     }
 
     @Transactional
+    @AuditLog(table = "t_accounts_payable_summary", operation = "mf_export_toggle",
+            pkExpression = "{'shopNo': #a0, 'supplierNo': #a1, 'transactionMonth': #a2, 'taxRate': #a3}",
+            captureArgsAsAfter = true)
     public TAccountsPayableSummary updateMfExport(
             int shopNo, int supplierNo, LocalDate transactionMonth, BigDecimal taxRate, boolean enabled) {
         TAccountsPayableSummary summary = getByPK(shopNo, supplierNo, transactionMonth, taxRate);
@@ -166,7 +179,9 @@ public class TAccountsPayableSummaryService {
         // 税率は集計時に必ず入っている前提。null の場合はデータ不整合として fail fast し、
         // 誤った税抜額で上書きすることを避ける（非課税0%と10%が取り違えられる等）。
         if (summary.getTaxRate() == null) {
-            throw new IllegalStateException(
+            // T5: 内部 ID (supplier_no) を含むため FinanceInternalException で client には汎用化。
+            // 詳細メッセージはサーバーログのみ記録 (情報漏洩防止)。
+            throw new FinanceInternalException(
                     "買掛金集計の taxRate が null です。集計バッチを再実行してください: shopNo="
                             + summary.getShopNo() + ", supplierNo=" + summary.getSupplierNo()
                             + ", transactionMonth=" + summary.getTransactionMonth());
@@ -182,7 +197,7 @@ public class TAccountsPayableSummaryService {
         BigDecimal difference = verifiedAmount.subtract(baseTaxIncluded);
         summary.setPaymentDifference(difference);
 
-        boolean matched = difference.abs().compareTo(MATCH_THRESHOLD) <= 0;
+        boolean matched = difference.abs().compareTo(FinanceConstants.MATCH_TOLERANCE) <= 0;
         summary.setVerificationResult(matched ? 1 : 0);
     }
 

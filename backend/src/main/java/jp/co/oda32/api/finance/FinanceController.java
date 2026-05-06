@@ -16,8 +16,6 @@ import jp.co.oda32.domain.service.finance.SupplierBalancesService;
 import jp.co.oda32.domain.service.finance.TAccountsPayableSummaryService;
 import jp.co.oda32.domain.service.finance.TInvoiceService;
 import jp.co.oda32.domain.service.finance.mf.MfJournalCacheService;
-import jp.co.oda32.domain.service.finance.mf.MfReAuthRequiredException;
-import jp.co.oda32.domain.service.finance.mf.MfScopeInsufficientException;
 import jp.co.oda32.domain.service.finance.mf.MfSupplierLedgerService;
 import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.domain.model.master.MPaymentSupplier;
@@ -40,6 +38,7 @@ import jp.co.oda32.dto.finance.PartnerGroupRequest;
 import jp.co.oda32.dto.finance.PartnerGroupResponse;
 import jp.co.oda32.dto.finance.PaymentDateUpdateRequest;
 import jp.co.oda32.dto.finance.PurchaseJournalExportPreviewResponse;
+import jp.co.oda32.exception.FinanceBusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.InputStreamResource;
@@ -52,6 +51,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
@@ -67,6 +67,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -76,6 +77,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 @RequestMapping("/api/v1/finance")
 @PreAuthorize("isAuthenticated()")
 @RequiredArgsConstructor
+@Validated
 public class FinanceController {
 
     private static final Charset CP932 = Charset.forName("windows-31j");
@@ -146,7 +148,7 @@ public class FinanceController {
     }
 
     @DeleteMapping("/accounts-payable/{shopNo}/{supplierNo}/{transactionMonth}/{taxRate}/manual-lock")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<AccountsPayableResponse> releaseManualLock(
             @PathVariable Integer shopNo,
             @PathVariable Integer supplierNo,
@@ -213,24 +215,15 @@ public class FinanceController {
      * @since 2026-04-22
      */
     @GetMapping("/accounts-payable/integrity-report")
-    public ResponseEntity<?> getIntegrityReport(
+    public ResponseEntity<IntegrityReportResponse> getIntegrityReport(
             @RequestParam("shopNo") Integer shopNo,
             @RequestParam("fromMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromMonth,
             @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth,
             @RequestParam(value = "refresh", defaultValue = "false") boolean refresh) {
         assertShopAccess(shopNo);
-        try {
-            IntegrityReportResponse res = accountsPayableIntegrityService.generate(shopNo, fromMonth, toMonth, refresh);
-            return ResponseEntity.ok(res);
-        } catch (MfReAuthRequiredException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
-        } catch (MfScopeInsufficientException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "message", e.getMessage(),
-                    "requiredScope", e.getRequiredScope()));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("message", e.getMessage()));
-        }
+        // MF 認証/権限/計算失敗系の例外は FinanceExceptionHandler に委譲 (SF-25)
+        IntegrityReportResponse res = accountsPayableIntegrityService.generate(shopNo, fromMonth, toMonth, refresh);
+        return ResponseEntity.ok(res);
     }
 
     /**
@@ -244,24 +237,15 @@ public class FinanceController {
      * @since 2026-04-23
      */
     @GetMapping("/accounts-payable/supplier-balances")
-    public ResponseEntity<?> getSupplierBalances(
+    public ResponseEntity<SupplierBalancesResponse> getSupplierBalances(
             @RequestParam("shopNo") Integer shopNo,
             @RequestParam(value = "asOfMonth", required = false)
                 @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOfMonth,
             @RequestParam(value = "refresh", defaultValue = "false") boolean refresh) {
         assertShopAccess(shopNo);
-        try {
-            SupplierBalancesResponse res = supplierBalancesService.generate(shopNo, asOfMonth, refresh);
-            return ResponseEntity.ok(res);
-        } catch (MfReAuthRequiredException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
-        } catch (MfScopeInsufficientException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "message", e.getMessage(),
-                    "requiredScope", e.getRequiredScope()));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("message", e.getMessage()));
-        }
+        // MF 認証/権限/計算失敗系の例外は FinanceExceptionHandler に委譲 (SF-25)
+        SupplierBalancesResponse res = supplierBalancesService.generate(shopNo, asOfMonth, refresh);
+        return ResponseEntity.ok(res);
     }
 
     /**
@@ -310,25 +294,16 @@ public class FinanceController {
     }
 
     @GetMapping("/accounts-payable/ledger/mf")
-    public ResponseEntity<?> getMfSupplierLedger(
+    public ResponseEntity<MfSupplierLedgerResponse> getMfSupplierLedger(
             @RequestParam("shopNo") Integer shopNo,
             @RequestParam("supplierNo") Integer supplierNo,
             @RequestParam("fromMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromMonth,
             @RequestParam("toMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toMonth,
             @RequestParam(value = "refresh", defaultValue = "false") boolean refresh) {
         assertShopAccess(shopNo);
-        try {
-            MfSupplierLedgerResponse res = mfSupplierLedgerService.getSupplierLedger(shopNo, supplierNo, fromMonth, toMonth, refresh);
-            return ResponseEntity.ok(res);
-        } catch (MfReAuthRequiredException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", e.getMessage()));
-        } catch (MfScopeInsufficientException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "message", e.getMessage(),
-                    "requiredScope", e.getRequiredScope()));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("message", e.getMessage()));
-        }
+        // MF 認証/権限/計算失敗系の例外は FinanceExceptionHandler に委譲 (SF-25)
+        MfSupplierLedgerResponse res = mfSupplierLedgerService.getSupplierLedger(shopNo, supplierNo, fromMonth, toMonth, refresh);
+        return ResponseEntity.ok(res);
     }
 
     // -------- 買掛→仕入仕訳 CSV（MF）--------
@@ -343,7 +318,7 @@ public class FinanceController {
      * @param forceExport      true の場合 MF出力OFF の行も含めて出力（未検証含む）
      */
     @GetMapping("/accounts-payable/export-purchase-journal")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<InputStreamResource> exportPurchaseJournalCsv(
             @RequestParam("transactionMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth,
             @RequestParam(defaultValue = "false") boolean forceExport) throws Exception {
@@ -359,7 +334,8 @@ public class FinanceController {
         }
 
         if (result.rowCount == 0) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+            // T5: 業務メッセージ (運用者にデータ条件を伝える) → FinanceBusinessException で 400 + 元メッセージ。
+            throw new FinanceBusinessException(
                     "出力対象のデータがありません（MF出力ON かつ 差額 0 円以外の買掛金が存在しない）");
         }
 
@@ -396,7 +372,7 @@ public class FinanceController {
      * CSV 本体は生成するが捨てる（skippedSuppliers / rowCount を得るため）。
      */
     @GetMapping("/accounts-payable/export-purchase-journal/preview")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<PurchaseJournalExportPreviewResponse> exportPurchaseJournalPreview(
             @RequestParam("transactionMonth") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate transactionMonth,
             @RequestParam(defaultValue = "false") boolean forceExport) throws Exception {
@@ -425,9 +401,17 @@ public class FinanceController {
             @RequestParam(required = false) Integer shopNo,
             @RequestParam(required = false) String partnerCode,
             @RequestParam(required = false) String partnerName,
-            @RequestParam(required = false) String closingDate) {
+            // SF-17: closingDate のフォーマット検証 (前方一致用に YYYY/MM 単独も許容)
+            //        SF-01 の DDL CHECK 制約 (^\d{4}/\d{2}/(末|\d{2})$) と整合
+            @RequestParam(required = false)
+                @jakarta.validation.constraints.Pattern(
+                    regexp = "^\\d{4}/\\d{2}(/(末|\\d{2}))?$",
+                    message = "closingDate は YYYY/MM 又は YYYY/MM/DD 又は YYYY/MM/末 形式で指定してください")
+                String closingDate) {
+        // SF-03: 非 admin は自 shop に強制上書き
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         List<TInvoice> invoices = tInvoiceService.findByDetailedSpecification(
-                closingDate, shopNo, partnerCode, partnerName, null, null);
+                closingDate, effectiveShopNo, partnerCode, partnerName, null, null);
         return ResponseEntity.ok(invoices.stream().map(InvoiceResponse::from).collect(Collectors.toList()));
     }
 
@@ -435,10 +419,15 @@ public class FinanceController {
     public ResponseEntity<?> updatePaymentDate(
             @PathVariable Integer invoiceId,
             @Valid @RequestBody PaymentDateUpdateRequest request) {
-        TInvoice invoice = tInvoiceService.getInvoiceById(invoiceId);
-        if (invoice == null) {
+        // SF-09: Optional 化対応
+        Optional<TInvoice> opt = tInvoiceService.getInvoiceById(invoiceId);
+        if (opt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
+        TInvoice invoice = opt.get();
+        // SF-03: 単発入金日更新でも shopNo 認可ガードを実施 (IDOR 防止)
+        assertShopAccess(invoice.getShopNo());
+        // SF-06: paymentDate は null 許容 (null = クリア)
         invoice.setPaymentDate(request.getPaymentDate());
         tInvoiceService.saveInvoice(invoice);
         return ResponseEntity.ok(InvoiceResponse.from(invoice));
@@ -449,8 +438,21 @@ public class FinanceController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(required = false) Integer shopNo) {
         try {
-            InvoiceImportResult result = invoiceImportService.importFromExcel(file, shopNo);
+            // SF-02: shopNo IDOR 修正
+            //   - 非 admin (shopNo=0 以外) はリクエスト shopNo を強制上書き (= ログイン shop)
+            //   - admin は要求した shopNo (null 含む) を尊重し、null の場合のみファイル名推定にフォールバック
+            //   推定/上書き後の effectiveShopNo を Service に渡す
+            Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
+            // 非 admin が異 shop を指定したら 403 (resolveEffectiveShopNo は黙って上書きするだけなので
+            //   明示的に shopNo を指定したケースだけ反論する)
+            if (shopNo != null && effectiveShopNo != null && !effectiveShopNo.equals(shopNo)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "他事業部の請求データは取り込めません");
+            }
+            InvoiceImportResult result = invoiceImportService.importFromExcel(file, effectiveShopNo);
             return ResponseEntity.ok(result);
+        } catch (ResponseStatusException e) {
+            throw e;
         } catch (IllegalArgumentException e) {
             log.warn("請求実績インポートエラー: {}", e.getMessage());
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
@@ -464,14 +466,41 @@ public class FinanceController {
     @PutMapping("/invoices/bulk-payment-date")
     public ResponseEntity<?> bulkUpdatePaymentDate(@Valid @RequestBody BulkPaymentDateRequest request) {
         List<TInvoice> invoices = tInvoiceService.findByIds(request.getInvoiceIds());
-        if (invoices.size() != request.getInvoiceIds().size()) {
-            log.warn("入金日一括更新: 要求{}件中{}件が見つかりました",
-                    request.getInvoiceIds().size(), invoices.size());
+
+        // SF-03: shopNo IDOR ガード — 異 shop の invoice を除外
+        // admin (shopNo=0) は全 shop 可。非 admin は自 shop のみ。
+        Integer permittedShopNo = LoginUserUtil.resolveEffectiveShopNo(null);
+        List<Integer> forbiddenIds = new java.util.ArrayList<>();
+        if (permittedShopNo != null) {
+            invoices.removeIf(inv -> {
+                boolean denied = inv.getShopNo() == null || !permittedShopNo.equals(inv.getShopNo());
+                if (denied) {
+                    forbiddenIds.add(inv.getInvoiceId());
+                }
+                return denied;
+            });
         }
+
+        List<Integer> notFoundIds = new java.util.ArrayList<>(request.getInvoiceIds());
+        invoices.forEach(inv -> notFoundIds.remove(inv.getInvoiceId()));
+        notFoundIds.removeAll(forbiddenIds);
+
+        if (!forbiddenIds.isEmpty() || invoices.size() != request.getInvoiceIds().size()) {
+            log.warn("入金日一括更新: 要求{}件 / 更新{}件 / 未検出{}件 / 権限外{}件",
+                    request.getInvoiceIds().size(), invoices.size(),
+                    notFoundIds.size(), forbiddenIds.size());
+        }
+
+        // SF-06: paymentDate は null 許容 (null = 一括クリア)
         invoices.forEach(inv -> inv.setPaymentDate(request.getPaymentDate()));
         tInvoiceService.saveAll(invoices);
-        log.info("入金日一括更新: {}件, paymentDate={}", invoices.size(), request.getPaymentDate());
-        return ResponseEntity.ok(Map.of("updatedCount", invoices.size()));
+
+        log.info("入金日一括更新完了: 更新={}件, paymentDate={}", invoices.size(), request.getPaymentDate());
+        return ResponseEntity.ok(Map.of(
+                "requestedCount", request.getInvoiceIds().size(),
+                "updatedCount", invoices.size(),
+                "notFoundIds", notFoundIds,
+                "forbiddenIds", forbiddenIds));
     }
 
     // ---- Partner Groups ----
@@ -479,13 +508,20 @@ public class FinanceController {
     @GetMapping("/partner-groups")
     public ResponseEntity<List<PartnerGroupResponse>> listPartnerGroups(
             @RequestParam(required = false) Integer shopNo) {
-        List<MPartnerGroup> groups = partnerGroupService.findByShopNo(shopNo);
+        // SF-03: 非 admin は自 shop に強制上書き
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
+        List<MPartnerGroup> groups = partnerGroupService.findByShopNo(effectiveShopNo);
         return ResponseEntity.ok(groups.stream().map(PartnerGroupResponse::from).collect(Collectors.toList()));
     }
 
     @PostMapping("/partner-groups")
     public ResponseEntity<PartnerGroupResponse> createPartnerGroup(
             @Valid @RequestBody PartnerGroupRequest request) {
+        // SF-03: 非 admin は request.shopNo をサーバ側で自 shop に強制上書き
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(request.getShopNo());
+        if (effectiveShopNo != null && !effectiveShopNo.equals(request.getShopNo())) {
+            request.setShopNo(effectiveShopNo);
+        }
         MPartnerGroup group = partnerGroupService.create(request);
         return ResponseEntity.ok(PartnerGroupResponse.from(group));
     }
@@ -493,18 +529,41 @@ public class FinanceController {
     @PutMapping("/partner-groups/{id}")
     public ResponseEntity<PartnerGroupResponse> updatePartnerGroup(
             @PathVariable Integer id, @Valid @RequestBody PartnerGroupRequest request) {
+        // SF-03: 既存 group の shopNo に対して認可ガード
+        MPartnerGroup existing = partnerGroupService.findById(id);
+        if (existing == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "グループが見つかりません: id=" + id);
+        }
+        assertShopAccess(existing.getShopNo());
+        // 非 admin が他 shop へ移そうとしても弾く (= 自 shop に強制上書き)
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(request.getShopNo());
+        if (effectiveShopNo != null && !effectiveShopNo.equals(request.getShopNo())) {
+            request.setShopNo(effectiveShopNo);
+        }
         MPartnerGroup group = partnerGroupService.update(id, request);
         return ResponseEntity.ok(PartnerGroupResponse.from(group));
     }
 
     @DeleteMapping("/partner-groups/{id}")
     public ResponseEntity<?> deletePartnerGroup(@PathVariable Integer id) {
+        // SF-03: 既存 group の shopNo に対して認可ガード
+        MPartnerGroup existing = partnerGroupService.findById(id);
+        if (existing == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "グループが見つかりません: id=" + id);
+        }
+        assertShopAccess(existing.getShopNo());
         partnerGroupService.delete(id);
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * 経理ワークフロー画面ステータス取得 (admin 限定)。
+     * <p>SF-H04: バッチ実行履歴を含むため一般ユーザに開示しない。
+     * SF-H06: 戻り型を {@link jp.co.oda32.dto.finance.AccountingStatusResponse} record に変更。
+     */
     @GetMapping("/accounting-status")
-    public ResponseEntity<Map<String, Object>> getAccountingStatus() {
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
+    public ResponseEntity<jp.co.oda32.dto.finance.AccountingStatusResponse> getAccountingStatus() {
         return ResponseEntity.ok(accountingStatusService.getStatus());
     }
 }

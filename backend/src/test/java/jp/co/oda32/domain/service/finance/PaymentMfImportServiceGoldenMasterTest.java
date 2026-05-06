@@ -1,6 +1,8 @@
 package jp.co.oda32.domain.service.finance;
 
+import jp.co.oda32.domain.model.finance.MOffsetJournalRule;
 import jp.co.oda32.domain.model.finance.MPaymentMfRule;
+import jp.co.oda32.domain.repository.finance.MOffsetJournalRuleRepository;
 import jp.co.oda32.domain.repository.finance.MPaymentMfRuleRepository;
 import jp.co.oda32.domain.repository.finance.TAccountsPayableSummaryRepository;
 import jp.co.oda32.domain.repository.finance.TPaymentMfImportHistoryRepository;
@@ -36,6 +38,21 @@ import static org.mockito.Mockito.when;
 /**
  * 参照CSV（運用中の買掛仕入MFインポートファイル）と意味等価比較する回帰テスト。
  * シードSQLから m_payment_mf_rule を構築して Mockito 注入。
+ *
+ * <p><b>fixture 更新履歴</b>:
+ * <ul>
+ *   <li>v1 (旧): SUMMARY 集約 2 行 (振込手数料値引/早払収益 合計仕訳) を末尾に出力</li>
+ *   <li>v2 (旧): v1 と同じ構造 (内訳のみ更新)</li>
+ *   <li><b>v3 (現行)</b>: P1-03 案 D-2 / Codex C2 対応。SUMMARY 集約撤去、
+ *       supplier 別 PAYABLE_FEE / PAYABLE_DISCOUNT / PAYABLE_EARLY / PAYABLE_OFFSET 副行に展開。
+ *       PAYABLE 主行の貸方は「請求額 − 値引・早払」(= 実振込額) になる。</li>
+ * </ul>
+ *
+ * <p>v3 fixture は {@link PaymentMfImportServiceFixtureGenerator} で再生成可能 (純 Java、
+ * 外部依存なし)。{@code PaymentMfImportService} の出力構造を意図的に変更したときは、
+ * generator の {@code @Disabled} を一時的に外して再実行 → 本テストが PASS することを再確認する。
+ *
+ * <p>手順詳細: {@code claudedocs/runbook-finance-recalc-impact-analysis.md} §5
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -44,6 +61,7 @@ class PaymentMfImportServiceGoldenMasterTest {
     @Mock MPaymentMfRuleRepository ruleRepository;
     @Mock TPaymentMfImportHistoryRepository historyRepository;
     @Mock TAccountsPayableSummaryRepository payableRepository;
+    @Mock MOffsetJournalRuleRepository offsetJournalRuleRepository;
     @InjectMocks PaymentMfImportService service;
 
     private static final Path FIXTURE_DIR = Paths.get("src/test/resources/paymentmf");
@@ -60,13 +78,25 @@ class PaymentMfImportServiceGoldenMasterTest {
 
     @ParameterizedTest(name = "{0} → {1}")
     @CsvSource({
-            "振込み明細08-2-5.xlsx,  買掛仕入MFインポートファイル_20260205.csv",
-            "振込み明細08-2-20.xlsx, 買掛仕入MFインポートファイル_20260220_v2.csv"
+            "振込み明細08-2-5.xlsx,  買掛仕入MFインポートファイル_20260205_v3.csv",
+            "振込み明細08-2-20.xlsx, 買掛仕入MFインポートファイル_20260220_v3.csv"
     })
     void 意味等価比較(String xlsx, String goldenCsv) throws Exception {
         when(ruleRepository.findByDelFlgOrderByPriorityAscIdAsc("0")).thenReturn(rules);
         when(payableRepository.findByShopNoAndSupplierCodeAndTransactionMonth(any(), anyString(), any()))
                 .thenReturn(Collections.emptyList());
+        // G2-M8: OFFSET 副行貸方科目マスタ。V041 seed と同値 (= 旧ハードコード値) を返却し、
+        // 既存 golden master CSV の OFFSET 行と意味等価であることを保証する。
+        when(offsetJournalRuleRepository.findByShopNoAndDelFlg(any(), any()))
+                .thenReturn(java.util.Optional.of(MOffsetJournalRule.builder()
+                        .id(1)
+                        .shopNo(1)
+                        .creditAccount("仕入値引・戻し高")
+                        .creditDepartment("物販事業部")
+                        .creditTaxCategory("課税仕入-返還等 10%")
+                        .summaryPrefix("相殺／")
+                        .delFlg("0")
+                        .build()));
 
         byte[] xlsxBytes = Files.readAllBytes(FIXTURE_DIR.resolve(xlsx));
         MockMultipartFile multipart = new MockMultipartFile(

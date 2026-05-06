@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS m_mf_client_mapping (
 );
 CREATE INDEX IF NOT EXISTS idx_mf_client_mapping_alias ON m_mf_client_mapping(alias) WHERE del_flg = '0';
 
--- シード: 仕訳ルール（19件、priority小=高優先度）
+-- シード: 仕訳ルール（18件, priority小=高優先度）
+-- 注: 設計書 §シード ルール #13 (`運  賃`) は description_c 正規化により #12 (`運賃`) に集約されるためシード対象外。
 INSERT INTO m_mf_journal_rule (description_c, description_d_keyword, priority, amount_source,
     debit_account, debit_sub_account, debit_department, debit_tax_resolver,
     credit_account, credit_sub_account, credit_sub_account_template, credit_department, credit_tax_resolver,

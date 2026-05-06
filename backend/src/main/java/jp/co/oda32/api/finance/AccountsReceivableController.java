@@ -3,9 +3,10 @@ package jp.co.oda32.api.finance;
 import jakarta.validation.Valid;
 import jp.co.oda32.batch.finance.model.InvoiceVerificationSummary;
 import jp.co.oda32.batch.finance.service.AccountsReceivableCutoffReconciler;
-import jp.co.oda32.batch.finance.service.InvoiceVerifier;
+import jp.co.oda32.domain.model.finance.CutoffType;
 import jp.co.oda32.domain.model.finance.TAccountsReceivableSummary;
 import jp.co.oda32.domain.model.master.MPartner;
+import jp.co.oda32.domain.service.finance.AccountsReceivableBulkVerifyService;
 import jp.co.oda32.domain.service.finance.SalesJournalCsvService;
 import jp.co.oda32.domain.service.finance.TAccountsReceivableSummaryService;
 import jp.co.oda32.domain.service.master.MPartnerService;
@@ -17,6 +18,8 @@ import jp.co.oda32.dto.finance.AccountsReceivableResponse;
 import jp.co.oda32.dto.finance.AccountsReceivableSummaryResponse;
 import jp.co.oda32.dto.finance.AccountsReceivableVerifyRequest;
 import jp.co.oda32.dto.finance.MfExportToggleRequest;
+import jp.co.oda32.exception.FinanceBusinessException;
+import jp.co.oda32.exception.FinanceInternalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.Job;
@@ -43,7 +46,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
 import java.math.BigDecimal;
-import java.nio.charset.Charset;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -65,12 +67,10 @@ import java.util.stream.Collectors;
 public class AccountsReceivableController {
 
     private static final DateTimeFormatter YYYY_MM_DD = DateTimeFormatter.ofPattern("yyyyMMdd");
-    private static final Charset CP932 = Charset.forName("windows-31j");
 
     private final TAccountsReceivableSummaryService summaryService;
     private final MPartnerService mPartnerService;
-    private final InvoiceVerifier invoiceVerifier;
-    private final AccountsReceivableCutoffReconciler cutoffReconciler;
+    private final AccountsReceivableBulkVerifyService bulkVerifyService;
     private final SalesJournalCsvService salesJournalCsvService;
     private final JobLauncher jobLauncher;
     private final ApplicationContext applicationContext;
@@ -97,9 +97,8 @@ public class AccountsReceivableController {
                 .map(TAccountsReceivableSummary::getPartnerNo)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        Map<Integer, MPartner> partnerMap = partnerNos.stream()
-                .map(mPartnerService::getByPartnerNo)
-                .filter(Objects::nonNull)
+        // SF-E11: 1 行ごとに getByPartnerNo (= findById) を呼ぶと N+1 になるため bulk fetch + Map 化。
+        Map<Integer, MPartner> partnerMap = mPartnerService.findAllByPartnerNos(partnerNos).stream()
                 .collect(Collectors.toMap(MPartner::getPartnerNo, p -> p, (a, b) -> a));
 
         return ResponseEntity.ok(page.map(ar -> AccountsReceivableResponse.from(ar, partnerMap.get(ar.getPartnerNo()))));
@@ -118,44 +117,39 @@ public class AccountsReceivableController {
     // -------- 再集計 --------
 
     @PostMapping("/aggregate")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<Map<String, Object>> aggregate(
             @Valid @RequestBody AccountsReceivableAggregateRequest request) {
         try {
             LocalDate.parse(request.getTargetDate(), YYYY_MM_DD);
         } catch (Exception e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", "targetDate は yyyyMMdd 形式で指定してください"));
+            // SF-E08: 業務メッセージは IllegalArgumentException 経由で GlobalExceptionHandler に委譲し
+            // 400 + body { message } で統一。
+            throw new IllegalArgumentException("targetDate は yyyyMMdd 形式で指定してください");
         }
-        String cutoffType = request.getCutoffType();
-        if (cutoffType == null || cutoffType.isBlank()) {
-            cutoffType = "all";
-        }
-        if (!Set.of("all", "15", "20", "month_end").contains(cutoffType)) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", "cutoffType は all / 15 / 20 / month_end のいずれかを指定してください"));
-        }
+        // SF-E10: cutoffType をマジックリテラルから enum へ。
+        CutoffType cutoffType = CutoffType.fromCode(request.getCutoffType());
+        String cutoffTypeCode = cutoffType.getCode();
 
         String beanName = "accountsReceivableSummaryJob";
         if (!applicationContext.containsBean(beanName)) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("message", "集計ジョブが見つかりません"));
+            // T5: 内部 Bean 不在 (config 異常) → FinanceInternalException で 422 + 汎用化。
+            throw new FinanceInternalException("集計ジョブが見つかりません: " + beanName);
         }
         Job job = (Job) applicationContext.getBean(beanName);
 
         JobParametersBuilder params = new JobParametersBuilder()
                 .addLong("time", System.currentTimeMillis())
                 .addString("targetDate", request.getTargetDate())
-                .addString("cutoffType", cutoffType);
+                .addString("cutoffType", cutoffTypeCode);
 
         var jobParams = params.toJobParameters();
-        final String cutoffTypeCapture = cutoffType;
         batchExecutor.submit(() -> {
             try {
                 jobLauncher.run(job, jobParams);
             } catch (Exception e) {
                 log.error("売掛金集計ジョブの非同期実行に失敗: targetDate={}, cutoffType={}",
-                        request.getTargetDate(), cutoffTypeCapture, e);
+                        request.getTargetDate(), cutoffTypeCode, e);
             }
         });
 
@@ -163,35 +157,30 @@ public class AccountsReceivableController {
                 .body(Map.of(
                         "status", "STARTED",
                         "targetDate", request.getTargetDate(),
-                        "cutoffType", cutoffType));
+                        "cutoffType", cutoffTypeCode));
     }
 
     // -------- 一括検証 --------
 
     @PostMapping("/bulk-verify")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<AccountsReceivableBulkVerifyResponse> bulkVerify(
             @Valid @RequestBody AccountsReceivableBulkVerifyRequest request) {
-        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(request.getShopNo());
-        List<TAccountsReceivableSummary> summaries = summaryService
-                .findByShopAndDateRange(effectiveShopNo, request.getFromDate(), request.getToDate());
-
-        // 事前パス: 請求書の closing_date と AR の transaction_month が食い違う得意先を
-        // 自動で再集計する（マスタ cutoff_date の更新が追いついていないケースへの自動追従）。
-        AccountsReceivableCutoffReconciler.ReconcileResult reconcile =
-                cutoffReconciler.reconcile(summaries, request.getFromDate(), request.getToDate());
-        if (reconcile.getReconciledPartners() > 0) {
-            // 再集計で AR が変わっているので再ロード
-            summaries = summaryService
-                    .findByShopAndDateRange(effectiveShopNo, request.getFromDate(), request.getToDate());
-            log.info("bulkVerify: 自動再集計 partners={} inserted={} deleted={}",
-                    reconcile.getReconciledPartners(), reconcile.getInsertedRows(), reconcile.getDeletedRows());
+        // SF-E06: 期間逆転は 400 で弾く。
+        if (request.getFromDate().isAfter(request.getToDate())) {
+            throw new IllegalArgumentException("fromDate は toDate 以前を指定してください");
         }
+        // SF-E09: shopNo が指定されている場合のみアクセス権チェック (admin の null = 全店舗は許容)。
+        if (request.getShopNo() != null) {
+            assertShopAccess(request.getShopNo());
+        }
+        Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(request.getShopNo());
 
-        InvoiceVerificationSummary result = invoiceVerifier.verify(summaries, request.getToDate());
-
-        // 1 tx で saveAll し、途中例外で部分コミットにならないようにする (B-2)
-        summaryService.saveAll(summaries);
+        // SF-E05: reconcile + reload + verify + saveAll を 1 tx に閉じ込める。
+        AccountsReceivableBulkVerifyService.Result svcResult =
+                bulkVerifyService.execute(effectiveShopNo, request.getFromDate(), request.getToDate());
+        InvoiceVerificationSummary result = svcResult.getVerification();
+        AccountsReceivableCutoffReconciler.ReconcileResult reconcile = svcResult.getReconcile();
 
         return ResponseEntity.ok(AccountsReceivableBulkVerifyResponse.builder()
                 .matchedCount(result.getMatchedCount())
@@ -211,7 +200,7 @@ public class AccountsReceivableController {
     // -------- 手動確定 --------
 
     @PutMapping("/{shopNo}/{partnerNo}/{transactionMonth}/{taxRate}/{isOtakeGarbageBag}/verify")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<AccountsReceivableResponse> verify(
             @PathVariable Integer shopNo,
             @PathVariable Integer partnerNo,
@@ -230,7 +219,7 @@ public class AccountsReceivableController {
     }
 
     @DeleteMapping("/{shopNo}/{partnerNo}/{transactionMonth}/{taxRate}/{isOtakeGarbageBag}/manual-lock")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<AccountsReceivableResponse> releaseManualLock(
             @PathVariable Integer shopNo,
             @PathVariable Integer partnerNo,
@@ -245,7 +234,7 @@ public class AccountsReceivableController {
     }
 
     @PatchMapping("/{shopNo}/{partnerNo}/{transactionMonth}/{taxRate}/{isOtakeGarbageBag}/mf-export")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<AccountsReceivableResponse> toggleMfExport(
             @PathVariable Integer shopNo,
             @PathVariable Integer partnerNo,
@@ -263,38 +252,45 @@ public class AccountsReceivableController {
     // -------- 検証済みCSV DL --------
 
     @GetMapping("/export-mf-csv")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     public ResponseEntity<InputStreamResource> exportMfCsv(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
             @RequestParam(required = false) Long initialTransactionNo) throws Exception {
+        // SF-E08: 業務メッセージは IllegalArgumentException で 400 統一。
         if (fromDate == null || toDate == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fromDate と toDate は必須です");
+            throw new IllegalArgumentException("fromDate と toDate は必須です");
         }
         if (fromDate.isAfter(toDate)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fromDate は toDate 以前を指定してください");
+            throw new IllegalArgumentException("fromDate は toDate 以前を指定してください");
         }
         List<TAccountsReceivableSummary> summaries = summaryService
                 .findByDateRangeAndMfExportEnabled(fromDate, toDate, true);
         log.info("売掛金→売上仕訳CSV DL: fromDate={}, toDate={}, 件数={}", fromDate, toDate, summaries.size());
 
+        // SF-E01 (1): 0 件は abort。空 CSV を DL させて運用者が「出した気」になる事故を防ぐ。
+        // T5: 業務メッセージなので FinanceBusinessException → 400 + 元メッセージで client へ。
+        if (summaries.isEmpty()) {
+            throw new FinanceBusinessException(
+                    "指定期間に MF 出力対象の売掛金がありません");
+        }
+
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (OutputStreamWriter w = new OutputStreamWriter(baos, CP932)) {
+        try (OutputStreamWriter w = new OutputStreamWriter(baos, SalesJournalCsvService.CP932)) {
             salesJournalCsvService.writeCsv(summaries, w, initialTransactionNo);
         }
 
-        // CSV出力済みマーカーを付ける（買掛と同じ仕様）
+        // SF-E01 (2): CSV出力済みマーカーは saveAll (1 tx) に集約。
         salesJournalCsvService.markExported(summaries);
-        for (TAccountsReceivableSummary s : summaries) {
-            summaryService.save(s);
-        }
+        summaryService.saveAll(summaries);
 
         String filename = generateFileName(fromDate, toDate);
         byte[] bytes = baos.toByteArray();
+        // SF-E15: HTTP charset ヘッダを実体 (CP932) と揃える。
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"" + filename + "\"; filename*=UTF-8''" + filename)
-                .contentType(MediaType.parseMediaType("text/csv; charset=Shift_JIS"))
+                .contentType(MediaType.parseMediaType("text/csv; charset=" + SalesJournalCsvService.CP932.name()))
                 .contentLength(bytes.length)
                 .body(new InputStreamResource(new ByteArrayInputStream(bytes)));
     }
@@ -310,6 +306,8 @@ public class AccountsReceivableController {
     private void assertShopAccess(Integer shopNo) {
         Integer effective = LoginUserUtil.resolveEffectiveShopNo(shopNo);
         if (effective != null && !effective.equals(shopNo)) {
+            // ResponseStatusException(FORBIDDEN) は GlobalExceptionHandler が 403 で処理する。
+            // 認可境界はあえて Spring 標準 ResponseStatusException を維持 (通常の業務エラーと区別)。
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "他ショップのデータにはアクセスできません");
         }
     }

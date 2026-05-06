@@ -101,4 +101,28 @@ public interface TAccountsPayableSummaryRepository extends JpaRepository<TAccoun
     long countByShopNoAndTransactionMonth(Integer shopNo, LocalDate transactionMonth);
 
     long countByShopNoAndTransactionMonthAndMfExportEnabled(Integer shopNo, LocalDate transactionMonth, Boolean mfExportEnabled);
+
+    /**
+     * 買掛金集計サマリ画面用の集計クエリ。
+     * 旧実装は {@code findAll(spec)} で全行をロードしアプリ側で count/sum していたため
+     * 行数に応じて性能劣化していた (SF-24)。
+     * 集計は DB 側 (JPQL) で完結。
+     */
+    @Query("""
+            SELECT new jp.co.oda32.dto.finance.AccountsPayableSummaryProjection(
+                COUNT(s),
+                SUM(CASE WHEN s.verificationResult IS NULL THEN 1 ELSE 0 END),
+                SUM(CASE WHEN s.verificationResult = 0 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN s.verificationResult = 1 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN s.verificationResult = 0
+                                   THEN COALESCE(s.paymentDifference, 0)
+                                   ELSE 0 END), 0)
+            )
+            FROM TAccountsPayableSummary s
+            WHERE (:shopNo IS NULL OR s.shopNo = :shopNo)
+              AND (:transactionMonth IS NULL OR s.transactionMonth = :transactionMonth)
+            """)
+    jp.co.oda32.dto.finance.AccountsPayableSummaryProjection aggregateSummary(
+            @Param("shopNo") Integer shopNo,
+            @Param("transactionMonth") LocalDate transactionMonth);
 }

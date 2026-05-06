@@ -110,6 +110,8 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
 
                     // 差額がnullのデータにはマネーフォワードエクスポート不可のフラグを設定
                     for (TAccountsPayableSummary summary : supplierSummaries) {
+                        // 手動確定行は上書きしない (SmilePaymentVerifier と同パターン)
+                        if (Boolean.TRUE.equals(summary.getVerifiedManually())) continue;
                         // 差額はnullのまま保持
                         // 検証結果は「不一致（0）」として設定
                         summary.setVerificationResult(0);
@@ -128,6 +130,8 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
 
             // 検証結果がnullまたは0（不一致）だが、差額が5円未満の場合は「一致」に修正
             for (TAccountsPayableSummary summary : summaries) {
+                // 手動確定行は上書きしない (SmilePaymentVerifier と同パターン)
+                if (Boolean.TRUE.equals(summary.getVerifiedManually())) continue;
                 if (summary.getPaymentDifference() != null &&
                         (summary.getVerificationResult() == null || summary.getVerificationResult() == 0) &&
                         summary.getPaymentDifference().abs().compareTo(jp.co.oda32.constant.FinanceConstants.PAYMENT_VERIFICATION_TOLERANCE) < 0) {
@@ -155,6 +159,8 @@ public class AccountsPayableVerificationReportTasklet implements Tasklet {
 
             // 検証結果が「一致」のデータはマネーフォワードエクスポート可能に設定
             for (TAccountsPayableSummary summary : summaries) {
+                // 手動確定行は上書きしない (SmilePaymentVerifier と同パターン)
+                if (Boolean.TRUE.equals(summary.getVerifiedManually())) continue;
                 if (summary.getVerificationResult() != null && summary.getVerificationResult() == 1) {
                     if (summary.getMfExportEnabled() == null || !summary.getMfExportEnabled()) {
                         summary.setMfExportEnabled(true);

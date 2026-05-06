@@ -27,7 +27,7 @@ public class TAccountsReceivableSummaryPK implements Serializable {
     private Integer shopNo;
     @Column(name = "partner_no")
     private Integer partnerNo;
-    @Column(name = "transactionMonth")
+    @Column(name = "transaction_month")
     private LocalDate transactionMonth;
     @Column(name = "tax_rate")
     private BigDecimal taxRate;

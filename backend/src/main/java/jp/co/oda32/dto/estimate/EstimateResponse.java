@@ -17,6 +17,7 @@ public class EstimateResponse {
     private String partnerName;
     private Integer destinationNo;
     private String destinationName;
+    private String destinationCode;
     private LocalDate estimateDate;
     private LocalDate priceChangeDate;
     private String estimateStatus;
@@ -41,8 +42,10 @@ public class EstimateResponse {
         }
 
         String destinationName = null;
+        String destinationCode = null;
         if (e.getMDeliveryDestination() != null) {
             destinationName = e.getMDeliveryDestination().getDestinationName();
+            destinationCode = e.getMDeliveryDestination().getDestinationCode();
         }
 
         return EstimateResponse.builder()
@@ -53,6 +56,7 @@ public class EstimateResponse {
                 .partnerName(partnerName)
                 .destinationNo(e.getDestinationNo())
                 .destinationName(destinationName)
+                .destinationCode(destinationCode)
                 .estimateDate(e.getEstimateDate())
                 .priceChangeDate(e.getPriceChangeDate())
                 .estimateStatus(e.getEstimateStatus())

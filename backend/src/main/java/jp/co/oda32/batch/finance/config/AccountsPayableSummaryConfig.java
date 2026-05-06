@@ -15,6 +15,7 @@ import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.lang.NonNull;
@@ -25,8 +26,16 @@ import org.springframework.transaction.PlatformTransactionManager;
  * Spring Boot 3.x / Spring Batch 5.x対応:
  * JobBuilderFactory, StepBuilderFactory の代わりに
  * JobRepository, PlatformTransactionManager を直接利用
+ *
+ * <p><b>廃止予定 (Phase B' 移行)</b>:
+ * 集計処理は {@link AccountsPayableAggregationConfig} に分離済み、
+ * 検証処理は {@link AccountsPayableVerificationConfig} に分離済み。
+ * 本クラスは {@code finance.legacy-payable-job=true} 設定時のみ Bean 登録される。
+ * 本番運用 1 ヶ月後に物理削除予定 (DD-09)。
  */
+@Deprecated
 @Configuration
+@ConditionalOnProperty(name = "finance.legacy-payable-job", havingValue = "true", matchIfMissing = false)
 @RequiredArgsConstructor
 @Log4j2
 public class AccountsPayableSummaryConfig {

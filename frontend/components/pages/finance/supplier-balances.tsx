@@ -23,6 +23,7 @@ import {
   type SupplierBalanceStatus,
 } from '@/types/supplier-balances'
 import { defaultToMonth } from '@/types/accounts-payable-ledger'
+import { AmountSourceTooltip } from '@/components/common/AmountSourceTooltip'
 
 export function SupplierBalancesPage() {
   const { user } = useAuth()
@@ -148,7 +149,7 @@ export function SupplierBalancesPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            期首 (2025-05-20) 〜 基準月 の全 supplier 累積残を自社 / MF で突合。MF /journals はキャッシュ共有のため 2 回目以降は高速。
+            期首 ({report?.mfStartDate ?? '...'}) 〜 基準月 {report?.asOfMonth ?? asOfMonth} の全 supplier 累積残を自社 / MF で突合。MF /journals はキャッシュ共有のため 2 回目以降は高速。
           </p>
           {report?.fetchedAt && (
             <p className="text-xs text-muted-foreground">
@@ -189,13 +190,13 @@ export function SupplierBalancesPage() {
               <thead>
                 <tr className="border-b text-left">
                   <th className="py-2">supplier</th>
-                  <th className="py-2 text-right">self 残</th>
-                  <th className="py-2 text-right">MF 残</th>
+                  <th className="py-2 text-right">self 残<AmountSourceTooltip source="CLOSING_CALC" /></th>
+                  <th className="py-2 text-right">MF 残<AmountSourceTooltip source="MF_JOURNAL" /></th>
                   <th className="py-2 text-right">diff</th>
                   <th className="py-2">status</th>
-                  <th className="py-2 text-right">opening</th>
-                  <th className="py-2 text-right">Σchange</th>
-                  <th className="py-2 text-right">Σpayment</th>
+                  <th className="py-2 text-right">opening<AmountSourceTooltip source="OPENING_BALANCE" /></th>
+                  <th className="py-2 text-right">Σchange<AmountSourceTooltip source="PAYABLE_SUMMARY" /></th>
+                  <th className="py-2 text-right">Σpayment<AmountSourceTooltip source="VERIFIED_AMOUNT" /></th>
                 </tr>
               </thead>
               <tbody>
@@ -205,7 +206,7 @@ export function SupplierBalancesPage() {
                   </tr>
                 )}
                 {visibleRows.map((r) => (
-                  <tr key={`${r.supplierNo ?? 'null'}-${r.mfSubAccountNames[0] ?? ''}`}
+                  <tr key={`${r.supplierNo ?? 'null'}-${r.status}-${r.mfSubAccountNames.join('|')}`}
                       className="border-b hover:bg-accent cursor-pointer"
                       onClick={() => gotoLedger(r.supplierNo)}>
                     <td className="py-2">

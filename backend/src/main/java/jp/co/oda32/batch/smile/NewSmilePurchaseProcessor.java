@@ -41,10 +41,12 @@ public class NewSmilePurchaseProcessor {
         Pageable pageable = PageRequest.of(0, pageSize);
         int iteration = 0;
         int maxIterations = 10000;
+        long previousRemaining = Long.MAX_VALUE;
         while (iteration++ < maxIterations) {
             Page<WSmilePurchaseOutputFile> page = smilePurchaseImportService.findNewPurchases(pageable);
+            long currentRemaining = page.getTotalElements();
             if (iteration == 1) {
-                this.totalElements = page.getTotalElements();
+                this.totalElements = currentRemaining;
                 log.info("=== 全体の件数: {}件 ===", totalElements);
             }
             List<WSmilePurchaseOutputFile> newPurchaseList = page.getContent();
@@ -52,6 +54,15 @@ public class NewSmilePurchaseProcessor {
                 if (iteration == 1) log.info("新規仕入登録はありません");
                 break;
             }
+            // 直前周の残件数 >= 今周の残件数 でないと、結果セットが縮んでおらず
+            // 同じ行を永久にスキャンする無限ループに陥る。クエリ側のスキップ漏れを検知する保険。
+            if (iteration > 1 && currentRemaining >= previousRemaining) {
+                log.error("新規仕入取込で残件数が減少していません (前周={}, 今周={})。" +
+                                "クエリで除外されていないスキップ対象行が存在する可能性があります。処理を中断します。",
+                        previousRemaining, currentRemaining);
+                break;
+            }
+            previousRemaining = currentRemaining;
             log.info("新規仕入登録: {}件 (累計処理: {}/{}件)", newPurchaseList.size(), processedCount + newPurchaseList.size(), totalElements);
             this.processBatch(newPurchaseList);
         }

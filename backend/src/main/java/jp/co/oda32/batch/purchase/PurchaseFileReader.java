@@ -17,7 +17,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -60,28 +59,12 @@ public class PurchaseFileReader implements ItemReader<PurchaseFile> {
 
     @BeforeStep
     public void beforeStep(StepExecution stepExecution) {
-        List<MShopLinkedFile> mShopLinkedFileList = new ArrayList<>();
-        try {
-            // DBからデータを取得する
-            log.info("DBからショップ連携ファイル情報を取得します");
-            mShopLinkedFileList = this.mShopLinkedFileService.findAll();
-            log.info("取得成功: {}件のレコードを取得しました", mShopLinkedFileList.size());
-
-            mShopLinkedFileList = mShopLinkedFileList.stream()
-                    .filter(shopLinkedFile -> !StringUtil.isEmpty(shopLinkedFile.getSmilePurchaseFileName()))
-                    .collect(Collectors.toList());
-        } catch (Exception e) {
-            // DBアクセスに失敗した場合は処理を終了する
-            log.error("DBからのデータ取得に失敗しました。処理を終了します。", e);
-            return;
-        }
-
-        if (mShopLinkedFileList.isEmpty()) {
-            // 対象ファイルが存在しない場合は処理を終了する
-            log.warn("対象となるファイルが存在しません。処理を終了します。");
-            return;
-        }
-
+        // DB 取得失敗や設定不備は握りつぶさずに propagate する。以前は return で抜けていたため
+        // reader が null のまま read() が呼ばれて NPE になっていた。
+        log.info("DBからショップ連携ファイル情報を取得します");
+        List<MShopLinkedFile> mShopLinkedFileList = this.mShopLinkedFileService.findAll().stream()
+                .filter(shopLinkedFile -> !StringUtil.isEmpty(shopLinkedFile.getSmilePurchaseFileName()))
+                .collect(Collectors.toList());
         log.info("処理対象ファイル数: {}", mShopLinkedFileList.size());
         for (MShopLinkedFile file : mShopLinkedFileList) {
             log.info("対象ファイル: {}, ショップNo: {}", file.getSmilePurchaseFileName(), file.getShopNo());
@@ -93,12 +76,14 @@ public class PurchaseFileReader implements ItemReader<PurchaseFile> {
 
         ExecutionContext jobContext = stepExecution.getJobExecution().getExecutionContext();
 
-        // カスタムリーダーを使用
+        // カスタムリーダーを使用。mShopLinkedFileList が空なら MultiResourceItemReader が
+        // 即 null を返し step が 0 件で正常終了する (strict=false 必須)。
         this.reader = new ShopNoAwareItemReader(mShopLinkedFileList);
         this.reader.setStrict(false);
         this.reader.setResources(resources);
 
         FlatFileItemReader<PurchaseFile> fileReader = new FlatFileItemReader<>();
+        fileReader.setStrict(false);
         fileReader.setEncoding("Unicode");
         fileReader.setLineMapper(new DefaultLineMapper<PurchaseFile>() {{
             setLineTokenizer(new DelimitedLineTokenizer() {{

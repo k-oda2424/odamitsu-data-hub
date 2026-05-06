@@ -71,9 +71,42 @@ export interface BCartProductSet {
   name: string
   unitPrice: number | null
   purchasePrice: number | null
+  shippingSize: number | null
   stock: number | null
   setFlag: string
   bCartPriceReflected: boolean
+}
+
+export interface BCartProductSetPricingUpdate {
+  unitPrice?: number | null
+  shippingSize?: number | null
+}
+
+export interface BCartPendingChange {
+  productSetId: number
+  productId: number
+  productName: string | null
+  setName: string | null
+  productNo: string | null
+  janCode: string | null
+  changes: {
+    field: string
+    before: string | null
+    after: string | null
+    changedAt: string | null
+  }[]
+  lastChangedAt: string | null
+}
+
+export interface BCartReflectResult {
+  succeeded: number
+  failed: number
+  skipped: number
+  results: {
+    productSetId: number
+    status: 'SUCCESS' | 'FAILED' | 'SKIPPED'
+    message: string | null
+  }[]
 }
 
 export interface BCartProductDescriptionUpdate {
@@ -97,8 +130,8 @@ export interface BCartChangeHistory {
   targetId: number
   changeType: string
   fieldName: string
-  beforeValue: string
-  afterValue: string
+  beforeValue: string | null
+  afterValue: string | null
   changedBy: number
   changedAt: string
   bCartReflected: boolean

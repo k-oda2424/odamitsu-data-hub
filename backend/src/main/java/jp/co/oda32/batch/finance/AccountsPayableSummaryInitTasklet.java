@@ -1,5 +1,6 @@
 package jp.co.oda32.batch.finance;
 
+import jp.co.oda32.constant.FinanceConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.batch.core.StepContribution;
@@ -48,15 +49,18 @@ public class AccountsPayableSummaryInitTasklet implements Tasklet {
                 periodStartDate, periodEndDate);
 
         // 対象期間のデータの差額と連携可否をリセット
-        // - shop_no=1 のみ対象（shop_no=2 の手動買掛レコードに影響させない）
+        // - {@link FinanceConstants#ACCOUNTS_PAYABLE_SHOP_NO} のみ対象
+        //   （shop_no=2 の手動買掛レコードに影響させない）
         // - verified_manually=true の手動確定レコードは保護（SmilePaymentVerifier もスキップする）
         String sql = "UPDATE t_accounts_payable_summary " +
                 "SET payment_difference = NULL, verification_result = NULL, mf_export_enabled = FALSE " +
                 "WHERE transaction_month = ? " +
-                "  AND shop_no = 1 " +
+                "  AND shop_no = ? " +
                 "  AND (verified_manually IS NULL OR verified_manually = FALSE)";
 
-        int updatedRows = jdbcTemplate.update(sql, java.sql.Date.valueOf(periodEndDate));
+        int updatedRows = jdbcTemplate.update(sql,
+                java.sql.Date.valueOf(periodEndDate),
+                FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO);
 
         log.info("買掛金サマリーテーブルの初期化が完了しました。更新件数: {}", updatedRows);
 

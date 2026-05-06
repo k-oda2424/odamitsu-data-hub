@@ -44,6 +44,11 @@ public class InvoiceVerifier {
 
     private final TInvoiceService tInvoiceService;
 
+    /**
+     * 請求書金額との許容誤差 (税込円)。デフォルト値は
+     * {@link jp.co.oda32.constant.FinanceConstants#INVOICE_AMOUNT_TOLERANCE_DEFAULT} (3 円) を参照 (SF-E07)。
+     * 値変更時は両方を同期すること。
+     */
     @Value("${batch.accounts-receivable.invoice-amount-tolerance:3}")
     private BigDecimal invoiceAmountTolerance;
 
@@ -236,11 +241,9 @@ public class InvoiceVerifier {
         List<String> closingDates = getSpecialPartnerClosingDates(targetPeriodEndDate);
         log.info("四半期特殊処理 partnerCode={}, 対象締め日={}", partnerCode, closingDates);
 
-        List<TInvoice> combined = new ArrayList<>();
-        for (String closingDateStr : closingDates) {
-            tInvoiceService.findByShopNoAndPartnerCodeAndClosingDate(shopNo, partnerCode, closingDateStr)
-                    .ifPresent(combined::add);
-        }
+        // SF-21: 1 クエリで複数 closing_date を一括取得 (旧: closing_date 数だけ N 回 SELECT)
+        List<TInvoice> combined = tInvoiceService
+                .findByShopNoAndPartnerCodeAndClosingDateIn(shopNo, partnerCode, closingDates);
 
         if (combined.isEmpty()) {
             return Optional.empty();

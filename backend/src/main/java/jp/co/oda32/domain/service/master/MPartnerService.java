@@ -10,6 +10,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,6 +50,23 @@ public class MPartnerService extends CustomService {
     public MPartner getByPartnerNo(Integer partnerNo) {
         Optional<MPartner> mPartnerOptional = partnerRepository.findById(partnerNo);
         return mPartnerOptional.orElse(null);
+    }
+
+    /**
+     * 得意先番号の集合で一括取得します (SF-E11: N+1 解消)。
+     * <p>
+     * 旧来の {@code partnerNos.stream().map(this::getByPartnerNo)} は件数分 SELECT を発行していたため、
+     * 一覧画面の表示性能が悪化していた。買掛側 {@code MPaymentSupplierService#findAllByPaymentSupplierNos}
+     * と対称の bulk fetch API を提供する。
+     *
+     * @param partnerNos 得意先番号の集合 (null/空は空リストを返す)
+     * @return 得意先 Entity のリスト (見つからなかった ID は結果に含まれない)
+     */
+    public List<MPartner> findAllByPartnerNos(Collection<Integer> partnerNos) {
+        if (partnerNos == null || partnerNos.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return partnerRepository.findAllById(partnerNos);
     }
 
     /**

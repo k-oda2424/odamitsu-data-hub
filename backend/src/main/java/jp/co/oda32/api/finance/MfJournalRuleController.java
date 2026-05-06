@@ -24,19 +24,19 @@ public class MfJournalRuleController {
         return ResponseEntity.ok(service.findAll().stream().map(MfJournalRuleResponse::from).toList());
     }
 
-    @PreAuthorize("authentication.principal.shopNo == 0")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping
     public ResponseEntity<MfJournalRuleResponse> create(@Valid @RequestBody MfJournalRuleRequest req) {
         return ResponseEntity.ok(MfJournalRuleResponse.from(service.create(req)));
     }
 
-    @PreAuthorize("authentication.principal.shopNo == 0")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PutMapping("/{id}")
     public ResponseEntity<MfJournalRuleResponse> update(@PathVariable Integer id, @Valid @RequestBody MfJournalRuleRequest req) {
         return ResponseEntity.ok(MfJournalRuleResponse.from(service.update(id, req)));
     }
 
-    @PreAuthorize("authentication.principal.shopNo == 0")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable Integer id) {
         service.delete(id);

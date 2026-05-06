@@ -126,7 +126,7 @@ public class MasterController {
                 .collect(Collectors.toList()));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PutMapping("/shop-linked-files/{shopNo}")
     public ResponseEntity<ShopLinkedFileResponse> updateShopLinkedFile(
             @PathVariable Integer shopNo,
@@ -159,7 +159,7 @@ public class MasterController {
 
     // ===== Maker CRUD =====
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping("/makers")
     public ResponseEntity<MakerResponse> createMaker(@Valid @RequestBody MakerCreateRequest request) throws Exception {
         MMaker maker = new MMaker();
@@ -169,7 +169,7 @@ public class MasterController {
         return ResponseEntity.ok(MakerResponse.from(saved));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PutMapping("/makers/{makerNo}")
     public ResponseEntity<MakerResponse> updateMaker(
             @PathVariable Integer makerNo, @Valid @RequestBody MakerCreateRequest request) throws Exception {
@@ -180,7 +180,7 @@ public class MasterController {
         return ResponseEntity.ok(MakerResponse.from(saved));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @DeleteMapping("/makers/{makerNo}")
     public ResponseEntity<Void> deleteMaker(@PathVariable Integer makerNo) throws Exception {
         MMaker maker = mMakerService.getByMakerNo(makerNo);
@@ -191,7 +191,7 @@ public class MasterController {
 
     // ===== Warehouse CRUD =====
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping("/warehouses")
     public ResponseEntity<WarehouseResponse> createWarehouse(@Valid @RequestBody WarehouseCreateRequest request) throws Exception {
         MWarehouse warehouse = new MWarehouse();
@@ -201,7 +201,7 @@ public class MasterController {
         return ResponseEntity.ok(WarehouseResponse.from(saved));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PutMapping("/warehouses/{warehouseNo}")
     public ResponseEntity<WarehouseResponse> updateWarehouse(
             @PathVariable Integer warehouseNo, @Valid @RequestBody WarehouseCreateRequest request) throws Exception {
@@ -213,7 +213,7 @@ public class MasterController {
         return ResponseEntity.ok(WarehouseResponse.from(saved));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @DeleteMapping("/warehouses/{warehouseNo}")
     public ResponseEntity<Void> deleteWarehouse(@PathVariable Integer warehouseNo) throws Exception {
         MWarehouse warehouse = mWarehouseService.getByWarehouseNo(warehouseNo);
@@ -224,7 +224,7 @@ public class MasterController {
 
     // ===== Supplier CRUD =====
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping("/suppliers")
     public ResponseEntity<SupplierResponse> createSupplier(@Valid @RequestBody SupplierCreateRequest request) throws Exception {
         MSupplier supplier = new MSupplier();
@@ -237,7 +237,7 @@ public class MasterController {
         return ResponseEntity.ok(SupplierResponse.from(saved));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PutMapping("/suppliers/{supplierNo}")
     public ResponseEntity<SupplierResponse> updateSupplier(
             @PathVariable Integer supplierNo, @Valid @RequestBody SupplierCreateRequest request) throws Exception {
@@ -251,7 +251,7 @@ public class MasterController {
         return ResponseEntity.ok(SupplierResponse.from(saved));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @DeleteMapping("/suppliers/{supplierNo}")
     public ResponseEntity<Void> deleteSupplier(@PathVariable Integer supplierNo) throws Exception {
         MSupplier supplier = mSupplierService.getBySupplierNo(supplierNo);
@@ -262,7 +262,7 @@ public class MasterController {
 
     // ===== Partner CRUD =====
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PostMapping("/partners")
     public ResponseEntity<PartnerResponse> createPartner(@Valid @RequestBody PartnerCreateRequest request) throws Exception {
         MPartner partner = new MPartner();
@@ -275,7 +275,7 @@ public class MasterController {
         return ResponseEntity.ok(PartnerResponse.from(saved));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @PutMapping("/partners/{partnerNo}")
     public ResponseEntity<PartnerResponse> updatePartner(
             @PathVariable Integer partnerNo, @Valid @RequestBody PartnerCreateRequest request) throws Exception {
@@ -289,7 +289,7 @@ public class MasterController {
         return ResponseEntity.ok(PartnerResponse.from(saved));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@loginUserSecurityBean.isAdmin()")
     @DeleteMapping("/partners/{partnerNo}")
     public ResponseEntity<Void> deletePartner(@PathVariable Integer partnerNo) throws Exception {
         MPartner partner = mPartnerService.getByPartnerNo(partnerNo);

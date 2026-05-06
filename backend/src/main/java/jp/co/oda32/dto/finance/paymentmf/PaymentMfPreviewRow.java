@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
+
 @Data
 @Builder
 @AllArgsConstructor
@@ -14,6 +16,9 @@ public class PaymentMfPreviewRow {
     private String paymentSupplierCode;
     private String sourceName;
     private Long amount;
+
+    /** CSV 取引日列の値。NULL 時は writer 側で transactionMonth にフォールバックする。 */
+    private LocalDate transactionDate;
 
     private String ruleKind;          // PAYABLE / EXPENSE / DIRECT_PURCHASE / SUMMARY
     private String debitAccount;

@@ -11,8 +11,87 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import type { BCartProduct, BCartProductDescriptionUpdate, BCartChangeHistory, BCartCategory } from '@/types/bcart'
+import type { BCartProduct, BCartProductDescriptionUpdate, BCartChangeHistory, BCartCategory, BCartProductSet, BCartProductSetPricingUpdate } from '@/types/bcart'
 import { api } from '@/lib/api-client'
+
+function BCartProductSetRow({ set, onSaved }: { set: BCartProductSet; onSaved: () => void }) {
+  const [unitPrice, setUnitPrice] = useState<string>(set.unitPrice?.toString() ?? '')
+  const [shippingSize, setShippingSize] = useState<string>(set.shippingSize?.toString() ?? '')
+
+  useEffect(() => {
+    setUnitPrice(set.unitPrice?.toString() ?? '')
+    setShippingSize(set.shippingSize?.toString() ?? '')
+  }, [set.id, set.unitPrice, set.shippingSize])
+
+  const dirty = useMemo(() => {
+    const upChanged = (Number(unitPrice) || 0) !== (set.unitPrice ?? 0) && unitPrice !== ''
+    const ssChanged = (Number(shippingSize) || 0) !== (set.shippingSize ?? 0) && shippingSize !== ''
+    return upChanged || ssChanged
+  }, [unitPrice, shippingSize, set.unitPrice, set.shippingSize])
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const body: BCartProductSetPricingUpdate = {}
+      if (unitPrice !== '' && Number(unitPrice) !== set.unitPrice) body.unitPrice = Number(unitPrice)
+      if (shippingSize !== '' && Number(shippingSize) !== set.shippingSize) body.shippingSize = Number(shippingSize)
+      return api.put(`/bcart/product-sets/${set.id}/pricing`, body)
+    },
+    onSuccess: () => {
+      toast.success(`セット「${set.name}」を保存しました（B-CART未反映）`)
+      onSaved()
+    },
+    onError: (err: Error) => toast.error(`保存に失敗: ${err.message}`),
+  })
+
+  return (
+    <tr className="border-t">
+      <td className="px-3 py-2 text-muted-foreground">{set.id}</td>
+      <td className="px-3 py-2">{set.productNo}</td>
+      <td className="px-3 py-2">{set.janCode}</td>
+      <td className="px-3 py-2">{set.name}</td>
+      <td className="px-3 py-2 text-right">
+        <Input
+          type="number"
+          step="1"
+          min="0"
+          value={unitPrice}
+          onChange={(e) => setUnitPrice(e.target.value)}
+          className="h-8 w-24 text-right text-sm tabular-nums"
+        />
+      </td>
+      <td className="px-3 py-2 text-right">{set.purchasePrice?.toLocaleString() ?? '-'}</td>
+      <td className="px-3 py-2 text-right">
+        <Input
+          type="number"
+          step="0.1"
+          min="0"
+          max="1"
+          value={shippingSize}
+          onChange={(e) => setShippingSize(e.target.value)}
+          className="h-8 w-20 text-right text-sm tabular-nums"
+        />
+      </td>
+      <td className="px-3 py-2 text-center">{set.stock ?? '-'}</td>
+      <td className="px-3 py-2 text-center">
+        {set.bCartPriceReflected
+          ? <Badge variant="secondary" className="text-xs">同期済</Badge>
+          : <Badge variant="outline" className="text-xs text-orange-500 border-orange-500">未反映</Badge>}
+      </td>
+      <td className="px-3 py-2 text-center">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => saveMutation.mutate()}
+          disabled={!dirty || saveMutation.isPending}
+        >
+          {saveMutation.isPending
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : <Save className="h-3.5 w-3.5" />}
+        </Button>
+      </td>
+    </tr>
+  )
+}
 
 interface JobStatus {
   jobName: string
@@ -230,6 +309,9 @@ export default function BCartProductDetailPage({ productId }: { productId: numbe
 
         {/* セット一覧タブ */}
         <TabsContent value="sets" className="mt-4">
+          <p className="text-xs text-muted-foreground mb-2">
+            単価・配送サイズはこちらで編集 → 「変更点一覧」画面から一括で B-CART に反映できます。
+          </p>
           {product.sets && product.sets.length > 0 ? (
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
@@ -241,26 +323,23 @@ export default function BCartProductDetailPage({ productId }: { productId: numbe
                     <th className="px-3 py-2 text-left">セット名</th>
                     <th className="px-3 py-2 text-right">単価</th>
                     <th className="px-3 py-2 text-right">仕入価格</th>
+                    <th className="px-3 py-2 text-right">配送ｻｲｽﾞ</th>
                     <th className="px-3 py-2 text-center">在庫</th>
                     <th className="px-3 py-2 text-center">価格同期</th>
+                    <th className="px-3 py-2 text-center">保存</th>
                   </tr>
                 </thead>
                 <tbody>
                   {product.sets.map((s) => (
-                    <tr key={s.id} className="border-t">
-                      <td className="px-3 py-2 text-muted-foreground">{s.id}</td>
-                      <td className="px-3 py-2">{s.productNo}</td>
-                      <td className="px-3 py-2">{s.janCode}</td>
-                      <td className="px-3 py-2">{s.name}</td>
-                      <td className="px-3 py-2 text-right">{s.unitPrice?.toLocaleString() ?? '-'}</td>
-                      <td className="px-3 py-2 text-right">{s.purchasePrice?.toLocaleString() ?? '-'}</td>
-                      <td className="px-3 py-2 text-center">{s.stock ?? '-'}</td>
-                      <td className="px-3 py-2 text-center">
-                        {s.bCartPriceReflected
-                          ? <Badge variant="secondary" className="text-xs">同期済</Badge>
-                          : <Badge variant="outline" className="text-xs text-orange-500 border-orange-500">未反映</Badge>}
-                      </td>
-                    </tr>
+                    <BCartProductSetRow
+                      key={s.id}
+                      set={s}
+                      onSaved={() => {
+                        queryClient.invalidateQueries({ queryKey: ['bcart', 'products', productId] })
+                        queryClient.invalidateQueries({ queryKey: ['bcart', 'pending-changes'] })
+                        queryClient.invalidateQueries({ queryKey: ['bcart', 'pending-changes-count'] })
+                      }}
+                    />
                   ))}
                 </tbody>
               </table>
