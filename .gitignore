@@ -62,3 +62,6 @@ frontend/_mfj_*.json
 # Debug SQL console queries (ad-hoc exploration)
 SQL/
 claudedocs/_spike_*.json
+frontend/_mf_*.json
+frontend/_mfj.json
+frontend/_review_post.json
