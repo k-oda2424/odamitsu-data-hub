@@ -44,3 +44,21 @@ frontend/claudedocs/
 # Local analysis artifacts and migration backups (not to be committed)
 backup/
 claudedocs/tmp/
+
+# Local debug snapshots (ad-hoc API response captures)
+_int*.json
+_mfj_*.json
+_sb_*.json
+_query_residual.sql
+backend/_int*.json
+backend/_mfj_*.json
+backend/_sb_*.json
+frontend/_int_rec.json
+frontend/_mfj_*.json
+
+# Schedule lock files
+.claude/scheduled_tasks.lock
+
+# Debug SQL console queries (ad-hoc exploration)
+SQL/
+claudedocs/_spike_*.json

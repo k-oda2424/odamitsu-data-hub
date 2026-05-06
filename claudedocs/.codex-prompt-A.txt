@@ -1,0 +1,68 @@
+あなたは経理システムと SaaS インテグレーションの上級レビュアーです。Cluster A (請求機能 - Invoice Management) の批判的レビューを実施してください。
+
+## プロジェクト
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`)
+- Java 21 / Spring Boot 3.3.x / PostgreSQL 17 / Next.js 16
+- SMILE 基幹システムから請求実績 Excel を取り込み `t_invoice` に UPSERT
+- 入金グループ (m_partner_group) と紐付けて得意先別表示
+
+## レビュー対象 (Cluster A)
+**Backend** (主要):
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/InvoiceImportService.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/TInvoiceService.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/MPartnerGroupService.java`
+- `backend/src/main/java/jp/co/oda32/batch/finance/service/InvoiceVerifier.java`
+- Entity: TInvoice, MPartnerGroup
+- Specification: TInvoiceSpecification
+- DTO: InvoiceResponse, InvoiceImportResult, PartnerGroupRequest/Response, BulkPaymentDateRequest, PaymentDateUpdateRequest
+- Controller: 請求関連の Controller (api/finance 配下)
+
+**Frontend**:
+- `frontend/components/pages/finance/invoices.tsx`
+- `frontend/components/pages/finance/InvoiceImportDialog.tsx`
+- `frontend/components/pages/finance/PartnerGroupDialog.tsx`
+
+## 既存レビュー (重複回避)
+- `claudedocs/design-review-invoice-management.md` (Critical 3 / Major 7 / Minor 8)
+- `claudedocs/code-review-invoice-management.md` (Critical 4 / Major 6 / Minor 7)
+- `claudedocs/design-invoice-management.md`
+
+既出 (重複させない):
+- Migration 欠落、IDOR (bulk-payment-date)、特殊得意先ハードコード (上様/イズミ/クリーンラボ)、virtual TInvoice
+- useMemo(columns, []) 空依存バグ、Excel 内同一 partnerCode 二重適用、@NotNull で 400、取込エンドポイント shopNo IDOR
+
+## 批判的レビューの観点
+Opus はコード品質と既知バグを網羅した。**根本的な問い直し**を:
+
+1. **設計選択の前提**
+   - 「SMILE 請求実績 Excel を取り込む」という処理形態は本当に正しいか (SMILE → DB 直接連携や API 連携でない理由)
+   - virtual TInvoice の概念 (「Excel に存在しないが DB に残す」) の業務上の妥当性
+   - 「上様」「イズミ」「クリーンラボ」のハードコード判定が表すドメインモデルの欠落
+   - partner_group (入金グループ) の粒度 (得意先 1:1 or 1:N) の設計選択
+
+2. **代替アーキテクチャ**
+   - Excel パーサーの責務分離 (取込/検証/結果集計)
+   - virtual TInvoice を別テーブル (t_invoice_carryover 等) で管理する案
+   - 入金グループを階層構造 (組織 > 部門 > 担当) で扱う案
+
+3. **エッジケース / 失敗モード**
+   - SMILE 側で過去請求が修正された場合 (再 Excel 取込で旧データが残る挙動)
+   - 1 行でも不正があると全件ロールバック → 既存行の取り扱い
+   - 同一得意先で同月複数請求 (中間請求/月末請求) のキー一意性
+   - partner_group の member 移動 (A 組から B 組へ) 時の過去請求帰属
+   - 入金日一括更新で意図せず確定済みの過去請求を更新するリスク
+
+4. **業務整合 / 監査**
+   - 「請求書の数字」「Excel の数字」「MF の数字」の権威階層 (Cluster D と整合とるべき)
+   - 入金消込が「いつ誰が確定したか」を完全追跡できるか
+   - 監査時に「この月のこの請求はなぜ存在するか/なぜ消えたか」を説明できるか
+   - GDPR/個人情報保護: 得意先名・得意先コードの取扱
+
+## 出力フォーマット
+Markdown、日本語、簡潔に (max 500 行)。各指摘:
+- Severity: Critical / Major / Minor
+- カテゴリ: 設計選択 / 代替案 / エッジケース / 業務整合
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus が見落としていた最重要 3 件」を明記。

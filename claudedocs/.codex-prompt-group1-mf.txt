@@ -1,0 +1,68 @@
+あなたは MF 連携・OAuth・暗号化の上級レビュアーです。
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`) で実装された **MF 連携基盤系 4 件** を批判的にレビューしてください。
+
+## レビュー対象 (Group 1: MF 連携基盤)
+
+### P1-01: MF tenant binding 必須化
+- 新規: `backend/src/main/resources/db/migration/V032__add_mf_tenant_binding.sql`
+- 新規: `backend/src/main/java/jp/co/oda32/domain/service/finance/mf/MfTenantResponse.java`
+- 新規: `backend/src/main/java/jp/co/oda32/domain/service/finance/mf/MfTenantMismatchException.java`
+- 改修: `MMfOauthClient.java`, `MfApiClient.java`, `MfOauthService.java`, `MfTokenStatus.java`, `FinanceExceptionHandler.java`, `MfIntegrationController.java`
+- 改修: `frontend/types/mf-integration.ts`, `frontend/components/pages/finance/mf-integration.tsx`
+
+### P1-04: refresh_token 540 日寿命予兆 banner
+- 改修: `MfTokenStatus.java`, `MfOauthService.java` (getStatus 拡張)
+- 改修: `frontend/types/mf-integration.ts`
+- 新規: `frontend/components/common/MfReAuthBanner.tsx`
+- 改修: `frontend/components/layout/AppLayout.tsx`
+
+### P1-05: OAuth 鍵分離
+- 新規: `backend/src/main/resources/db/migration/V033__reencrypt_mf_oauth_secrets.java`
+- 新規: `backend/src/main/java/jp/co/oda32/util/OauthCryptoUtil.java`
+- 改修: `application.yml`, `application-dev.yml`, `application-prod.yml`, `application-test.yml`
+- 改修: `MfOauthService.java`, `MMfOauthClient.java`
+- 新規: `backend/scripts/gen-oauth-key.ps1`, `claudedocs/runbook-mf-oauth-keys.md`
+
+### T6: Scope 変更検知
+- 新規: `backend/src/main/java/jp/co/oda32/domain/service/finance/mf/MfScopeConstants.java`
+- 改修: `MfTokenStatus.java`, `MfOauthService.java`
+- 改修: `frontend/types/mf-integration.ts`
+- 新規: `frontend/components/common/MfScopeBanner.tsx`
+
+## 批判的レビュー観点
+
+### セキュリティ系 (重点)
+1. OauthCryptoUtil の AES-GCM 実装 (IV 生成、tag length、PBKDF2 iteration count) は CryptoUtil と等価か? 弱い設定はないか?
+2. V033 migration での旧鍵→新鍵 再暗号化が atomic か? 失敗時のリカバリ?
+3. MfTenantMismatchException 409 マッピングが情報漏洩リスクないか? (敵対者に「別 tenant が存在」を知らせる)
+4. refresh_token 540 日寿命の判定が「現 active token の add_date_time」依存 → MF が rotation しない設計の場合に誤判定しないか?
+5. MfApiClient.getTenant の呼び出し頻度は適切か? (callback と refresh 後のみ vs 毎回)
+
+### 整合性・運用系
+6. tenant binding の検証順序 (callback 内): state 検証 → exchange → tenant 取得 → tenant 一致検証 → token 永続化、の順で race condition なし?
+7. dev fallback (旧鍵) と prod env (新鍵) が混在する状況 (例: テスト環境で旧鍵 + prod で新鍵) で V033 migration が正しく動くか?
+8. MfReAuthBanner の閾値判定 (60/30/14/7/0) で edge case (= 0 直前、time zone 跨ぎ等) での挙動
+9. MfScopeConstants の REQUIRED_SCOPES と Frontend MF_REQUIRED_SCOPES の同期義務 → 将来的に乖離した場合の検知方法は?
+10. 既存 prod 認可済 client は次回 refresh で自動 binding 確定する見込みだが、その期間中の挙動 (mfTenantId=NULL の状態で API 呼び出し)
+
+### 設計系
+11. tenant binding と scope 検出を同じ MfTokenStatus に詰めているが、責務分離は適切か? (将来的に拡張時の影響)
+12. OauthCryptoUtil と CryptoUtil の構造的重複 → 共通親クラスや utility 化の余地
+13. P1-04 banner と T6 banner が同じ status API を共有 (queryKey) しているが、他に独立 banner が増えた時のスケーラビリティ
+14. V033 Java migration が Spring 起動前に env 必須 → 開発者が忘れた時の DX (= setup 手順)
+
+### 想定外攻撃シナリオ
+15. admin が誤って authorize_url / token_url / api_base_url を改竄 (DD-F-MJ-6) → tenant binding でも防げないシナリオ
+16. MF 側で revoke された token の状態で getStatus を呼ぶと何が起きるか?
+17. tenant_bound_at が NULL の旧データで mismatch 検証はどう動くか? (= 初回認可扱いで素通り? それとも警告?)
+18. dev 環境で env が未設定で起動 → V033 fail-fast → 開発者の混乱を最小化できているか?
+
+## 出力フォーマット
+
+Markdown、日本語、簡潔に (max 600 行)。各指摘は:
+- Severity: Critical / Major / Minor
+- カテゴリ: セキュリティ / 整合性 / 運用 / 設計
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus 実装で見落としていた最重要 3 件」を明記。

@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Phase 1: 全 Flyway migration (V001..V042 + Java migration V033) を本番同等の
+  # PostgreSQL 17 service container に対して適用し、SQL/Java migration の syntax,
+  # baseline, encryption 鍵未設定時の fail-fast 等を CI で検出する。
+  migration-check:
+    name: Flyway Migration Check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: oda32
+          POSTGRES_PASSWORD: oda32
+          POSTGRES_DB: oda32db
+        ports:
+          - 55544:5432
+        options: >-
+          --health-cmd "pg_isready -U oda32 -d oda32db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Apply Flyway migrations via Spring Boot
+        working-directory: backend
+        # NOTE:
+        #  - profile は web,dev (CI 用 postgres は localhost:55544 = dev と同形)
+        #  - APP_CRYPTO_OAUTH_KEY / SALT は CI 用ダミー (production 鍵は使わない).
+        #    V033 (Java migration) は env 必須のため明示的に設定する.
+        #  - APP_CRYPTO_KEY / SALT / JWT_SECRET は application-dev.yml に dev fallback あり.
+        #  - actuator は dependency に無いので, flyway 完了マーカーを application log で grep する.
+        env:
+          APP_CRYPTO_OAUTH_KEY: ci-dummy-oauth-key-for-flyway-check-2026
+          APP_CRYPTO_OAUTH_SALT: 0123456789abcdef0123456789abcdef
+        run: |
+          set -eo pipefail
+          mkdir -p build
+          # bootRun を background で起動し, ログを build/bootRun.log に流す.
+          ./gradlew --no-daemon bootRun \
+            --args='--spring.profiles.active=web,dev' \
+            > build/bootRun.log 2>&1 &
+          BOOT_PID=$!
+          echo "Spring Boot started in background (PID=$BOOT_PID)"
+
+          # Spring Boot 起動完了 (= Flyway migration 完了後) を log marker で検出する.
+          # 'Started WebApplication' は SpringApplication 起動完了マーカー.
+          # 'Tomcat started on port' でも代替可.
+          STARTED=0
+          for i in $(seq 1 180); do
+            if ! kill -0 $BOOT_PID 2>/dev/null; then
+              echo "ERROR: bootRun process died before Spring Boot startup completed"
+              cat build/bootRun.log || true
+              exit 1
+            fi
+            if grep -q "Started WebApplication" build/bootRun.log 2>/dev/null; then
+              STARTED=1
+              echo "Spring Boot started successfully (after ${i}s)"
+              break
+            fi
+            if grep -q "APPLICATION FAILED TO START" build/bootRun.log 2>/dev/null; then
+              echo "ERROR: Spring Boot startup failed"
+              cat build/bootRun.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Spring Boot を停止する (Flyway は既に完了済).
+          kill -TERM $BOOT_PID 2>/dev/null || true
+          # graceful shutdown 待ち (最大 30 秒).
+          for i in $(seq 1 30); do
+            if ! kill -0 $BOOT_PID 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          kill -KILL $BOOT_PID 2>/dev/null || true
+          wait $BOOT_PID 2>/dev/null || true
+
+          if [ "$STARTED" != "1" ]; then
+            echo "ERROR: Spring Boot did not start within 180s"
+            tail -200 build/bootRun.log
+            exit 1
+          fi
+
+          # Flyway history を直接確認 (= 全 migration が success=true).
+          export PGPASSWORD=oda32
+          UNSUCCESS=$(psql -h localhost -p 55544 -U oda32 -d oda32db -tAc \
+            "SELECT COUNT(*) FROM flyway_schema_history WHERE success = false;")
+          if [ "$UNSUCCESS" != "0" ]; then
+            echo "ERROR: $UNSUCCESS Flyway migration(s) marked as failed"
+            psql -h localhost -p 55544 -U oda32 -d oda32db -c \
+              "SELECT version, description, success FROM flyway_schema_history WHERE success = false;"
+            exit 1
+          fi
+          APPLIED=$(psql -h localhost -p 55544 -U oda32 -d oda32db -tAc \
+            "SELECT COUNT(*) FROM flyway_schema_history WHERE success = true;")
+          echo "All $APPLIED Flyway migrations applied successfully"
+        timeout-minutes: 10
+
+      - name: Upload bootRun log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootRun-log
+          path: backend/build/bootRun.log
+          retention-days: 7
+
+  # Phase 2: backend unit test (TestApplication は DataSource を auto-config から除外しており,
+  # H2 も DB 起動も不要. JVM 内で純粋に動く).
+  backend-test:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Run tests
+        working-directory: backend
+        env:
+          JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8
+        run: ./gradlew --no-daemon test --console=plain
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-report
+          path: |
+            backend/build/reports/tests/test/
+            backend/build/test-results/test/
+          retention-days: 7
+
+  # Phase 3: frontend TypeScript strict check + Next.js build smoke test.
+  frontend-typecheck:
+    name: Frontend TypeScript Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Build (smoke test)
+        working-directory: frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build

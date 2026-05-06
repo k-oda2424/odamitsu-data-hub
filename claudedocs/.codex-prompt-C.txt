@@ -1,0 +1,68 @@
+あなたは経理・会計連携の上級レビュアーです。Cluster C (買掛仕入 MF 変換 - Payment MF Import) の批判的レビューを実施してください。
+
+## プロジェクト
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`)
+- Java 21 / Spring Boot 3.3.x / PostgreSQL 17 / Next.js 16
+- 振込み明細 Excel(5日/20日払い) → MF 買掛仕入 CSV 変換
+
+## レビュー対象 (Cluster C)
+**Backend** (主要):
+- `backend/src/main/java/jp/co/oda32/api/finance/PaymentMfImportController.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/PaymentMfRuleService.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/PaymentMfExcelParser.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/PaymentMfCellReader.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/PaymentMfImportService.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/PaymentMfCsvWriter.java`
+- Entity: MPaymentMfRule, TPaymentMfImportHistory, TPaymentMfAuxRow
+
+**Frontend**:
+- `frontend/components/pages/finance/payment-mf-import.tsx`
+- `frontend/components/pages/finance/payment-mf-rules.tsx`
+- `frontend/components/pages/finance/payment-mf-history.tsx`
+- `frontend/components/pages/finance/VerifiedCsvExportDialog.tsx`
+- `frontend/components/pages/finance/PaymentMfAuxRowsTable.tsx`
+
+## 既存レビュー (重複回避)
+- `claudedocs/design-review-payment-mf-import.md` (Critical 3 / Major 6 / Minor 7)
+- `claudedocs/code-review-payment-mf-import.md` (Critical 2 / Major 5 / Minor 7)
+- `claudedocs/design-payment-mf-import.md`, `claudedocs/design-payment-mf-aux-rows.md`
+
+既出 (重複させない):
+- `/convert` `/verify` API の認可漏れ、§5.1 と Javadoc 整合不良、`applyVerification` 重複書込、`fmtAmount` null 時 CSV 契約違反
+
+## 批判的レビューの観点
+Opus はコード品質と既知のバグを網羅した。**あなたの仕事は根本的な問い直し**:
+
+1. **設計選択の前提**
+   - 「振込明細 Excel → CSV」という処理形態が本当に正しいか (MF API 直接連携でなく Excel 経由する理由)
+   - 「5日/20日締め固定」「前月20日締め突合」のハードコード前提
+   - PAYABLE→DIRECT_PURCHASE 自動降格の業務妥当性 (経理判断を黙って自動化していないか)
+   - aux_row (補助行) を別テーブルに持つ設計 vs PAYABLE と統合する設計の比較
+
+2. **代替アーキテクチャ**
+   - Excel パーサーをサーバー側で持つ vs クライアント側 (ブラウザ Excel.js) で持つ
+   - `m_payment_mf_rule` ベースのルールエンジン vs ML/データ駆動マッチング
+   - CSV 出力を即時 vs ジョブキュー経由 (大量振込時のメモリ・タイムアウト)
+
+3. **エッジケース / 失敗モード**
+   - Excel フォーマット変更 (列追加/削除/列順入替) 時の検知
+   - 同一振込明細を 2 回取込 (重複防止のキー設計)
+   - 振込日が 5/20 以外 (緊急振込、月末振込) のケース
+   - 税率混在行の按分誤差 (BigDecimal 累積誤差)
+   - aux_row が UNIQUE (shop, month, transfer_date) で衝突した場合
+   - CP932 で表現できない文字 (㎡, ①, 旧字体) の振る舞い
+
+4. **ビジネス整合性 / 監査**
+   - 「100円閾値で一致」基準は税理士監査で説明可能か
+   - 振込明細と請求書の不一致をどう扱うべきか (現在の挙動 vs 理想)
+   - 検証済 CSV 出力で「いつ誰がどの行を確定したか」が DB から完全追跡可能か
+   - 自動 PAYABLE→DIRECT_PURCHASE 降格を行ったことが監査ログに残るか
+
+## 出力フォーマット
+Markdown、日本語、簡潔に (max 600 行)。各指摘:
+- Severity: Critical / Major / Minor
+- カテゴリ: 設計選択 / 代替案 / エッジケース / 業務整合
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus が見落としていた最重要 3 件」を明記。

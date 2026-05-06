@@ -1,0 +1,61 @@
+あなたはテスト戦略・QA・開発運用の上級レビュアーです。
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`) で実装された **テスト/ガイドライン系 1 件** を批判的にレビューしてください。
+
+## レビュー対象 (Group 4: テスト / ガイドライン = T3 案 D'')
+
+### T3 案 D'': DEFER (マスタ履歴化) + 開発運用ガイドライン + ゴールデンマスタ拡充
+- 新規: `claudedocs/runbook-finance-recalc-impact-analysis.md` (8 章)
+- enabled: `PaymentMfImportServiceGoldenMasterTest.java` (2 ケース、@Disabled 解除)
+- enabled: `PaymentMfImportServiceAuxRowTest.java` (2 ケース、@Disabled 解除)
+- 新規: `PayableMonthlyAggregatorGoldenTest.java` (14 ケース、6 シナリオ Nested)
+- 新規: `SupplierBalancesServiceGoldenTest.java` (8 ケース、6 シナリオ)
+
+### 経緯
+- T3 元提案 (マスタ履歴化) はユーザー実需と乖離 → DEFER
+- 真の問題: 「改修・試行錯誤での集計ロジック変更」による過去月再計算の不整合
+- 解決策: ゴールデンマスタテストで意図外変動を検知 + 改修時手順 runbook で運用
+
+## 批判的レビュー観点
+
+### Runbook 系
+1. 改修標準手順 (Step 1-8) の現実性: 経理改修ごとに毎回 8 ステップ実施は workload 大きすぎないか?
+2. Step 3-5 の API スナップショット取得方式は admin 認証が必要 → CI 自動化が困難。CI/CD で機械的にチェックする手段は?
+3. Step 7 の差分判定 (意図通り / 副作用 / 期間外波及) で「意図通りか副作用か」の判定基準が主観的 → 自動判定基準の追加余地
+4. Step 8 「過去確定月の保護ルール」が runbook 推奨レベル → DB レベル制約 (例: 確定済み月は UPDATE 禁止 trigger) の実装余地
+
+### ゴールデンマスタテスト系 (重点)
+5. **PayableMonthlyAggregatorGoldenTest 14 ケース** の Scenario 1-6 で **網羅性は十分か?** (= Codex 想定の edge case でカバーされていないものは?)
+   - 単一/税率混在/payment-only/MF debit auto/MF debit manual protect/SupplierAgg
+   - 不足: closing balance の符号 (= 残高がマイナスになるケース)、税率変更月跨ぎ、決算期跨ぎ
+6. **SupplierBalancesServiceGoldenTest 8 ケース** の網羅性
+   - MATCH/MINOR/MAJOR/EDGE/MF_MISSING/SELF_MISSING/opening 注入/期首残仕訳除外
+   - 不足: 同 supplier 複数 sub_account hit、MF 未マッチ supplier (unmatchedSuppliers)、cumulative 巻き戻し
+7. **MfOpeningJournalDetector の判定が過敏** (credit-only 買掛金仕訳を全て opening 判定) という発見 → 本体ロジックの妥当性が疑問
+8. fixture 形式 (JSON / Java インライン / external file?) の選択妥当性
+9. 改修時の fixture 更新フロー → user 環境作業が必要なテスト (PaymentMfImport) と完全 unit test (Aggregator) の **混在** で開発者が混乱しないか?
+
+### CI 統合系
+10. `.github/workflows/` 不在を確認 → CI/CD パイプライン未整備で「ゴールデンマスタテストが実行されない」リスクが残る? `gradlew test` は手動実行のみ?
+11. ゴールデンマスタテストの fail 時の通知メカニズム (= 誰が気付くか) は?
+
+### MfOpeningJournalDetector 過敏判定の波及
+12. T3 で発覚した「Detector 過敏判定」は **本来なら別 task で修正すべき Critical**。SupplierBalancesService テスト fixture で workaround しているが、本番運用で誤判定発生時の影響範囲は?
+13. workaround (`payableJournal` helper の dummy debit branch 追加) が将来の改修で取れた場合、再発リスク
+
+### 開発運用 (DX) 系
+14. runbook §5 PaymentMfImport fixture 更新手順が user 環境作業 (実 Excel 取込) → 開発者交代時のオンボーディング難易度
+15. テスト fail 時の修正コスト: golden master が落ちた時、開発者は「期待値が古い」のか「コードバグ」のかを瞬時に判断できる?
+16. T3 DEFER の判断 (マスタ履歴化不要) を後悔しないために、将来マスタ変更が発生した時の決断ポイント (= rerun T3 議論する trigger)
+
+### 設計書 vs 実装の乖離
+17. runbook で「ゴールデンマスタは CI で自動実行」と書いているが CI 未整備 → ドキュメント-実装乖離
+
+## 出力フォーマット
+
+Markdown、日本語、簡潔に (max 400 行、Group 4 は規模小)。各指摘は:
+- Severity: Critical / Major / Minor
+- カテゴリ: テスト網羅 / Runbook / CI / DX / Detector
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus 実装で見落としていた最重要 3 件」を明記。

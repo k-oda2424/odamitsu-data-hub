@@ -1,0 +1,71 @@
+あなたは経理・会計連携の上級レビュアーです。
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`) で実装された **経理ビジネスロジック系 4 件** を批判的にレビューしてください。
+
+## レビュー対象 (Group 2: 経理ビジネスロジック)
+
+### P1-02: 整合性レポート opening 注入
+- 改修: `backend/src/main/java/jp/co/oda32/domain/service/finance/AccountsPayableIntegrityService.java`
+- 改修: `claudedocs/design-supplier-opening-balance.md` §7.2
+
+実装方針: `MfOpeningBalanceService` を constructor inject + ログで「opening 注入確認」を表面化。実際の cumulative 計算は `SupplierBalancesService.generate()` への委譲を維持 (両者が同じ `getEffectiveBalanceMap` を呼ぶため数値は完全一致)。
+
+### P1-03 案 D-2 + P1-07 案 D: per-supplier 値引/早払/送料 attribute (5日払い+20日払い両方)
+- 改修: `PaymentMfExcelParser.java` (per-row 振込/値引/早払/送料/相殺 読取)
+- 改修: `PaymentMfImportService.java` (PAYABLE/DIRECT_PURCHASE 両方で per-supplier sub-row 展開)
+- 改修: `PaymentMfPreviewResponse.java` (`AmountReconciliation` 拡張)
+- 改修: `frontend/types/payment-mf.ts` (RuleKind に PAYABLE_*/DIRECT_PURCHASE_* 追加)
+- 改修: `claudedocs/design-payment-mf-import.md` §5.5 (新セクション)
+
+### P1-08: 再取込防止 (警告 + 確定保護 + verified_manually 保護)
+- 新規: `backend/src/main/resources/db/migration/V034__payment_mf_import_history_protection.sql`
+- 新規: `dto/finance/paymentmf/DuplicateWarning.java`, `AppliedWarning.java`
+- 改修: `TPaymentMfImportHistory.java` (3 列追加), `TPaymentMfImportHistoryRepository.java`
+- 改修: `PaymentMfImportService.java` (SHA-256 hash 計算 + 警告生成 + applyVerification で applied_at 記録 + verified_manually skip)
+- 改修: `frontend/types/payment-mf.ts`, `frontend/components/pages/finance/payment-mf-import.tsx`
+
+### P1-09 案 D: verified_amount 不変条件文書化
+- 改修: `TAccountsPayableSummary.java` (Javadoc 強化)
+- 新規: `backend/src/main/resources/db/migration/V035__document_verified_amount_invariant.sql`
+- 新規: `PaymentMfImportServiceVerifiedAmountTest.java` (3 テスト)
+- 改修: `claudedocs/design-payment-mf-import.md` §5.6
+
+## 批判的レビュー観点
+
+### 業務整合性 (重点)
+1. P1-02: AccountsPayableIntegrityService が SupplierBalancesService に委譲する形 → 両 service の責務分離は維持されているか? circular dependency リスクは?
+2. P1-03 D-2: PAYABLE と DIRECT_PURCHASE の副行構造 (借方買掛/借方仕入高 + 貸方仕入値引/早払収益) は会計仕訳として妥当か?
+3. P1-03 D-2: 自動降格 (PAYABLE→DIRECT_PURCHASE) で per-supplier attribute が破綻しないか? 元 PAYABLE rule の summaryTemplate/tag/creditDepartment 継承は完全か?
+4. P1-03 D-2: 「請求 - 値引 - 早払 - 送料 - 相殺 = 振込」の per-supplier 整合性チェックの 1 円不許容判定で、edge case (= NULL 列、合計行に値があるが per-supplier に値なし、相殺の特殊運用) はどう扱われるか?
+5. P1-08: applyVerification で verified_manually=true 行の skip 判定 (`!VERIFICATION_NOTE_BULK_PREFIX で始まる`) で偽陽性/偽陰性なし?
+6. P1-09: verified_amount の不変条件「supplier × month で全税率行同値」が崩れる経路 (manual SQL UPDATE 以外) はあるか?
+
+### スキーマ・migration 系
+7. V032 (P1-01)、V033 (P1-05)、V034 (P1-08)、V035 (P1-09)、V036 (T2) の連番管理に問題なし? 並行 feature branch で衝突するリスク
+8. V034 の `applied_at` index は partial (`WHERE applied_at IS NOT NULL`) → 適用率の高くなる本番で効率的か?
+9. P1-08 の applied_at が NULL の状態で AppliedWarning 検出ロジックが意図通り動くか?
+
+### MF 仕訳構造
+10. DIRECT_PURCHASE 主行の貸方が「資金複合」になっているが、これは 5日払い PAYABLE 主行の貸方「普通預金」と整合するか?
+11. DIRECT_PURCHASE_* 副行の貸方科目選定 (仕入値引・戻し高 / 早払収益) は税理士監査時に説明可能か? (借方仕入高 + 貸方仕入値引・戻し高 = 同時に買って同時に値引、不自然?)
+12. PAYABLE_OFFSET / DIRECT_PURCHASE_OFFSET の貸方が「仕入値引・戻し高」暫定 → 相殺仕訳の本来の貸方科目は?
+
+### per-supplier 整合性
+13. per-supplier 1 円不許容のチェック失敗時、preview に warning 表示するが、強制 block していない → ユーザーが確認なしで apply 可能? UX 的にはこれで OK?
+14. 「20日払いセクション」の判定が「合計行以降」だが、Excel に 5日払い合計行 + 20日払い合計行が両方ある場合の挙動?
+
+### 監査・運用
+15. P1-08 hash 警告で「同一ハッシュ」の判定が SHA-256 → ファイル先頭 1 byte 変えただけで別 batch 扱い。この粒度は適切か? (= 例: meta info 変更だけでも別扱い)
+16. P1-09 の Javadoc 不変条件は「手動 SQL UPDATE する人が読む」前提だが、admin tool / 緊急 fix 時の操作で気付きづらい仕組みになっていないか?
+
+### Codex DDC-01 関連 (P1-09 で議論されたが結論 D で済ませた)
+17. verified_amount を税率別 N 行に同値書込 (= 集約値の冗長保持) で本当に「動作上問題ない」か? 副作用の見落としは?
+
+## 出力フォーマット
+
+Markdown、日本語、簡潔に (max 600 行)。各指摘は:
+- Severity: Critical / Major / Minor
+- カテゴリ: 業務整合 / スキーマ / 仕訳構造 / 監査 / 設計
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus 実装で見落としていた最重要 3 件」を明記。

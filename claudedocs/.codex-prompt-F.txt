@@ -1,0 +1,63 @@
+あなたはセキュリティと OAuth/SaaS 連携の上級レビュアーです。Cluster F (MF 連携基盤: OAuth + ヘルスチェック) の批判的レビューを実施してください。
+
+## プロジェクト
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`)
+- Java 21 / Spring Boot 3.3.x / PostgreSQL 17 / Next.js 16
+- マネーフォワードクラウド会計との OAuth2 (PKCE+BASIC) 連携基盤
+
+## レビュー対象 (Cluster F)
+**Backend** (主要):
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/mf/` 配下全体
+  - MfApiClient, MfTokenService, MfJournalFetcher, MfHealthCheckService, MfBalanceReconcileService 等
+- Repository: MMfOauthClientRepository, TMfOauthTokenRepository, MfAccountMasterRepository
+- Controller: MF 連携の Controller 群
+
+**Frontend**:
+- `frontend/components/pages/finance/mf-integration.tsx`
+- `frontend/components/pages/finance/mf-health.tsx`
+- `frontend/components/pages/finance/mf-integration-callback.tsx`
+- 各種 MF タブ: MfEnumTranslationTab.tsx, MfReconcileTab.tsx, MfAccountSyncTab.tsx, MfBalanceReconcileTab.tsx
+
+## 既存レビュー (重複回避)
+- `claudedocs/design-review-mf-integration.md` (Opus 設計レビュー、Critical 3 / Major 7 / Minor 8)
+- `claudedocs/code-review-mf-integration.md` (Opus コードレビュー、Critical 2 / Major 8 / Minor 11)
+- `claudedocs/design-mf-integration-status.md` (設計書)
+
+既出指摘 (重複させない):
+- dev salt ハードコード、token leak、window.open noreferrer 矛盾、ヘルス画面 0 固定誤表示
+- RestClient timeout 無限、token record の auto toString 漏洩、@Transactional + HTTP、state atomicity、refresh rotation off、StrictMode 二重消費
+
+## 批判的レビューの観点
+Opus は実装上のセキュリティ欠陥を網羅した。**あなたの仕事は別の角度から問い直すこと**:
+
+1. **OAuth/トークン基盤の根本前提**
+   - MF クラウド側のトークンライフサイクル (有効期限、ローテーション、無効化) と本実装の整合
+   - リフレッシュトークン枯渇時の業務影響 (経理業務の停止)
+   - マルチテナント (会社別 MF 契約) を考慮した設計か
+   - クライアント秘密 (client_secret) の鍵管理ポリシー (KMS / Vault / DB暗号化のどこに置くべきか)
+
+2. **代替アーキテクチャ**
+   - OAuth クライアント情報を DB ではなく Spring Cloud Config / 環境変数 / Vault で管理する案
+   - MF API 呼び出しを synchronous client から非同期 message queue ベースに切り替える案 (rate limit + リトライ集中管理)
+   - Backend for Frontend (BFF) パターンで callback を BFF が受け、token を Frontend に返さない設計
+
+3. **エッジケース / 失敗モード**
+   - MF 側がメンテナンス窓 / API 廃止 / scope 変更した場合
+   - 同一ユーザーが複数 MF 契約に同時連携した場合
+   - 認可コード再利用攻撃 (CSRF + リプレイ)
+   - MF API 仕様変更 (列追加/削除) による breaking change の検知方法
+   - クライアント秘密ローテーション時の旧 token 失効タイミング
+
+4. **ビジネス整合性 / 運用**
+   - 「MF 認証が切れた」をいつ誰が知るか (アラート設計)
+   - 監査要件: いつ誰が MF と連携設定を変更したか
+   - GDPR/個人情報保護法上、MF 経由でやり取りされる取引先個人情報の扱い
+
+## 出力フォーマット
+Markdown、日本語、簡潔に (max 600 行)。各指摘は:
+- Severity: Critical / Major / Minor
+- カテゴリ: 設計選択 / 代替案 / エッジケース / 運用整合
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus が見落としていた最重要 3 件」を明記。

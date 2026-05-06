@@ -137,10 +137,12 @@ CREATE INDEX idx_payment_mf_aux_transfer
 
 ### 3.3 Entity / Repository
 
+**運用方針**: 物理削除運用のため `IEntity` は **不実装**。`del_flg` カラムも持たず、論理削除フィルタの考慮は不要（§3.2 Q2 参照）。`(shop_no, transaction_month, transfer_date)` 単位の DELETE → INSERT で洗い替えする。
+
 ```java
 @Entity @Data @Builder
 @Table(name = "t_payment_mf_aux_row")
-public class TPaymentMfAuxRow implements IEntity {
+public class TPaymentMfAuxRow {
     @Id @GeneratedValue(strategy = IDENTITY) @Column(name = "aux_row_id")
     private Long auxRowId;
 
@@ -168,9 +170,7 @@ public class TPaymentMfAuxRow implements IEntity {
     private LocalDateTime modifyDateTime;
     private Integer modifyUserNo;
 
-    // del_flg 持たない（物理削除運用）
-    @Override public String getDelFlg() { return "0"; }
-    @Override public void setDelFlg(String s) { /* no-op */ }
+    // 物理削除運用のため IEntity 不実装（del_flg カラムなし）。
 }
 ```
 

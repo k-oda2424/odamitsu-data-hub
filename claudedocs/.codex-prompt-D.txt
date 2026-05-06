@@ -1,0 +1,63 @@
+あなたは経理システムの上級レビュアーです。Cluster D (買掛金ファミリー) の批判的レビューを実施してください。
+
+## プロジェクト
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`)
+- Java 21 / Spring Boot 3.3.x / PostgreSQL 17 / Next.js 16
+- 経理: 買掛金集計→検証→マネーフォワード仕訳連携
+
+## レビュー対象 (Cluster D)
+**Backend** (主要):
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/TAccountsPayableSummaryService.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/AccountsPayableIntegrityService.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/SupplierBalancesService.java`
+- `backend/src/main/java/jp/co/oda32/domain/service/finance/ConsistencyReviewService.java`
+- `backend/src/main/java/jp/co/oda32/batch/finance/AccountsPayableSummaryTasklet.java`
+- `backend/src/main/java/jp/co/oda32/batch/finance/AccountsPayableVerificationTasklet.java`
+- `backend/src/main/java/jp/co/oda32/batch/finance/AccountsPayableBackfillTasklet.java`
+- `backend/src/main/java/jp/co/oda32/batch/finance/service/SmilePaymentVerifier.java`
+- `backend/src/main/java/jp/co/oda32/batch/finance/service/MfPaymentAggregator.java` (or PayableMonthlyAggregator)
+
+**Frontend**:
+- `frontend/components/pages/finance/accounts-payable.tsx`
+- `frontend/components/pages/finance/accounts-payable-ledger.tsx`
+- `frontend/components/pages/finance/integrity-report.tsx`
+- `frontend/components/pages/finance/supplier-balances.tsx`
+
+## 既存レビュー (重複回避)
+以下を必ず読んで、**重複しない指摘** に絞ること:
+- `claudedocs/design-review-accounts-payable-family.md` (Opus 設計レビュー、Critical 4 / Major 9 / Minor 12)
+- `claudedocs/code-review-accounts-payable-family.md` (Opus コードレビュー、Blocker 1 / Critical 5 / Major 10 / Minor 12)
+- `claudedocs/design-accounts-payable.md` ほか設計書 6 本 (D 関連)
+
+## 批判的レビューの観点
+Opus はコード品質・セキュリティ・規約違反を網羅した。**あなたの仕事は別の角度から問い直すこと**:
+
+1. **設計選択の根本前提への異議**
+   - 「20日締め固定」「supplier_no=303 除外」「shop_no=1 固定」など、業務ハードコード前提は本当に正しいか？
+   - 累積残＝期首残＋月次入出金 のモデルは MF と完全に一致しているか？ MF が訂正仕訳を入れた時の挙動は？
+   - 「税率別に行を持つ」設計は MF の集計単位と整合しているか？
+
+2. **代替アーキテクチャの提案**
+   - 集計を Tasklet (バッチ) で持つ vs ストリーム/イベント駆動 vs マテリアライズドビュー
+   - ConsistencyReview の actionType (IGNORE/MF_APPLY) を増やすべき場合 (PARTIAL_APPLY/REVIEW_LATER 等)
+   - paymentSettled 算出を MF debit から取る (案 A) は他の経理連携との一貫性で問題ないか
+
+3. **エッジケース / 失敗モード**
+   - MF API 障害中に Tasklet が走った場合
+   - supplier の合併・分割・コード変更が起きた場合
+   - 部分支払 (請求 100 万に対し 60 万入金、残 40 万持越) の扱い
+   - 月跨ぎの値引・返品 (相殺仕訳) と累積残の整合
+   - shop_no を将来増やした時の再集計コスト
+
+4. **ビジネス整合性**
+   - 経理担当者が「画面で見た数字」と「MF の数字」と「請求書の数字」のどれを信じるべきか、設計上明確か
+   - 監査時に「いつ誰が何を変更したか」が追跡可能か (audit trail の網羅性)
+
+## 出力フォーマット
+Markdown、日本語、簡潔に (max 800 行)。各指摘は:
+- Severity: Critical / Major / Minor
+- カテゴリ: 設計選択 / 代替案 / エッジケース / ビジネス整合
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus が見落としていた最重要 3 件」を明記。

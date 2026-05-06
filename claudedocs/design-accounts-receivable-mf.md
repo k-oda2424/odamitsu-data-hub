@@ -192,6 +192,46 @@ List<TAccountsReceivableSummary> summaries =
 
 - CSV出力後の `setTaxIncludedAmount(summary.getTaxIncludedAmountChange())` コピー処理は維持（CSV出力済みマーカーの意味合い）
 
+#### `*_amount` 焼付けの責務分担（二段焼き仕様, SF-E02 対応）
+
+`tax_included_amount` / `tax_excluded_amount` の確定値（= `*_change` の焼付け）は次の **二段** で発生する。
+
+1. **検証時 (`InvoiceVerifier#applyMatched`)**: 一致と判定された行で `*_amount = *_change` を即焼付け
+2. **CSV DL 時 (`SalesJournalCsvService#markExported`)**: `*_change != null` の行を再度 `*_amount = *_change` で上書き
+
+両者の関係:
+- `applyMatched` は「検証で確定」した時点での焼付け
+- `markExported` は「CSV 出力直前に最新の `*_change` を反映」する保険的な再焼付け
+- SF-E02 適用後は `markExported` 側を **常時上書き**（`*_amount` 既存値による no-op を解消）。再 DL 時に最新 `*_change` で必ず更新される
+
+設計判断 DDE-02 では (B) 二段焼き維持 + 仕様化を採用。手動確定行（`verified_manually=true`）は `findByDateRangeAndMfExportEnabled` でそのまま含めるが、`*_change` も同期されているはずで結果に差は出ない想定。
+
+### 5.5 `AccountsReceivableCutoffReconciler` Service（締め日整合用）
+
+`bulkVerify` 内で自動起動される、得意先の締め日と請求書の closing_date を突合してサマリ行を再集計し直す Service。
+
+```java
+package jp.co.oda32.batch.finance.service;
+
+@Service
+@Transactional
+public class AccountsReceivableCutoffReconciler {
+    /**
+     * 請求書の closing_date と AR サマリの transaction_month が乖離している得意先について、
+     * 請求書側に揃えて AR 行を物理削除→再 INSERT で整合させる。
+     * - 手動確定済み (verified_manually=true) の partner はスキップ
+     * - 物理削除/再 INSERT 件数を ReconcileResult で返却
+     * 呼び出し元: `AccountsReceivableController#bulkVerify` (内部呼出, 別エンドポイントなし)
+     */
+    public ReconcileResult reconcile(Integer shopNo, LocalDate fromDate, LocalDate toDate);
+}
+```
+
+- 目的: SMILE バッチで `transaction_month` を「対象期間末日」固定で書き込んだ行が、後から取り込まれた請求書 closing_date と食い違ったとき、ユーザーに見える AR の括りを請求書に寄せる
+- 起動: `bulkVerify` の前段で自動起動。独立 endpoint は提供しない（DDE-17 で締め確定オペとして分離する案あり）
+- 結果: `BulkVerifyResponse.reconciledPartners / reconciledDeletedRows / reconciledInsertedRows / reconciledSkippedManualPartners / reconciledDetails` でフロントへ通知
+- 影響範囲: AR サマリの PK 列（`shop_no`, `partner_no`, `transaction_month`, `tax_rate`, `is_otake_garbage_bag`）の `transaction_month` のみが書き換わる。`*_amount` の焼付けは `applyMatched` / `markExported` 側で別途処理
+
 ### 5.4 `AccountsReceivableController`（新設）
 
 エンドポイント（買掛側 `FinanceController#listAccountsPayable` 系と対称）:
@@ -515,8 +555,10 @@ for each 集計結果 (shopNo, invoicePartnerCode, closingDateStr):
 ### 9.5 DELETE /accounts-receivable/{pk}/manual-lock
 
 **Response**: 204 No Content
-- `verified_manually = false` にする
-- 次回の一括検証対象に戻る
+- `verified_manually = false` にする（フラグのみ書き換え）
+- `tax_included_amount` / `tax_excluded_amount` / `tax_included_amount_change` / `tax_excluded_amount_change` / `verification_difference` / `invoice_amount` は **据え置き**（手動確定中に手書きされた数値はそのまま残る）
+- 次回の一括検証 (`bulkVerify`) で `*_change` 系・検証結果列が SMILE 取り込み + 請求書突合の最新値で再計算され、同時に `*_amount` も `applyMatched` / `markExported` を通じて再焼付けされる
+- DEFER-E05 で「`verificationDifference` / `invoiceAmount` を null リセットすべきか」が残課題（DDE-10 と統合判断）
 
 ### 9.6 PATCH /accounts-receivable/{pk}/mf-export
 
@@ -592,7 +634,10 @@ CLAUDE.md の「実バックエンド疎通を最低1パス」要件に従い:
 
 ### リスク
 - **R1**: 既存 Tasklet の検証ロジックを Service に抽出する際、四半期特殊処理のエッジケース見落とし → 対策: 既存テストデータでの回帰確認、該当期の実データで疎通
-- **R2**: CSV DL エンドポイントのメモリ使用量（大量行の場合） → 対策: StreamingResponseBody or fromDate/toDate 必須化
+- **R2**: CSV DL エンドポイントのメモリ使用量（大量行の場合）
+  - 現状: `ByteArrayOutputStream` で全量バッファしてから `ResponseEntity<byte[]>` で返却。月次数千行までなら問題なし
+  - 中期解: `StreamingResponseBody` 化し書き出し callback 完了後に `markExported` を呼ぶ（HTTP 200 確定保証）→ DDE-01 で判断
+  - 当面の業務影響緩和: SF-E02 で `markExported` を常時上書きにすることで、ブラウザ側 DL 失敗時の「凍結値出力」窓を最小化済み
 - **R3**: 手動確定行の `*_change` 上書きポリシー（現状案では上書きしない）が業務要件と合うか → 確認: ユーザ運用想定のレビュー
 
 ### 確認事項（実装後）

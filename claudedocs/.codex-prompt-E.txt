@@ -1,0 +1,68 @@
+あなたは経理システムの上級レビュアーです。Cluster E (売掛金 - Accounts Receivable) の批判的レビューを実施してください。
+
+## プロジェクト
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`)
+- Java 21 / Spring Boot 3.3.x / PostgreSQL 17 / Next.js 16
+- 売掛金集計→検証→マネーフォワード仕訳連携
+
+## レビュー対象 (Cluster E)
+**Backend** (主要):
+- Entity: `TAccountsReceivableSummary.java`
+- Repository: `TAccountsReceivableSummaryRepository.java`
+- Service: `TAccountsReceivableSummaryService.java`
+- Batch: `AccountsReceivableToSalesJournalTasklet.java`, `TAccountsReceivableSummaryTasklet.java`
+- Helper: `batch/finance/service/AccountsReceivableCutoffReconciler.java`
+- DTO: `AccountsReceivableResponse.java`, `AccountsReceivableSummaryResponse.java`, `AccountsReceivableVerifyRequest.java`, `AccountsReceivableAggregateRequest.java`, `AccountsReceivableBulkVerifyRequest.java`
+- Controller: AccountsReceivable 関連
+
+**Frontend**:
+- `frontend/components/pages/finance/accounts-receivable.tsx`
+- `frontend/components/pages/finance/AccountsReceivableVerifyDialog.tsx`
+- `frontend/components/pages/finance/AccountsReceivableAggregateDialog.tsx`
+
+## 既存レビュー (重複回避)
+- `claudedocs/design-review-accounts-receivable.md` (Critical 2 / Major 8 / Minor 6)
+- `claudedocs/code-review-accounts-receivable.md` (Critical 3 / Major 5 / Minor 8)
+- `claudedocs/design-accounts-receivable-mf.md`
+
+既出 (重複させない):
+- markExported 焼き込みで CSV DL 失敗時に古い値固定 (二重計上リスク)
+- bulkVerify 3 分割 tx で reconcile 後例外時に mfExportEnabled が黙って全 OFF
+- ゴミ袋 goods_code 定義の tasklet vs reconciler 不整合
+- CutoffReconciler 暗黙起動 / `cutoffDate=-1` 黙示上書き
+
+## 批判的レビューの観点
+Opus はコード品質と既知バグを網羅した。**根本的な問い直し**を:
+
+1. **設計選択の前提**
+   - 「売掛金一覧が買掛金とほぼ対称な構造」という設計選択は本当に正しいか
+   - 「partner (得意先)」と Cluster A の `t_invoice` `m_partner_group` との関係 (重複/分担/階層)
+   - 締め日 cutoff が得意先別に 15/20/月末で混在する設計の妥当性
+   - `mfExportEnabled` の判定責務がどこに集約されているか
+
+2. **代替アーキテクチャ**
+   - Sales Journal CSV を DB から再生成可能にする設計
+   - bulkVerify を非同期ジョブ化する案
+   - CutoffReconciler を独立した「締め確定」操作として明示的に呼ぶ案 (現在は bulkVerify から暗黙起動)
+
+3. **エッジケース / 失敗モード**
+   - 月次締め後に得意先側から訂正請求が来た場合
+   - 締め日変更 (15日締め→20日締め) が起きた場合の過去月再集計
+   - 入金額が複数の請求 (請求書) に按分される場合の追跡可能性
+   - キャンセル / 返品 / 値引が同月内に発生した場合の累積
+   - 第1事業部得意先の B-CART 注文が shop=1 統合される (memory に記載) 影響
+
+4. **業務整合 / 監査**
+   - 売掛金の「権威」(Excel 取込/SMILE/MF/手入力) の階層
+   - 入金消込のトレーサビリティ (誰がいつどの根拠で消込したか)
+   - 監査時に「この月のこの売掛金はなぜ MF 出力された/されていないか」を説明できるか
+   - 買掛金 (Cluster D) と売掛金で命名・運用ルールが揃っているか
+
+## 出力フォーマット
+Markdown、日本語、簡潔に (max 500 行)。各指摘:
+- Severity: Critical / Major / Minor
+- カテゴリ: 設計選択 / 代替案 / エッジケース / 業務整合
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus が見落としていた最重要 3 件」を明記。

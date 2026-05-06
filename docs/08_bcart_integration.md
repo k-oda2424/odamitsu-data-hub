@@ -323,7 +323,7 @@ PATCH リクエストボディ例:
 | `bCartLogisticsCsvExportJobForWEB` | `BCartLogisticsCsvExportBatchForWEB` | 同上（Web画面からの実行用） | Web起動 |
 | `smileOrderImportAndBCartOrderUpdateJob` | `SmileOrderImportAndBCartOrderUpdateBatch` | SMILE注文取込後・B-CART処理連番更新 | Web起動 |
 | `bCartProductsImportJob`（旧`job`） | `BCartProductsImportBatch` | 商品・商品セット取込 | CLIバッチ |
-| `bCartPriceUpdateJob` | `BCartPriceUpdateBatch` | 商品価格更新 | CLIバッチ |
+| ~~`bCartPriceUpdateJob`~~ | ~~`BCartPriceUpdateBatch`~~ | 価格更新 → 2026-05-01 廃止し REST 同期 API (`/api/v1/bcart/pending-changes/reflect`) に置換 | — |
 
 ### 4.2 bCartOrderImportJob（注文取込ジョブ）
 
@@ -541,21 +541,27 @@ Step2: bCartProductSetsImportStep  (BCartProductSetsImportTasklet)
 価格更新フラグ管理:
 - `b_cart_product_sets.b_cart_price_reflected = false`の場合、APIからの単価で上書きしない（本システムで変更した価格を保持）
 
-### 4.6 bCartPriceUpdateJob（価格更新ジョブ）
+### 4.6 価格・配送サイズ反映 — REST 同期 API（旧 bCartPriceUpdateJob を置換）
 
-#### ジョブフロー
+> **2026-05-01 更新**: 旧 `BCartGoodsPriceTableUpdateTasklet` は空スタブのまま長らく未実装だった。Phase 3-A で **同期 REST API に置換** した。バッチではなく UI からの即時反映で、結果が画面に直接返るため UX が良い。詳細は `claudedocs/design-bcart-pending-changes.md` 参照。
 
-```
-Step1: bCartGoodsPriceUpdateStep  (BCartGoodsPriceUpdateTasklet)
-```
+#### エンドポイント
 
-#### BCartGoodsPriceUpdateTasklet（商品価格更新）
+- `PUT /api/v1/bcart/product-sets/{setId}/pricing` — `unit_price` / `shipping_size` をローカル DB 編集 + 履歴記録（`b_cart_change_history`、`b_cart_price_reflected=false`）
+- `GET /api/v1/bcart/pending-changes` — 未反映商品セットの diff（最古 before / 最新 after に集約）一覧
+- `POST /api/v1/bcart/pending-changes/reflect` — 指定セット or 全件を `PATCH /api/v1/product_sets/{id}` でB-CART反映（最大 200 件、超過時 400）
+- `GET /api/v1/bcart/pending-changes/count` — サイドバーバッジ用件数
 
-- `b_cart_product_sets.b_cart_price_reflected = false`の商品セットを取得
-- B-CART `/product_sets/{id}` にPATCHリクエストで価格を反映
-- 更新内容: 通常単価、特別価格（会員別）、数量割引
-- レート制限対応: 250件ごとに5分スリープ
-- 更新成功時: `b_cart_price_reflected = true`に更新
+#### スコープ
+
+- 今回反映対象: `unit_price`, `shipping_size` の 2 フィールドのみ
+- `group_price` / `special_price` / `volume_discount` は **Phase 3-B 以降**（複雑度高、JSON 構造で別エンドポイント想定）
+- `purchase_price` は社内データのため B-CART 反映対象外
+
+#### UI
+
+- 編集: `/bcart/products/{id}` の「セット一覧」タブにインライン編集 UI（行ごとの 💾 ボタン）
+- 反映: サイドバー「B-CART」 →「B-CART変更点一覧」(`/bcart/pending-changes`) でチェック選択 or 全件反映
 
 ### 4.7 smileOrderImportAndBCartOrderUpdateJob（SMILE注文取込・処理連番更新ジョブ）
 

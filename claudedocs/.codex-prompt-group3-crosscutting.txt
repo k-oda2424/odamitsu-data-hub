@@ -1,0 +1,78 @@
+あなたは Spring Boot / 認可・監査・例外設計の上級レビュアーです。
+小田光データ連携基盤 (`C:/project/odamitsu-data-hub`) で実装された **横断改善系 4 件** を批判的にレビューしてください。
+
+## レビュー対象 (Group 3: 横断改善)
+
+### T1: 数字の権威階層 (UI ツールチップ)
+- 新規: `claudedocs/design-source-of-truth-hierarchy.md` (9 章)
+- 新規: `frontend/components/common/AmountSourceTooltip.tsx` (10 種 source enum)
+- 改修: 8 finance 画面 / 33 列ヘッダーにツールチップ追加
+
+### T2: finance_audit_log 基盤 (案 B AOP)
+- 新規: V036 migration + `FinanceAuditLog`, `FinanceAuditLogRepository`, `AuditLog` annotation, `AuditExclude`, `FinanceAuditAspect`, `FinanceAuditWriter`
+- 改修: 9 Service / 16 メソッドに `@AuditLog` 適用
+- 5 機密フィールドに `@AuditExclude`
+- 新規: `AuditLogResponse`, `AuditLogQueryService`, `AuditLogController`, frontend types + admin/audit-log page
+- 新規: `claudedocs/design-finance-audit-log.md`
+
+### T4: 認可マトリクス統一 (LoginUser.isAdmin())
+- 改修: `LoginUser.java` に `isAdmin()` 追加
+- 新規: `LoginUserSecurityBean.java` (`@loginUserSecurityBean.isAdmin()` SpEL)
+- 改修: 13 Controller / 47 アノテーション統一 (`hasRole('ADMIN')` / `principal.shopNo == 0` → `@loginUserSecurityBean.isAdmin()`)
+- 新規: `LoginUserAdminTest`, `LoginUserSecurityBeanTest` (10 テスト)
+- 新規: `claudedocs/design-auth-matrix.md`
+
+### T5: 例外ハンドリング統一
+- 新規: `FinanceBusinessException` (400 + 元メッセージ + errorCode), `FinanceInternalException` (422 + 汎用メッセージ)
+- 改修: `FinanceExceptionHandler.java` (新 handler 2 種追加、既存 handleIllegalState 維持)
+- 改修: 3 箇所を FinanceBusinessException 化、7 箇所を FinanceInternalException 化、ResponseStatusException 2 箇所も置換
+- 新規: `FinanceExceptionHandlerTest` (5 テスト)
+- 新規: `claudedocs/design-exception-hierarchy.md`
+
+## 批判的レビュー観点
+
+### T1 (権威階層) - 動作変更なし、ドキュメント+UI のみ
+1. AmountSourceTooltip の 10 種 source enum で網羅できる? (将来の数字源追加時の拡張性)
+2. Tooltip の表示位置がソート列クリックを誤発火させる対策 (`<span onClick stopPropagation>`) は 100% 効くか?
+3. 設計書 §5 の「各画面の参照元」表が実装と乖離した時の同期戦略
+
+### T2 (audit log) - 大規模実装、最重点レビュー
+4. **AOP のオーバーヘッド +5-30ms** の主張は妥当? Jackson valueToTree のパフォーマンス測定実証済?
+5. **REQUIRES_NEW** での書込み: 業務 tx rollback でも証跡が残る → 失敗操作の証跡として正しいが、パフォーマンス影響は?
+6. **書込み失敗時 WARN ログのみ** で業務処理継続 → audit 漏れが silent に発生するリスク。アラート機能なくて OK?
+7. **before snapshot の自動 fetch 未実装** (`captureArgsAsAfter` のみ) → before/after diff 表示が機能不全な箇所はないか?
+8. **バッチ経由操作の補足不可** (Service AOP 限定) → 集計バッチが silent UPDATE する場面で audit 漏れ
+9. **JSON シリアライズ循環参照** 対策は十分? 大規模 Entity (例: TInvoice with parent group) で StackOverflow リスク
+10. **5 機密フィールド @AuditExclude** で漏れている機密フィールドはないか? (例: m_user.password_enc, t_smile_payment.account_number 等)
+11. **target_pk の JSONB 化** で JPA Embeddable 複合 PK が正しくシリアライズされるか?
+12. admin 限定 audit-log 画面の認可チェック (`@PreAuthorize("@loginUserSecurityBean.isAdmin()")`) と、IP / UA 表示の個人情報統制
+13. **finance_audit_log の保存期間** (パーティション・保存ポリシー未実装) → 数年で巨大化、検索性能劣化
+
+### T4 (認可マトリクス) - 中規模実装
+14. **「shopNo=0 = ROLE_ADMIN は常に同期」前提**で fail-safe (両方 OR ではなく AND) → 同期が崩れた場合に一律 false で「admin がアクセスできなくなる」災害復旧シナリオは大丈夫?
+15. **旧 SpEL `principal.shopNo == 0` が動いていなかった可能性** という発見 → セキュリティ上の Critical: 過去にこの判定が常に false 返していたなら、admin 限定機能が誰でもアクセス可能だった?
+16. `LoginUserSecurityBean` の SecurityContextHolder 経由 → MultiTenantHolder や RequestContextHolder との干渉
+17. `@WithMockUser` テストが現プロジェクトには 0 件だが、将来追加時の互換性ガイダンスは設計書 §7 にあるが十分か?
+18. T1/T2 後の admin 判定影響範囲 (整合性レポート、累積残一覧、audit-log) で UX が変わった機能は?
+
+### T5 (例外ハンドリング) - 中規模実装
+19. **Frontend ApiError に body フィールドなし** → toast.error が raw JSON 表示になる残課題は重大バグでは? (フロント UX 退化)
+20. **既存 IllegalStateException 6 箇所維持** で「内部 assertion 系」の判定基準が曖昧 → 将来の改修者が混乱しないか?
+21. FinanceBusinessException の errorCode が optional (default BUSINESS_ERROR) → 一貫した code 命名規約なしで将来の i18n / 分岐が困難
+22. ResponseStatusException 5 箇所維持 (FORBIDDEN x3, NOT_FOUND x2) → これらも統一すべき? (例: FinanceForbiddenException, FinanceNotFoundException)
+23. FinanceExceptionHandler が basePackages = jp.co.oda32.api.finance に絞られている → finance 配下以外で例外を投げた時の挙動
+
+### 横断的観点
+24. T1/T2/T4/T5 の **設計書間の整合性** (例: T2 で「IllegalStateException 維持」とあるが T5 で「新規コードでは IllegalStateException 回避」とある) → 開発ガイドラインの矛盾
+25. P1-04 banner / T6 banner / 将来 audit log 警告 banner などの **banner スパム** リスク。ユーザーが多数 banner で麻痺する
+26. T2 audit log と P1-08 import history の **機能重複** (= P1-08 で applied_at 記録、T2 でも apply 操作 audit) → どちらが正典?
+
+## 出力フォーマット
+
+Markdown、日本語、簡潔に (max 700 行、横断テーマで広いため少し長め可)。各指摘は:
+- Severity: Critical / Major / Minor
+- カテゴリ: セキュリティ / 監査 / 認可 / 例外 / UX / 設計
+- 内容 (3-5 文)
+- 推奨アクション (1-2 文)
+
+最後に「Opus 実装で見落としていた最重要 5 件」を明記 (横断テーマで広いため 5 件)。

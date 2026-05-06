@@ -18,7 +18,8 @@
 
 ### 非機能
 - shopNo=1 固定（第1事業部の個人売上含むため全社共通扱い）
-- 既存Pythonツールと**意味等価**（行数・取引日・金額・勘定科目・補助科目・部門・税区分・摘要の文字列一致）。CSVバイト一致は目標外（pandas独自フォーマット差異のため）。Java側は固定CSVフォーマット（UTF-8 BOM、LF、QUOTE_MINIMAL相当、空値=空文字、数値=整数str）を自前Writerで実装。
+- 既存Pythonツールと**意味等価**（行数・取引日・金額・勘定科目・補助科目・部門・税区分・摘要の文字列一致）。CSVバイト一致は目標外（pandas独自フォーマット差異のため）。Java側は固定CSVフォーマット（UTF-8 BOM、CRLF、QUOTE_MINIMAL相当、空値=空文字、数値=整数str）を自前Writerで実装。
+  - **CRLF 採用理由**: Python `pandas.to_csv` の既定改行は OS 既定 (`os.linesep`) で、Windows 運用環境では CRLF が出力される。本ツールは MoneyForward 仕訳帳インポート向けの Excel 互換 CSV であり、MEMORY.md の `feature-mf-cashbook-import` (CRLF+BOM CSV) とも整合する。Java 移植版も CRLF 固定とし、Python 出力との意味等価を維持する。
 
 ## 新規テーブル
 
@@ -57,7 +58,10 @@ Python全文を精査し、税区分語彙は `軽8%` / `軽８％` のみ（非
 | PURCHASE_10 | 常に | `課税仕入 10%`（通信費・運賃） |
 | PURCHASE_10_TRAVEL | 常に | `課仕 10%`（旅費交通費専用） |
 | SALES_AUTO | D列「軽8%」含む | `課売 (軽)8%` / else `課売 10%` |
-| PURCHASE_AUTO | D列「軽8%」「軽８％」含む | `課税仕入 (軽)8%` / else `課税仕入 10%` |
+| PURCHASE_AUTO | D列「軽8%」含む | `課税仕入 (軽)8%` / else `課税仕入 10%` |
+| PURCHASE_AUTO_WIDE [^1] | D列「軽8%」「軽８％」含む | `課税仕入 (軽)8%` / else `課税仕入 10%` |
+
+[^1]: `PURCHASE_AUTO_WIDE` は `PURCHASE_AUTO` と判定出力は同じだが、`軽８％` (全角％) のキーワードも `軽8%` (半角％) と同等扱いする点が異なる。経理が現金出納帳で雑費・福利厚生費の税区分を入力する際、ATOK の入力モード切替ミスで全角％が混入する事象が継続発生しており、この 2 つの勘定科目に限り全角％を吸収する運用となっている。仕入 (#9) は SMILE 取込済みで税区分が確定するため対象外、その他費目は半角％のみ受け付ける。
 
 ### `m_mf_client_mapping`（経理Excel表記→MF得意先名）
 | カラム | 型 | 説明 |
@@ -70,9 +74,11 @@ Python全文を精査し、税区分語彙は `軽8%` / `軽８％` のみ（非
 マッチは部分一致（Python踏襲）。`m_partner` とは完全分離。
 
 ## シード
-既存 `client_mapping.json` から70件、Python全文精査で抽出した**17ルール**をseed SQL化。
+既存 `client_mapping.json` から70件、Python全文精査で抽出した**18ルール**をseed SQL化。
 
-### ルール一覧（全17件）
+### ルール一覧（全18件）
+
+> 注: 表 #13 (`運  賃` の半角空白入り表記) は description_c 正規化 (全空白除去) によって #12 (`運賃`) に集約されるため、シード化不要。表は語彙整理用に保持するが SQL シードからは除外している。
 
 | # | desc_c | d_keyword | amount | 借方 | 借方補助 | 借方部門 | 借方税 | 貸方 | 貸方補助(tmpl) | 貸方部門 | 貸方税 | summary | req_map |
 |--|--|--|--|--|--|--|--|--|--|--|--|--|--|
@@ -90,13 +96,13 @@ Python全文を精査し、税区分語彙は `軽8%` / `軽８％` のみ（非
 | 12 | 運賃 | - | PAYMENT | 荷造運賃 | - | 物販事業部 | PURCHASE_10 | 現金 | - | - | OUTSIDE | `{d}` | - |
 | 13 | 運賃(全半混在"運  賃") | - | PAYMENT | 荷造運賃 | - | 物販事業部 | PURCHASE_10 | 現金 | - | - | OUTSIDE | `{d}` | - |
 | 14 | 雑費 | 大竹市ﾘｻｲｸﾙｾﾝﾀｰ | PAYMENT | 雑費 | - | 物販事業部 | OUTSIDE_PURCHASE_FULL | 現金 | - | - | OUTSIDE | `{d}` | - |
-| 15 | 雑費 | - | PAYMENT | 消耗品費 | - | 物販事業部 | PURCHASE_AUTO | 現金 | - | - | OUTSIDE | `{d}` | - |
+| 15 | 雑費 | - | PAYMENT | 消耗品費 | - | 物販事業部 | PURCHASE_AUTO_WIDE | 現金 | - | - | OUTSIDE | `{d}` | - |
 | 16 | 租税公課 | 法務局 | PAYMENT | 租税公課 | 印紙税 | 物販事業部 | OUTSIDE | 現金 | - | - | OUTSIDE | `{d} 印紙税` | - |
 | 17 | 租税公課 | 宮島松大汽船 | PAYMENT | 租税公課 | - | 物販事業部 | OUTSIDE_PURCHASE_SHORT | 現金 | - | - | OUTSIDE | `入島税 {d}` | - |
 | 18 | 租税公課 | - | PAYMENT | 租税公課 | - | - | OUTSIDE | 現金 | - | - | OUTSIDE | `{d}` | - |
-| 19 | 福利厚生費 | - | PAYMENT | 福利厚生費 | - | 物販事業部 | PURCHASE_AUTO | 現金 | - | - | OUTSIDE | `{d}` | - |
+| 19 | 福利厚生費 | - | PAYMENT | 福利厚生費 | - | 物販事業部 | PURCHASE_AUTO_WIDE | 現金 | - | - | OUTSIDE | `{d}` | - |
 
-正規化: description_c は全空白除去後マッチ。`運  賃` は全空白除去で `運賃` と一致するため # 13 は # 12 と重複だが、半角空白入り表記の揺れ吸収のため normalize を全角半角空白統一とする（実質ルール19件中 ユニーク desc_c 10種）。
+正規化: description_c は全空白除去後マッチ。`運  賃` は全空白除去で `運賃` と一致するため # 13 は # 12 と重複しシード化不要。半角空白入り表記の揺れは normalize (全角半角空白統一) で吸収する（**シード件数 18 件、ユニーク desc_c 10 種**）。
 
 ## バックエンド
 
@@ -158,8 +164,9 @@ dto/finance/cashbook/
 9. C/D列両方空の行はスキップ
 
 ### CSV出力
-- 19列固定ヘッダー、UTF-8 BOM付き、LF改行
+- 19列固定ヘッダー、UTF-8 BOM付き、**CRLF 改行**
 - `pandas.to_csv` 準拠（数値はstr化、空値は空文字、カンマクォート最小限）
+- 改行コードは Python 版が Windows 環境で生成していた CRLF と揃える（§非機能 参照）
 
 ## フロントエンド
 
