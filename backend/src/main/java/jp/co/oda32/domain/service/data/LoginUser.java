@@ -33,4 +33,26 @@ public class LoginUser extends org.springframework.security.core.userdetails.Use
     public MLoginUser getUser() {
         return this.loginUser;
     }
+
+    /**
+     * Admin 判定 (T4): shopNo == 0 かつ Role に ADMIN を含む。
+     * 両者が乖離する場合 (DB 設定不整合等) は false を返す (fail-safe)。
+     *
+     * <p>用途:
+     * <ul>
+     *   <li>{@code @PreAuthorize("@loginUserSecurityBean.isAdmin()")} で全 Controller 統一</li>
+     *   <li>service 層での admin 分岐 (例: 全 shop データへのアクセス)</li>
+     * </ul>
+     *
+     * <p>shopNo は {@link MLoginUser#getShopNo()} 経由で解決する
+     * (CompanyType=ADMIN なら 0、SHOP/PARTNER なら所属 shop_no)。
+     */
+    public boolean isAdmin() {
+        if (loginUser == null) return false;
+        Integer shopNo = loginUser.getShopNo();
+        if (shopNo == null || shopNo != 0) return false;
+        if (getAuthorities() == null) return false;
+        return getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
 }

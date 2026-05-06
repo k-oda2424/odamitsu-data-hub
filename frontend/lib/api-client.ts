@@ -4,18 +4,75 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
 }
 
+/**
+ * API 呼び出し時に発生するエラー。
+ * G3-M12 (2026-05-06): backend の {@code FinanceExceptionHandler} 等が返す
+ * {@code ErrorResponse} JSON ({@code { message, code, timestamp, ... }}) を
+ * 全エントリポイント (request / uploadForm / downloadBlob) で parse し、
+ * - {@code message}  : ユーザー向け業務メッセージ (UI toast 用)
+ * - {@code code}     : 業務エラー code (例: MF_TENANT_MISMATCH, PER_SUPPLIER_MISMATCH) — 分岐用
+ * - {@code body}     : parse 済 JSON 全体 (詳細フィールド参照用)
+ * - {@code bodyText} : raw text body (parse 失敗 / debug 用)
+ *
+ * 旧実装では request() のみ raw text を message に詰めていたため、JSON が
+ * そのまま toast に表示される問題があった。本クラスは uploadForm/downloadBlob と
+ * 揃えた JSON parse パターンで業務メッセージを抽出する。
+ */
 class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  code?: string
+  body?: unknown
+  bodyText?: string
+
+  constructor(
+    status: number,
+    message: string,
+    code?: string,
+    body?: unknown,
+    bodyText?: string,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
+    this.body = body
+    this.bodyText = bodyText
   }
 }
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem('token')
+}
+
+/**
+ * JSON エラー本文 (text) を parse し、{message, code, body} を抽出する共通ヘルパ。
+ * - 空文字列ならフォールバック message のみ返す
+ * - JSON parse 失敗時は raw text を message として返す
+ * - JSON 内に message/code が無ければ fallback / undefined
+ */
+function parseErrorBody(
+  text: string | undefined,
+  fallbackMessage: string,
+): { message: string; code?: string; body?: unknown } {
+  if (!text) return { message: fallbackMessage }
+  try {
+    const parsed = JSON.parse(text) as { message?: unknown; code?: unknown }
+    const message = typeof parsed?.message === 'string' && parsed.message.length > 0
+      ? parsed.message
+      : fallbackMessage
+    const code = typeof parsed?.code === 'string' ? parsed.code : undefined
+    return { message, code, body: parsed }
+  } catch {
+    // not JSON: raw text を message として使う (短い text のみ; HTML 等は fallback に倒す)
+    const trimmed = text.trim()
+    if (trimmed.length === 0) return { message: fallbackMessage }
+    // HTML や巨大本文は fallback。1000 文字超 / `<` で始まる場合は fallback。
+    if (trimmed.length > 1000 || trimmed.startsWith('<')) {
+      return { message: fallbackMessage }
+    }
+    return { message: trimmed }
+  }
 }
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
@@ -60,8 +117,11 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   }
 
   if (!response.ok) {
-    const errorBody = await response.text()
-    throw new ApiError(response.status, errorBody || response.statusText)
+    // G3-M12: JSON エラー本文 ({message, code, ...}) を parse して ApiError に格納する。
+    // backend の FinanceBusinessException 由来 message が UI で raw JSON 表示されないようにするため。
+    const text = await response.text()
+    const { message, code, body: parsedBody } = parseErrorBody(text, response.statusText)
+    throw new ApiError(response.status, message, code, parsedBody, text || undefined)
   }
 
   // 204 No Content、または Content-Length=0 / ボディ空 のときは undefined を返す。
@@ -109,8 +169,10 @@ async function uploadForm<T>(endpoint: string, formData: FormData): Promise<T> {
   }
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({ message: response.statusText }))
-    throw new ApiError(response.status, errorBody.message || response.statusText)
+    // G3-M12: request() と同じ parse パターンに統一。code/body/bodyText も格納する。
+    const text = await response.text()
+    const { message, code, body: parsedBody } = parseErrorBody(text, response.statusText)
+    throw new ApiError(response.status, message, code, parsedBody, text || undefined)
   }
 
   return response.json()
@@ -139,15 +201,20 @@ async function downloadBlob(endpoint: string, method: 'GET' | 'POST' = 'GET'): P
   }
 
   if (!response.ok) {
-    // JSON エラー本文があれば message を取り出す
-    let message = response.statusText
-    try {
-      const body = await response.clone().json()
-      if (body && typeof body.message === 'string') message = body.message
-    } catch {
-      // ignore
+    // G3-M12: code/bodyText も格納するよう統一。バイナリ期待のため text() 自体が
+    // 失敗する可能性 (binary stream の途中で abort 等) も考慮し try/catch する。
+    let bodyText: string | undefined
+    let parsed: { message: string; code?: string; body?: unknown } = {
+      message: response.statusText,
     }
-    throw new ApiError(response.status, message)
+    try {
+      const text = await response.clone().text()
+      bodyText = text || undefined
+      parsed = parseErrorBody(text, response.statusText)
+    } catch {
+      // ignore: body 取得失敗時は statusText のみ
+    }
+    throw new ApiError(response.status, parsed.message, parsed.code, parsed.body, bodyText)
   }
 
   const blob = await response.blob()
