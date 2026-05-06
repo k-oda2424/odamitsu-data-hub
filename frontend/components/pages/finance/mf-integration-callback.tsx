@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { api, ApiError } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
@@ -18,8 +18,13 @@ export function MfIntegrationCallbackPage() {
   const sp = useSearchParams()
   const [phase, setPhase] = useState<Phase>('processing')
   const [message, setMessage] = useState<string>('')
+  // SF-03: StrictMode の二重マウントで callback POST が 2 回飛ぶのを防止する once-only ガード。
+  const calledRef = useRef(false)
 
   useEffect(() => {
+    if (calledRef.current) return
+    calledRef.current = true
+
     const code = sp.get('code')
     const state = sp.get('state')
     const error = sp.get('error')
@@ -41,26 +46,26 @@ export function MfIntegrationCallbackPage() {
       .then(() => {
         setPhase('success')
         setMessage('MF との接続に成功しました。')
-        // F-3: 親タブ (mf-integration 画面) に通知して statusQuery を即時 invalidate させる。
+        // SF-05: 親タブ (mf-integration 画面) に BroadcastChannel で通知して statusQuery を即時 invalidate させる。
+        // window.opener を使わない (noopener,noreferrer で開いているため null)。
         try {
-          window.opener?.postMessage(
-            { type: 'mf-connected', source: 'odamitsu-data-hub' },
-            window.location.origin,
-          )
-        } catch { /* opener が閉じていても無視 */ }
+          const ch = new BroadcastChannel('mf-oauth')
+          ch.postMessage({ type: 'connected', source: 'odamitsu-data-hub' })
+          ch.close()
+        } catch { /* BroadcastChannel 非対応環境では無視 */ }
       })
       .catch((e: unknown) => {
         setPhase('error')
         const msg = e instanceof ApiError ? e.message : (e as Error).message
         setMessage(`接続に失敗しました: ${msg}`)
         try {
-          window.opener?.postMessage(
-            { type: 'mf-connection-failed', source: 'odamitsu-data-hub', message: msg },
-            window.location.origin,
-          )
+          const ch = new BroadcastChannel('mf-oauth')
+          ch.postMessage({ type: 'failed', source: 'odamitsu-data-hub', message: msg })
+          ch.close()
         } catch { /* ignore */ }
       })
-  }, [sp])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="mx-auto max-w-lg space-y-4 py-12">

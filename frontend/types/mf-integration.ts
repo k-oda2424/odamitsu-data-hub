@@ -27,6 +27,42 @@ export interface MfTokenStatus {
   scope: string | null
   lastRefreshedAt: string | null
   reAuthRequired: boolean
+  /** バインド済 MF tenant id (P1-01)。NULL なら未バインド (旧データ互換、次回 callback で確定)。 */
+  mfTenantId: string | null
+  /** バインド済 MF tenant 名 (P1-01、UI 表示用)。 */
+  mfTenantName: string | null
+  /** tenant binding 確定時刻 ISO-8601 (P1-01)。 */
+  tenantBoundAt: string | null
+  /**
+   * refresh_token の真の発行日 ISO-8601 (G1-M4 / P1-04 案 α)。
+   * <p>
+   * rotation 動作時 = 現 active row の発行日、rotation OFF (旧 token 流用) 時 = 旧 row の値を継承。
+   * これにより rotation 設定に依らず 540 日寿命カウントが正確になる。
+   */
+  refreshTokenIssuedAt: string | null
+  /**
+   * 540 日 - 経過日数。≤ 0 で失効、≤ 60 で予兆 banner 表示 (P1-04 案 α)。
+   * 期限超過時は 0 にクランプ (`reAuthExpired=true` で識別)。未接続時 null。
+   */
+  daysUntilReauth: number | null
+  /**
+   * T6 (2026-05-04): 必須だが現 scope 設定に含まれていない scope 一覧。
+   * 要素ありの場合、関連 API が 403 で失敗する可能性あり。`MfScopeBanner` で警告表示。
+   * Backend `MfScopeConstants.REQUIRED_SCOPES` と同期 (=`MF_REQUIRED_SCOPES` 定数)。
+   */
+  missingScopes: string[]
+  /**
+   * T6: 現 scope に含まれているが必須ではない scope 一覧。動作影響なし、管理上の指標。
+   */
+  extraScopes: string[]
+  /** T6: missingScopes.isEmpty() の short-hand。false なら `MfScopeBanner` を表示。 */
+  scopeOk: boolean
+  /**
+   * G1-M4 (2026-05-06): refresh_token が 540 日寿命を超過した = 既に再認可必須の状態。
+   * `MfReAuthBanner` で最上位 severity (destructive、期限超過メッセージ) として表示する独立フラグ。
+   * `reAuthRequired` は ≤ 0 で立つが、`reAuthExpired` は **負値 (= 既に超過)** の状態のみを示す。
+   */
+  reAuthExpired: boolean
 }
 
 export type JournalKind = 'PURCHASE' | 'SALES' | 'PAYMENT'
@@ -191,9 +227,30 @@ export function defaultMfRedirectUri(): string {
   return MF_CALLBACK_PATH
 }
 
+// SF-16: scope は配列で定義し、検証 (含有チェック) や追加修正をしやすくする。
+// space 区切り文字列の手書きはタイポが入りやすく、追加忘れが原因で API エラーが起きるため。
+//
+// P1-01 (DD-F-04): mfc/admin/tenant.read は MF tenant API (/v2/tenant) 呼び出しに必須。
+// 別会社 MF への誤接続検知のため、scope 追加 → 「クライアント設定」更新保存 → 「再認証」が必要。
+//
+// T6 (2026-05-04): backend `MfScopeConstants.REQUIRED_SCOPES` と必ず同期させること。
+// 必須 scope を増減する場合は両方を同時更新し、関連 Javadoc/コメントも合わせて修正する。
+// backend `MfOauthService.getStatus()` がこの一覧と DB scope を比較して `MfTokenStatus.missingScopes`
+// を返し、`MfScopeBanner` で UI 警告を出す仕組みになっている。
+export const MF_REQUIRED_SCOPES = [
+  'mfc/accounting/journal.read',
+  'mfc/accounting/accounts.read',
+  'mfc/accounting/offices.read',
+  'mfc/accounting/taxes.read',
+  'mfc/accounting/report.read',
+  'mfc/admin/tenant.read',
+] as const
+
+export const MF_DEFAULT_SCOPE = MF_REQUIRED_SCOPES.join(' ')
+
 export const MF_DEFAULT_CONFIG: Omit<MfOauthClientRequest, 'clientId' | 'clientSecret'> = {
   redirectUri: defaultMfRedirectUri(),
-  scope: 'mfc/accounting/journal.read mfc/accounting/accounts.read mfc/accounting/offices.read mfc/accounting/taxes.read mfc/accounting/report.read',
+  scope: MF_DEFAULT_SCOPE,
   authorizeUrl: 'https://api.biz.moneyforward.com/authorize',
   tokenUrl: 'https://api.biz.moneyforward.com/token',
   apiBaseUrl: 'https://api-accounting.moneyforward.com',

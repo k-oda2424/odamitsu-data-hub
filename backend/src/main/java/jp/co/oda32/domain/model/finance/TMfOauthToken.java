@@ -1,6 +1,7 @@
 package jp.co.oda32.domain.model.finance;
 
 import jakarta.persistence.*;
+import jp.co.oda32.audit.AuditExclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,9 +31,11 @@ public class TMfOauthToken {
     @Column(name = "client_id", nullable = false)
     private Integer clientId;
 
+    @AuditExclude
     @Column(name = "access_token_enc", nullable = false)
     private String accessTokenEnc;
 
+    @AuditExclude
     @Column(name = "refresh_token_enc", nullable = false)
     private String refreshTokenEnc;
 
@@ -45,6 +48,18 @@ public class TMfOauthToken {
 
     @Column(name = "scope")
     private String scope;
+
+    /**
+     * G1-M4 (2026-05-06): refresh_token の実発行日。
+     * <p>
+     * MF token レスポンスに refresh_token が含まれていた場合 = rotation 動作時は {@code now()} を、
+     * 含まれていなかった場合 = rotation OFF (旧 token 流用) 時は **旧 active row の値を継承する**。
+     * <p>
+     * これにより rotation OFF でも 540 日寿命カウントが add_date_time と乖離せず、
+     * {@code MfOauthService.getStatus()} の残日数判定が rotation 設定に依らず正確になる。
+     */
+    @Column(name = "refresh_token_issued_at", nullable = false)
+    private Timestamp refreshTokenIssuedAt;
 
     @Column(name = "del_flg", nullable = false)
     @Builder.Default

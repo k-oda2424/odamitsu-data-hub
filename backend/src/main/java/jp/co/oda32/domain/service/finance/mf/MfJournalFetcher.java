@@ -1,6 +1,8 @@
 package jp.co.oda32.domain.service.finance.mf;
 
 import jp.co.oda32.domain.model.finance.MMfOauthClient;
+import jp.co.oda32.exception.FinanceBusinessException;
+import jp.co.oda32.exception.FinanceInternalException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.stereotype.Component;
@@ -83,12 +85,35 @@ public class MfJournalFetcher {
             }
         }
         if (allJournals == null) {
-            throw new IllegalStateException(
+            // T5: ユーザーが MF 事業年度設定で対処可能な業務エラー。
+            // last error の MF 詳細は機微情報を含まないので message に含める。
+            throw new FinanceBusinessException(
                     "MF fiscal year 境界エラー: どの start_date 候補でも journals を取得できませんでした。"
                             + " 取引月の期間を見直すか、MF 事業年度設定を確認してください。"
                             + (lastError != null ? " 最終エラー: " + lastError.getMessage() : ""));
         }
         return new FetchResult(allJournals, actualStart);
+    }
+
+    /**
+     * 1 日分の journals を fiscal year fallback なしで取得 (reconcile 用)。
+     * <p>
+     * MA-04: {@link #fetchJournalsForPeriod} は fiscal year 境界対応で start_date を
+     * 最大 30 候補列挙し、最大約 1 ヶ月分を fetch する。reconcile では
+     * {@code (transactionMonth, transactionMonth)} の 1 日分しか必要としないため、
+     * 候補数 30 倍 / pagination 数 / RATE_LIMIT_SLEEP の総量がそのまま余剰負荷となる。
+     * <p>
+     * 本メソッドは start_date == end_date == date でダイレクトに 1 度だけ pagination 取得し、
+     * 400 "accounting periods" の fallback も行わない。fiscal year 跨ぎが発生するのは
+     * 月初のごく一部の日付に限られ、reconcile 利用者は呼び出し前に取引月 (20 日締め) を
+     * 渡すため境界に当たることは稀。万一 400 が返れば呼び出し元に伝播させる。
+     *
+     * @since 2026-05-04 (MA-04)
+     */
+    public MfJournalsResponse fetchJournalsSingleDay(MMfOauthClient client, String accessToken,
+                                                     LocalDate date) {
+        List<MfJournal> all = fetchAllJournalsPaged(client, accessToken, date, date);
+        return new MfJournalsResponse(all);
     }
 
     /**
@@ -115,7 +140,10 @@ public class MfJournalFetcher {
         return new ArrayList<>(set);
     }
 
-    /** pagination 全件取得。各ページ間に 350ms sleep、429 は指数バックオフ retry。 */
+    /**
+     * pagination 全件取得。各ページ間に 350ms sleep。
+     * 429/5xx retry は {@link MfApiClient#listJournals} 側 (executeWithRetry) で実施 (SF-08)。
+     */
     private List<MfJournal> fetchAllJournalsPaged(MMfOauthClient client, String accessToken,
                                                     LocalDate startDate, LocalDate endDate) {
         List<MfJournal> all = new ArrayList<>();
@@ -123,38 +151,18 @@ public class MfJournalFetcher {
         String ed = endDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
         int page = 1;
         while (true) {
-            MfJournalsResponse res = callListJournalsWithRetry(client, accessToken, sd, ed, page);
+            MfJournalsResponse res = mfApiClient.listJournals(client, accessToken, sd, ed, page, PER_PAGE);
             List<MfJournal> items = res.items();
             all.addAll(items);
             if (items.size() < PER_PAGE) break;
             page++;
             if (page > MAX_PAGES) {
-                throw new IllegalStateException("MF journals ページング safeguard を超過しました (50 pages)");
+                // T5: 内部 safeguard (data set が想定範囲を超えた異常)。
+                throw new FinanceInternalException("MF journals ページング safeguard を超過しました (50 pages)");
             }
             sleepQuietly(RATE_LIMIT_SLEEP_MS);
         }
         return all;
-    }
-
-    /** 429 指数バックオフ retry (1s → 2s → 4s)。 */
-    private MfJournalsResponse callListJournalsWithRetry(MMfOauthClient client, String accessToken,
-                                                           String sd, String ed, int page) {
-        long[] backoffs = {1000L, 2000L, 4000L};
-        int attempt = 0;
-        while (true) {
-            try {
-                return mfApiClient.listJournals(client, accessToken, sd, ed, page, PER_PAGE);
-            } catch (org.springframework.web.client.HttpClientErrorException e) {
-                if (e.getStatusCode().value() == 429 && attempt < backoffs.length) {
-                    long wait = backoffs[attempt];
-                    log.warn("[mf-journal-fetcher] MF rate limit 429, {}ms sleep して retry ({}回目)", wait, attempt + 1);
-                    sleepQuietly(wait);
-                    attempt++;
-                    continue;
-                }
-                throw e;
-            }
-        }
     }
 
     /**
@@ -166,6 +174,15 @@ public class MfJournalFetcher {
             return YearMonth.from(date).atDay(20);
         }
         return YearMonth.from(date).plusMonths(1).atDay(20);
+    }
+
+    /**
+     * 買掛金 期首残高仕訳 (opening balance journal) を判定する。
+     * <p>SF-G08: 判定ロジックを {@link MfOpeningJournalDetector#isOpeningCandidate} に集約。
+     * 後方互換のため本メソッドは残し、内部で detector に委譲する。
+     */
+    public static boolean isPayableOpeningJournal(MfJournal j) {
+        return MfOpeningJournalDetector.isOpeningCandidate(j);
     }
 
     private static void sleepQuietly(long ms) {

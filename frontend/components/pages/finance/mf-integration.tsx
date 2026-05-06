@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/api-client'
+import { handleApiError } from '@/lib/api-error-handler'
 import { useAuth } from '@/lib/auth'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
@@ -50,7 +51,7 @@ export function MfIntegrationPage() {
   })
 
   // 初回ロード時: 既存設定があれば form にマージ (F-4 render-time setState 回避)
-  // clientQuery.data.id をキーにして、レコード差し替え時のみ反映する。
+  // SF-17: 再レンダリングのたびに発火しないよう、依存配列を「実体差し替え」を示す key field のみに絞る。
   useEffect(() => {
     const c = clientQuery.data
     if (!c || !c.clientId) return
@@ -64,23 +65,29 @@ export function MfIntegrationPage() {
       tokenUrl: c.tokenUrl ?? MF_DEFAULT_CONFIG.tokenUrl,
       apiBaseUrl: c.apiBaseUrl ?? MF_DEFAULT_CONFIG.apiBaseUrl,
     }))
-  }, [clientQuery.data])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientQuery.data?.id, clientQuery.data?.clientId])
 
-  // F-3: callback タブからの post-message を受け取り、status を即時 invalidate して画面反映する。
+  // SF-05: callback タブからの BroadcastChannel メッセージを受け取り、status を即時 invalidate して画面反映する。
+  // window.open を noopener,noreferrer で開いているため、window.opener / postMessage は使えない。
   useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return
-      const data = event.data as { type?: string; source?: string; message?: string } | null
-      if (!data || data.source !== 'odamitsu-data-hub') return
-      if (data.type === 'mf-connected') {
-        toast.success('MF 連携が完了しました')
-        queryClient.invalidateQueries({ queryKey: ['mf-oauth-status'] })
-      } else if (data.type === 'mf-connection-failed') {
-        toast.error(`MF 連携に失敗: ${data.message ?? 'unknown'}`)
+    let ch: BroadcastChannel | null = null
+    try {
+      ch = new BroadcastChannel('mf-oauth')
+      ch.onmessage = (event) => {
+        const data = event.data as { type?: string; source?: string; message?: string } | null
+        if (!data || data.source !== 'odamitsu-data-hub') return
+        if (data.type === 'connected') {
+          toast.success('MF 連携が完了しました')
+          queryClient.invalidateQueries({ queryKey: ['mf-oauth-status'] })
+        } else if (data.type === 'failed') {
+          toast.error(`MF 連携に失敗: ${data.message ?? 'unknown'}`)
+        }
       }
+    } catch { /* BroadcastChannel 非対応環境では無視 */ }
+    return () => {
+      try { ch?.close() } catch { /* ignore */ }
     }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
   }, [queryClient])
 
   const saveMutation = useMutation({
@@ -92,23 +99,25 @@ export function MfIntegrationPage() {
       queryClient.invalidateQueries({ queryKey: ['mf-oauth-status'] })
       setForm((prev) => ({ ...prev, clientSecret: '' })) // 保存後は UI 側の secret をクリア
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e, { fallbackMessage: '保存に失敗しました' }),
   })
 
   const connectMutation = useMutation({
     mutationFn: () => api.get<{ url: string }>('/finance/mf-integration/oauth/authorize-url'),
     onSuccess: (res) => {
-      // 新タブで MF 認可ページを開く
-      // 親タブから opener アクセスできるよう noopener は付けない（post-message 通知のため）。
-      window.open(res.url, '_blank', 'noreferrer')
+      // SF-05: 新タブで MF 認可ページを開く。
+      // BroadcastChannel 経由で通知するため window.opener は不要 → noopener,noreferrer でセキュリティ強化。
+      window.open(res.url, '_blank', 'noopener,noreferrer')
       toast.info('MF 認可ページを新しいタブで開きました。完了後、このタブに自動反映されます。')
     },
-    onError: (e: Error) => {
+    onError: (e) => {
+      // 422: クライアント設定が未登録 (= 業務メッセージとして固定文言で誘導)
       if (e instanceof ApiError && e.status === 422) {
         toast.error('クライアント設定が未登録です。先に Client ID/Secret を保存してください。')
-      } else {
-        toast.error(e.message)
+        return
       }
+      // それ以外は MF_HOST_NOT_ALLOWED 等を含めて handleApiError へ委譲
+      handleApiError(e, { fallbackMessage: 'MF 認可 URL の取得に失敗しました' })
     },
   })
 
@@ -118,7 +127,7 @@ export function MfIntegrationPage() {
       toast.success('MF 連携を切断しました')
       queryClient.invalidateQueries({ queryKey: ['mf-oauth-status'] })
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e) => handleApiError(e, { fallbackMessage: '切断に失敗しました' }),
   })
 
   if (!isAdmin) {
@@ -184,22 +193,65 @@ export function MfIntegrationPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {status?.connected ? (
-            <div className="flex items-center gap-2">
-              <Badge className="bg-emerald-600 hover:bg-emerald-700">
-                <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                接続中
-              </Badge>
-              <span className="text-xs text-muted-foreground">
-                有効期限: {formatTime(status.expiresAt)}
-                {status.scope && ` / scope: ${status.scope}`}
-              </span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-emerald-600 hover:bg-emerald-700">
+                  <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                  接続中
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  有効期限: {formatTime(status.expiresAt)}
+                  {status.scope && ` / scope: ${status.scope}`}
+                </span>
+              </div>
+              {/* P1-01 (DD-F-04): バインド済 MF tenant 情報。別会社 MF 誤接続検知のため必ず表示。 */}
+              {status.mfTenantId ? (
+                <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
+                  <div>
+                    連携先: <span className="font-medium">{status.mfTenantName ?? '(名称未取得)'}</span>{' '}
+                    <span className="text-muted-foreground">
+                      (tenant id: <span className="font-mono">{status.mfTenantId}</span>)
+                    </span>
+                  </div>
+                  {status.tenantBoundAt && (
+                    <div className="mt-0.5 text-[11px] text-emerald-800/80">
+                      バインド日時: {formatTime(status.tenantBoundAt)}
+                    </div>
+                  )}
+                  {/* P1-04 案 α: refresh_token 540 日寿命の残日数。banner と同じ source データ。 */}
+                  {status.daysUntilReauth != null && (
+                    <div className="mt-0.5 text-[11px] text-emerald-800/80">
+                      refresh_token 残日数: {status.daysUntilReauth} 日
+                      {status.refreshTokenIssuedAt && (
+                        <> (発行: {formatTime(status.refreshTokenIssuedAt)} / 寿命 540 日)</>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                  <AlertCircle className="mr-1 inline h-3.5 w-3.5" />
+                  MF tenant が未バインドです (旧データ)。次回 token refresh 時に自動でバインドされます。
+                </div>
+              )}
             </div>
           ) : status?.configured ? (
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">未接続</Badge>
-              <span className="text-xs text-muted-foreground">
-                クライアント設定済み。下の「接続」ボタンで認可を開始できます。
-              </span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">未接続</Badge>
+                <span className="text-xs text-muted-foreground">
+                  クライアント設定済み。下の「接続」ボタンで認可を開始できます。
+                </span>
+              </div>
+              {/* 過去にバインドされた tenant 情報 (revoke 後はクリアされる) */}
+              {status.mfTenantId && (
+                <div className="rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                  前回連携先: <span className="font-medium">{status.mfTenantName ?? '(名称未取得)'}</span>{' '}
+                  <span className="text-muted-foreground">
+                    (tenant id: <span className="font-mono">{status.mfTenantId}</span>)
+                  </span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2">
@@ -394,8 +446,7 @@ function MfDiagnosticsCard() {
       const json = await api.get<unknown>(`/finance/mf-integration/debug/${path}`)
       setResult({ label: kind, json })
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : (e as Error).message
-      toast.error(`${kind} 取得失敗: ${msg}`)
+      handleApiError(e, { fallbackMessage: `${kind} 取得失敗` })
     } finally {
       setLoading(null)
     }

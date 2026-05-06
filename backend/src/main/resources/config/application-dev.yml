@@ -11,16 +11,20 @@ cors:
 app:
   # 開発環境のみ: 500 レスポンスに例外クラス名/メッセージを含める
   expose-exception-detail: true
-  # AES 暗号鍵 / salt は環境変数必須 (B-6)。デフォルト値を置くと dev DB ダンプが
-  # 漏れたときに MF refresh_token を復号可能になる。各自ローカルで設定すること。
-  # 例: APP_CRYPTO_KEY, APP_CRYPTO_SALT (32 hex 文字以上)
+  # AES 暗号鍵 / salt。
+  # crypto.key/salt: 社内 password 等の汎用暗号化用。dev fallback あり (MEMORY 方針)。
+  # crypto.oauth-key/salt: MF OAuth 専用 (P1-05 案 C.3)。dev でも env 必須・fallback 無し。
+  #   未設定なら起動時に IllegalStateException で fail-fast する。
+  #   セットアップは backend/scripts/gen-oauth-key.ps1 + claudedocs/runbook-mf-oauth-keys.md 参照。
   crypto:
-    key: ${APP_CRYPTO_KEY:}
-    salt: ${APP_CRYPTO_SALT:}
+    key: ${APP_CRYPTO_KEY:dev-odamitsu-data-hub-crypto-key-2026}
+    salt: ${APP_CRYPTO_SALT:3f6a2d8c9e1b4a7d5c0f8e2a9b6d1c3f}
+    oauth-key: ${APP_CRYPTO_OAUTH_KEY:}
+    oauth-salt: ${APP_CRYPTO_OAUTH_SALT:}
 
-# JWT secret も環境変数必須 (B-6)。dev で固定 secret を使うと他人が JWT を偽造可能。
+# JWT secret: dev は固定値フォールバック。prod は env 必須 (application-prod.yml)。
 jwt:
-  secret: ${JWT_SECRET:}
+  secret: ${JWT_SECRET:dev-secret-key-odamitsu-data-hub-2024-must-be-at-least-256-bits-long}
   expiration-ms: 86400000
 
 # 開発環境用の B-CART アクセストークン。

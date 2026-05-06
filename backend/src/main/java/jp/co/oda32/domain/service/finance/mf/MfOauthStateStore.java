@@ -60,6 +60,12 @@ public class MfOauthStateStore {
     /**
      * state を検証して消費する（以降同じ state は使えない）。
      *
+     * <p>SF-06: native {@code DELETE ... RETURNING} で 1 SQL atomic 消費。
+     * read → delete 2-step だった旧実装の TOCTOU race (同 state を 2 回消費可能) を排除。
+     *
+     * <p>SF-06: ユーザ一致は厳格化。発行時 userNo が null だった行を userNo=null callback が
+     * 受け取れる旧仕様 (テスト/匿名想定) は廃止し、常に reject する。
+     *
      * @param state  callback で受け取った state
      * @param userNo 呼び出し元のログインユーザ番号。発行時と一致する必要がある。
      * @return 有効かつユーザ一致なら code_verifier を返す。不正なら empty。
@@ -67,22 +73,23 @@ public class MfOauthStateStore {
     @Transactional
     public Optional<String> verifyAndConsume(String state, Integer userNo) {
         if (state == null) return Optional.empty();
-        Optional<TMfOauthState> opt = stateRepository.findById(state);
-        if (opt.isEmpty()) return Optional.empty();
-        TMfOauthState e = opt.get();
-        // 使い捨てなので即削除
-        stateRepository.deleteById(state);
-        if (e.getExpiresAt().toInstant().isBefore(Instant.now())) {
+        Optional<Object[]> rowOpt = stateRepository.deleteAndReturnByState(state);
+        if (rowOpt.isEmpty()) return Optional.empty();
+        Object[] row = rowOpt.get();
+        Integer rowUserNo = row[0] != null ? ((Number) row[0]).intValue() : null;
+        String codeVerifier = (String) row[1];
+        java.sql.Timestamp expiresAt = (java.sql.Timestamp) row[2];
+
+        // TTL: now < expiresAt を要件にする (= !now.isBefore(expiresAt) なら期限切れ)
+        if (expiresAt == null || !Instant.now().isBefore(expiresAt.toInstant())) {
             log.info("MF OAuth state 有効期限切れ");
             return Optional.empty();
         }
-        // userNo が両側 null なら一致、片方だけ null なら不一致
-        if (e.getUserNo() == null) {
-            if (userNo != null) return Optional.empty();
-        } else if (!e.getUserNo().equals(userNo)) {
+        // userNo の null 同士許容は撤去 (SF-06): 必ず厳格一致を要求
+        if (rowUserNo == null || !rowUserNo.equals(userNo)) {
             return Optional.empty();
         }
-        return Optional.of(e.getCodeVerifier());
+        return Optional.of(codeVerifier);
     }
 
     private void sweep() {
