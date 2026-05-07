@@ -14,6 +14,7 @@ import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -73,9 +74,9 @@ public class MfOauthStateStore {
     @Transactional
     public Optional<String> verifyAndConsume(String state, Integer userNo) {
         if (state == null) return Optional.empty();
-        Optional<Object[]> rowOpt = stateRepository.deleteAndReturnByState(state);
-        if (rowOpt.isEmpty()) return Optional.empty();
-        Object[] row = rowOpt.get();
+        List<Object[]> rows = stateRepository.deleteAndReturnByState(state);
+        if (rows.isEmpty()) return Optional.empty();
+        Object[] row = rows.get(0);
         Integer rowUserNo = row[0] != null ? ((Number) row[0]).intValue() : null;
         String codeVerifier = (String) row[1];
         java.sql.Timestamp expiresAt = (java.sql.Timestamp) row[2];

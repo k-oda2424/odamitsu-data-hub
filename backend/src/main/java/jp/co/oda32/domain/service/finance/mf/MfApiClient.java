@@ -15,6 +15,7 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -223,9 +224,15 @@ public class MfApiClient {
      * {@link MfScopeInsufficientException} に変換する。
      * <p>
      * 401 (token 失効) は {@link MfReAuthRequiredException} に変換 (他 endpoint と同様)。
+     * <p>
+     * <b>ホスト注意</b>: {@code /v2/tenant} は MF 認証 API ホスト
+     * ({@code api.biz.moneyforward.com}) で配信されており、会計 API ホスト
+     * ({@code api-accounting.moneyforward.com}) ではない。{@code apiBaseUrl} は
+     * 会計 API 用 (journals / accounts 等) のため、ここでは {@code tokenUrl} の
+     * オリジン部を流用して auth API ベースを組み立てる。
      */
     public MfTenantResponse getTenant(MMfOauthClient client, String accessToken) {
-        String url = client.getApiBaseUrl() + "/v2/tenant";
+        String url = authApiOrigin(client.getTokenUrl()) + "/v2/tenant";
         return executeWithRetry(() -> {
             try {
                 MfTenantResponse res = restClient.get()
@@ -308,6 +315,29 @@ public class MfApiClient {
             }
             throw e;
         }
+    }
+
+    /**
+     * MF 認証 API のオリジン ({@code scheme://host[:port]}) を {@code tokenUrl} から導出する。
+     * <p>
+     * MF API は認証系 ({@code api.biz.moneyforward.com}) と会計系
+     * ({@code api-accounting.moneyforward.com}) でホストが分かれている。{@code /v2/tenant}
+     * は認証系にしか存在しないため、{@code apiBaseUrl} を流用すると会計ホスト宛に飛んで
+     * Cloudflare の WAF で 403 になってしまう。{@code tokenUrl} は authorize / token と
+     * 同じ認証 API ホストを指しているので、そのオリジン部を再利用する。
+     */
+    private static String authApiOrigin(String tokenUrl) {
+        Objects.requireNonNull(tokenUrl, "tokenUrl が null");
+        URI u = URI.create(tokenUrl);
+        if (u.getScheme() == null || u.getHost() == null) {
+            throw new IllegalStateException("tokenUrl からホストを抽出できません: " + tokenUrl);
+        }
+        StringBuilder sb = new StringBuilder()
+                .append(u.getScheme()).append("://").append(u.getHost());
+        if (u.getPort() > 0) {
+            sb.append(":").append(u.getPort());
+        }
+        return sb.toString();
     }
 
     /**
