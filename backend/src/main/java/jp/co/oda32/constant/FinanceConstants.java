@@ -103,6 +103,14 @@ public final class FinanceConstants {
     public static final String ERROR_CODE_PER_SUPPLIER_MISMATCH = "PER_SUPPLIER_MISMATCH";
 
     /**
+     * Codex Major #4 (2026-05-06): {@code force=true} 指定時の業務理由が未指定であることを示すエラーコード。
+     * <p>強制反映は破壊的操作のため、{@code PaymentMfApplyRequest.forceReason} が
+     * 空文字 / null の場合は {@code FinanceBusinessException(code=FORCE_REASON_REQUIRED)} を投げて 400 拒否する。
+     * <p>クライアント側はこのコードを検出して「強制反映の理由を入力してください」ダイアログを表示する。
+     */
+    public static final String ERROR_CODE_FORCE_REASON_REQUIRED = "FORCE_REASON_REQUIRED";
+
+    /**
      * 買掛金 vs SMILE 支払額の差額が「自動一致」とみなせる円未満の境界 (exclusive)。
      * <p>これより小さい絶対値の差額は、丸め誤差・手数料調整等の誤差範囲として
      * 「一致」判定し、SMILE 支払額に自動で合わせる。

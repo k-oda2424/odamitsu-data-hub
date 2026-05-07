@@ -7,17 +7,18 @@ import { handleApiError } from '@/lib/api-error-handler'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { ConfirmDialog } from '@/components/features/common/ConfirmDialog'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Download, Upload, AlertCircle, AlertTriangle, Scale, History, CheckCheck, ShieldAlert } from 'lucide-react'
+import { Download, Upload, AlertCircle, AlertTriangle, Scale, History, CheckCheck, ShieldAlert, FileDown } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import type {
@@ -39,6 +40,12 @@ export default function PaymentMfImportPage() {
   const [confirmVerify, setConfirmVerify] = useState(false)
   // G2-M2: per-supplier 1 円不一致がある時に「強制実行に同意」のチェック必須
   const [forceAcknowledged, setForceAcknowledged] = useState(false)
+  // G2-M2 (Frontend Major): force apply 専用ダイアログ。
+  // 100 件省略表示で承認内容と実処理が乖離するリスクを抑えるため、
+  // CSV ダウンロード + 全件確認 checkbox + 反映理由 textarea を必須化する。
+  const [forceDialogOpen, setForceDialogOpen] = useState(false)
+  const [reviewedAll, setReviewedAll] = useState(false)
+  const [forceReason, setForceReason] = useState('')
 
   const previewMut = useMutation({
     mutationFn: async (f: File) => {
@@ -79,10 +86,16 @@ export default function PaymentMfImportPage() {
   })
 
   const verifyMut = useMutation({
-    mutationFn: async (args: { uploadId: string; force: boolean }) =>
-      api.post<PaymentMfVerifyResult>(`/finance/payment-mf/verify/${args.uploadId}`, {
-        force: args.force,
-      }),
+    mutationFn: async (args: { uploadId: string; force: boolean; forceReason?: string }) => {
+      // backend が `forceReason` 未対応でも Spring の default Jackson 設定 (FAIL_ON_UNKNOWN_PROPERTIES=false) で無視される。
+      // 別エージェントが backend 側の必須化を進めている前提で、force=true 時は常に送る。
+      const body: { force: boolean; forceReason?: string } = { force: args.force }
+      if (args.force && args.forceReason) body.forceReason = args.forceReason
+      return api.post<PaymentMfVerifyResult>(
+        `/finance/payment-mf/verify/${args.uploadId}`,
+        body,
+      )
+    },
     onSuccess: (r, vars) => {
       const baseMsg =
         `買掛金一覧に反映しました（一致 ${r.matchedCount} / 差異 ${r.diffCount} / 買掛金なし ${r.notFoundCount}）`
@@ -100,6 +113,8 @@ export default function PaymentMfImportPage() {
       }
       // 反映成功後は force 同意状態をリセット
       setForceAcknowledged(false)
+      setReviewedAll(false)
+      setForceReason('')
     },
     // G3-M12: PER_SUPPLIER_MISMATCH 等の business code は handleApiError で個別誘導
     onError: (e) => handleApiError(e, { fallbackMessage: '反映失敗' }),
@@ -287,9 +302,27 @@ export default function PaymentMfImportPage() {
                   ))}
                   {preview.amountReconciliation!.perSupplierMismatches.length > 100 && (
                     <div className="text-muted-foreground">
-                      ...（残り {preview.amountReconciliation!.perSupplierMismatches.length - 100} 件は省略）
+                      ...（残り {preview.amountReconciliation!.perSupplierMismatches.length - 100} 件は省略 / 下の CSV で全件確認可）
                     </div>
                   )}
+                </div>
+                {/*
+                  G2-M2 (Frontend Major): 100 件超は UI で省略するため、全件確認のための
+                  CSV ダウンロード経路を提供。force 反映前に Excel で目視レビュー可能。
+                */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadMismatchesCsv(preview.amountReconciliation!.perSupplierMismatches)}
+                  >
+                    <FileDown className="mr-1 h-4 w-4" />
+                    全 {preview.amountReconciliation!.perSupplierMismatches.length} 件 CSV ダウンロード
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    強制反映時は全件 audit log に保存されます。
+                  </span>
                 </div>
                 <div className="mt-3 flex items-start gap-2 rounded border border-red-300 bg-red-100 p-2 text-xs">
                   <Checkbox
@@ -337,7 +370,17 @@ export default function PaymentMfImportPage() {
                   || verifyMut.isPending
                   || (hasPerSupplierMismatch(preview) && !forceAcknowledged)
                 }
-                onClick={() => setConfirmVerify(true)}
+                onClick={() => {
+                  // G2-M2 (Frontend Major): force 反映時は CSV download + 反映理由 + 全件確認 checkbox
+                  // を持つ専用ダイアログへ。通常確定 / 再確定は従来の ConfirmDialog を使う。
+                  if (hasPerSupplierMismatch(preview)) {
+                    setReviewedAll(false)
+                    setForceReason('')
+                    setForceDialogOpen(true)
+                  } else {
+                    setConfirmVerify(true)
+                  }
+                }}
               >
                 <CheckCheck className="mr-1 h-4 w-4" />
                 {verifyMut.isPending
@@ -530,41 +573,122 @@ export default function PaymentMfImportPage() {
         </DialogContent>
       </Dialog>
 
+      {/*
+        通常確定 / 再確定ダイアログ。
+        force=true 経路は下の専用 Dialog (forceDialogOpen) で扱うため、ここでは扱わない。
+      */}
       <ConfirmDialog
         open={confirmVerify}
         onOpenChange={setConfirmVerify}
-        title={
-          preview && hasPerSupplierMismatch(preview)
-            ? '強制反映 (force=true) を実行'
-            : preview?.appliedWarning
-              ? '既に確定済の月を再確定'
-              : '買掛金一覧へ反映'
-        }
+        title={preview?.appliedWarning ? '既に確定済の月を再確定' : '買掛金一覧へ反映'}
         description={
-          preview && hasPerSupplierMismatch(preview)
-            ? `per-supplier 1 円整合性違反 ${preview.amountReconciliation!.perSupplierMismatches.length} 件を許容して反映します。違反詳細はサーバー側 audit log に記録されます。実行してよろしいですか？`
-            : preview?.appliedWarning
-              ? `この月は ${formatDateTime(preview.appliedWarning.appliedAt)} に既に確定済です。再確定すると確定済の値を上書きします（手動確定 verified_manually=true 行は保護されます）。続行しますか？`
-              : 'この突合結果で買掛金一覧を検証確定します。よろしいですか？（verified_manually=true として手動確定扱いになります）'
+          preview?.appliedWarning
+            ? `この月は ${formatDateTime(preview.appliedWarning.appliedAt)} に既に確定済です。再確定すると確定済の値を上書きします（手動確定 verified_manually=true 行は保護されます）。続行しますか？`
+            : 'この突合結果で買掛金一覧を検証確定します。よろしいですか？（verified_manually=true として手動確定扱いになります）'
         }
-        confirmLabel={
-          preview && hasPerSupplierMismatch(preview)
-            ? '強制反映する (force=true)'
-            : preview?.appliedWarning
-              ? '上書きして再確定する'
-              : '反映する'
-        }
+        confirmLabel={preview?.appliedWarning ? '上書きして再確定する' : '反映する'}
         onConfirm={() => {
           // ダイアログを即座に閉じることで二重起動を防止する（mutation 完了前の連打対策）。
           setConfirmVerify(false)
           if (preview && !verifyMut.isPending) {
-            verifyMut.mutate({
-              uploadId: preview.uploadId,
-              force: hasPerSupplierMismatch(preview) && forceAcknowledged,
-            })
+            verifyMut.mutate({ uploadId: preview.uploadId, force: false })
           }
         }}
       />
+
+      {/*
+        G2-M2 (Frontend Major, 2026-05-06): 強制反映 (force=true) 専用ダイアログ。
+        100 件省略表示で承認内容と実処理が乖離するリスクを抑えるため、
+        - 全 mismatch CSV ダウンロード
+        - 全件確認 checkbox (reviewedAll)
+        - 反映理由 textarea (forceReason, audit log に記録予定)
+        の3点を必須化する。`!reviewedAll || !forceReason.trim()` の間は実行不可。
+      */}
+      <Dialog open={forceDialogOpen} onOpenChange={setForceDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>強制反映 (force=true) の確認</DialogTitle>
+            <DialogDescription>
+              per-supplier 1 円整合性違反を許容して買掛金一覧へ反映します。
+              全違反明細は <code>finance_audit_log.force_mismatch_details</code> (JSONB) に記録されます。
+            </DialogDescription>
+          </DialogHeader>
+          {preview && hasPerSupplierMismatch(preview) && (
+            <div className="space-y-4">
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>
+                  per-supplier 整合性違反 {preview.amountReconciliation!.perSupplierMismatches.length} 件
+                </AlertTitle>
+                <AlertDescription>
+                  <div className="mb-2 text-xs">
+                    1 円単位の不一致があります。force=true で反映すると、誤った金額が
+                    買掛金一覧および MF CSV に反映される可能性があります。
+                    まず CSV を全件ダウンロードし、内容を確認してください。
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadMismatchesCsv(preview.amountReconciliation!.perSupplierMismatches)}
+                  >
+                    <FileDown className="mr-1 h-4 w-4" />
+                    全 {preview.amountReconciliation!.perSupplierMismatches.length} 件 CSV ダウンロード
+                  </Button>
+                </AlertDescription>
+              </Alert>
+
+              <div className="space-y-1">
+                <Label htmlFor="force-reason" className="text-xs">
+                  反映理由 (audit log に記録されます) <span className="text-red-600">*</span>
+                </Label>
+                <Textarea
+                  id="force-reason"
+                  value={forceReason}
+                  onChange={(e) => setForceReason(e.target.value)}
+                  placeholder="例: 期末締めのため端数許容で反映 / supplier XX の手数料調整など"
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex items-start gap-2 rounded border border-red-300 bg-red-50 p-2 text-xs">
+                <Checkbox
+                  id="reviewed-all"
+                  checked={reviewedAll}
+                  onCheckedChange={(v) => setReviewedAll(v === true)}
+                  className="mt-0.5"
+                />
+                <Label htmlFor="reviewed-all" className="cursor-pointer">
+                  全 {preview.amountReconciliation!.perSupplierMismatches.length} 件の違反内容を確認しました
+                  （CSV ダウンロード or 上のリストで全件レビュー済）
+                </Label>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setForceDialogOpen(false)}>
+              キャンセル
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!reviewedAll || !forceReason.trim() || verifyMut.isPending}
+              onClick={() => {
+                // 二重起動防止のため即座に閉じる。
+                setForceDialogOpen(false)
+                if (preview && hasPerSupplierMismatch(preview) && !verifyMut.isPending) {
+                  verifyMut.mutate({
+                    uploadId: preview.uploadId,
+                    force: true,
+                    forceReason: forceReason.trim(),
+                  })
+                }
+              }}
+            >
+              強制反映する (force=true)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -589,6 +713,30 @@ function hasPerSupplierMismatch(preview: PaymentMfPreviewResponse | null): boole
   if (!preview || !preview.amountReconciliation) return false
   const mm = preview.amountReconciliation.perSupplierMismatches
   return Array.isArray(mm) && mm.length > 0
+}
+
+/**
+ * G2-M2 (Frontend Major, 2026-05-06): per-supplier mismatch を CSV 化してダウンロードする。
+ *
+ * <p>UI 側は性能維持のため `slice(0, 100)` で表示を省略しているが、force 反映前にユーザーが
+ * 全件を目視確認できる経路として CSV ダウンロードを提供する。Excel で開いて検索/並び替えが可能。
+ *
+ * <p>BOM (`﻿`) を先頭に付与して Excel での文字化けを回避。double quote は `""` で escape。
+ */
+function downloadMismatchesCsv(mismatches: string[]): void {
+  const header = 'no,detail'
+  const lines = mismatches.map((m, i) => `${i + 1},"${m.replace(/"/g, '""')}"`)
+  const csv = [header, ...lines].join('\r\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const today = new Date().toISOString().slice(0, 10)
+  a.download = `payment-mf-mismatches-${today}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function blankRuleRequest(): PaymentMfRuleRequest {

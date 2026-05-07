@@ -107,9 +107,19 @@ public class FinanceAuditAspect {
         // C5: after snapshot を loader 経由で再 fetch (DELETE 後は null になり得る)
         JsonNode afterJson = loadSnapshot(loaderOpt, pkJson, "after");
 
-        // Loader が無い table で returnAsAfter が true の場合のフォールバック
-        if (afterJson == null && loaderOpt.isEmpty() && auditLog.captureReturnAsAfter()) {
+        // G3-M12-fix: after が null の場合、Loader 未登録 / PK shape mismatch の両方で
+        // captureReturnAsAfter / captureArgsAsAfter フォールバックを許容する。
+        // 例: PaymentMfImportService.applyVerification の pkExpression は
+        // {uploadId, userNo, force} だが、TAccountsPayableSummaryAuditLoader の PK は
+        // {shopNo, supplierNo, transactionMonth, taxRate}。Loader 登録ありでも loadByPk が
+        // 解決できず null を返すため、戻り値 (VerifyResult) を after に詰めて記録漏れを防ぐ。
+        // captureReturnAsAfter で null になる (戻り値が null など) 場合は captureArgsAsAfter
+        // を 2 段目のフォールバックとして使い、最低限引数 JSON が after に入るようにする。
+        if (afterJson == null && auditLog.captureReturnAsAfter()) {
             afterJson = serialize(result);
+        }
+        if (afterJson == null && auditLog.captureArgsAsAfter()) {
+            afterJson = serializeArgs(pjp.getArgs());
         }
 
         try {
@@ -241,6 +251,15 @@ public class FinanceAuditAspect {
         } catch (Exception ignored) {
             return new ReqInfo(null, null);
         }
+    }
+
+    /**
+     * G3-M12-fix: captureArgsAsAfter フォールバックで使う、引数列の JSON 化。
+     * 0 件 / null は null を返し、`afterJson` を null のままにすることで誤誘導を避ける。
+     */
+    private JsonNode serializeArgs(Object[] args) {
+        if (args == null || args.length == 0) return null;
+        return serialize(args);
     }
 
     private JsonNode serialize(Object obj) {

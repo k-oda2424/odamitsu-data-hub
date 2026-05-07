@@ -458,6 +458,22 @@ public class AccountsPayableIntegrityService {
                 .totalMismatchAmount(totalMismatch)
                 .build();
 
+        // Codex Major fix (P1-02): 整合性レポートの supplierCumulativeDiff は
+        // SupplierBalancesService と共有の opening balance を使用するため、
+        // m_supplier_opening_balance が空だと累積差分が silent に誤値になる。
+        // 累積残一覧と同じ警告を整合性レポート側にも露出する。
+        boolean openingMissing = !openingBalanceService.isOpeningBalanceLoaded(
+                shopNo, MfPeriodConstants.SELF_BACKFILL_START);
+        String openingWarning = openingMissing
+                ? "MF 期首残 (m_supplier_opening_balance) が未投入です。初回運用では"
+                        + " /finance/supplier-opening-balance/mf-fetch を先に実行してください。"
+                        + "現状の累積差は期首残 0 で計算されているため、reconciledAtPeriodEnd"
+                        + " 判定および supplierCumulativeDiff は信頼できません。"
+                : null;
+        if (openingMissing) {
+            log.warn("[integrity] shopNo={} opening 未投入: cumulativeDiff/reconciledAtPeriodEnd は期首残 0 で計算されました", shopNo);
+        }
+
         return IntegrityReportResponse.builder()
                 .shopNo(shopNo)
                 .fromMonth(fromMonth)
@@ -470,6 +486,8 @@ public class AccountsPayableIntegrityService {
                 .amountMismatch(amountMismatch)
                 .unmatchedSuppliers(unmatchedSuppliers)
                 .summary(summary)
+                .openingBalanceMissing(openingMissing)
+                .openingBalanceWarning(openingWarning)
                 .build();
     }
 

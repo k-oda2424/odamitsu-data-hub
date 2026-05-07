@@ -74,4 +74,15 @@ public class FinanceAuditLog {
 
     @Column(name = "user_agent", length = 500)
     private String userAgent;
+
+    /**
+     * G2-M2 fix (Codex Major #3, V043, 2026-05-06): force=true 時の per-supplier mismatch 全件 JSON。
+     * <p>{@code reason} 列の 50 件切り詰め (容量節約) との乖離防止のため、
+     * 監査追跡用に全件を構造化保存する。force=false の通常 audit 行や、
+     * force=true でも mismatch 0 件の場合は NULL のまま。
+     * <p>形式: {@code [{"line": "[5日払い] supplier=10001 ..."}, ...]} 等の文字列 entries 配列。
+     */
+    @Type(JsonBinaryType.class)
+    @Column(name = "force_mismatch_details", columnDefinition = "jsonb")
+    private JsonNode forceMismatchDetails;
 }

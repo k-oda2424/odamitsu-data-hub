@@ -319,6 +319,63 @@ class SupplierBalancesServiceGoldenTest {
     }
 
     // ============================================================
+    // Scenario 7: opening 未投入時の警告 (Codex Major fix P1-02)
+    // ============================================================
+
+    @Test
+    @DisplayName("Scenario 7-A: opening 未投入時 openingBalanceMissing=true + warning メッセージ")
+    void scenario_7_opening_missing_warning() {
+        // self / MF は通常通り、ただし m_supplier_opening_balance に row なし (= 初回起動)
+        TAccountsPayableSummary self = row(700, AS_OF, "10")
+                .taxIncludedAmountChange(new BigDecimal("10000"))
+                .taxExcludedAmountChange(new BigDecimal("9091"))
+                .build();
+        stubSelfRows(List.of(self));
+        stubMaster(supplier(700, "S700", "仕入先X"));
+        stubMfAccount("仕入先X_sub", "S700");
+        stubMfJournals(List.of(
+                payableJournal(LocalDate.of(2026, 4, 1), "仕入先X_sub", new BigDecimal("10000"), null)
+        ));
+        // opening 行なし: getEffectiveBalanceMap=空 + isOpeningBalanceLoaded=false
+        when(openingBalanceService.getEffectiveBalanceMap(SHOP, MfPeriodConstants.SELF_BACKFILL_START))
+                .thenReturn(new HashMap<>());
+        when(openingBalanceService.isOpeningBalanceLoaded(SHOP, MfPeriodConstants.SELF_BACKFILL_START))
+                .thenReturn(false);
+
+        SupplierBalancesResponse resp = service.generate(SHOP, AS_OF, false);
+
+        assertThat(resp.getOpeningBalanceMissing()).isTrue();
+        assertThat(resp.getOpeningBalanceWarning())
+                .isNotNull()
+                .contains("MF 期首残")
+                .contains("/finance/supplier-opening-balance/mf-fetch");
+    }
+
+    @Test
+    @DisplayName("Scenario 7-B: opening 投入済 (全 0 含む) なら openingBalanceMissing=false / warning=null")
+    void scenario_7_opening_loaded_no_warning() {
+        TAccountsPayableSummary self = row(701, AS_OF, "10")
+                .taxIncludedAmountChange(new BigDecimal("10000"))
+                .taxExcludedAmountChange(new BigDecimal("9091"))
+                .build();
+        stubSelfRows(List.of(self));
+        stubMaster(supplier(701, "S701", "仕入先Y"));
+        stubMfAccount("仕入先Y_sub", "S701");
+        stubMfJournals(List.of(
+                payableJournal(LocalDate.of(2026, 4, 1), "仕入先Y_sub", new BigDecimal("10000"), null)
+        ));
+        stubOpeningEmpty();
+        // 投入済 (全 0 でも row は存在) は missing=false
+        when(openingBalanceService.isOpeningBalanceLoaded(SHOP, MfPeriodConstants.SELF_BACKFILL_START))
+                .thenReturn(true);
+
+        SupplierBalancesResponse resp = service.generate(SHOP, AS_OF, false);
+
+        assertThat(resp.getOpeningBalanceMissing()).isFalse();
+        assertThat(resp.getOpeningBalanceWarning()).isNull();
+    }
+
+    // ============================================================
     // 共通 stub helpers
     // ============================================================
 

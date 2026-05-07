@@ -291,6 +291,67 @@ PR 作成時に以下を満たしていることを確認:
 
 ---
 
+## 7.5 CHECK 制約変更時の事前検査手順 (Codex Minor 2026-05-06 追加)
+
+### 背景
+
+Flyway migration で `ALTER TABLE ... DROP CONSTRAINT ... ADD CONSTRAINT ... CHECK (...)` で
+許容値を拡張・変更するとき、既存行に **新 CHECK 違反値** が含まれていると migration 自体が
+失敗する。事前検査なしで本番適用すると Flyway が `migration_failed` 状態でロックされ、
+復旧に運用フローのストップが必要になるため、必ず以下の手順で事前検査する。
+
+### 事前検査 SQL の例
+
+例: `t_payment_mf_aux_row.rule_kind` に新値を追加する CHECK を投入する前に、
+既存行の許可外値を列挙する。
+
+```sql
+-- 新しい許可セット: ('EXPENSE','SUMMARY','PAYABLE_FEE','PAYABLE_DISCOUNT',
+--                  'PAYABLE_EARLY','PAYABLE_OFFSET','DIRECT_PURCHASE_FEE',
+--                  'DIRECT_PURCHASE_DISCOUNT','DIRECT_PURCHASE_EARLY','DIRECT_PURCHASE_OFFSET')
+SELECT DISTINCT rule_kind, COUNT(*)
+FROM t_payment_mf_aux_row
+WHERE rule_kind NOT IN ('EXPENSE','SUMMARY','PAYABLE_FEE','PAYABLE_DISCOUNT',
+                        'PAYABLE_EARLY','PAYABLE_OFFSET','DIRECT_PURCHASE_FEE',
+                        'DIRECT_PURCHASE_DISCOUNT','DIRECT_PURCHASE_EARLY','DIRECT_PURCHASE_OFFSET')
+GROUP BY rule_kind;
+```
+
+### 判定と対応
+
+| 結果 | 判定 | 対応 |
+|---|---|---|
+| 0 行 | OK | migration をそのまま適用 |
+| 1 行以上 | NG | (a) migration を修正して CHECK に許容値を追加 / (b) 違反行を業務判断で UPDATE/DELETE してから migration 適用 |
+
+### 過去事例 (V038 / V040)
+
+- **V038** (`t_payment_mf_aux_row.rule_kind` 拡張): 適用前検査で違反 0 件確認済み、無事適用。
+- **V040** (`t_accounts_payable_summary.verification_source` 追加): 既存行は NULL backfill のみで
+  CHECK は新値のみ許容するため事前検査不要だったが、**V044 で backfill 内容自体を検査** した。
+
+### Migration 内に検査ロジックを埋め込むパターン (V044 の手法)
+
+事前 SQL を別途実行するのを忘れがちな場合は、migration 自体に DO $$ ... END $$ ブロックで
+検査を埋め込み、`RAISE NOTICE` (失敗時は `RAISE EXCEPTION`) で運用に通知する。
+V029 (delivery_code 衝突 assert) / V044 (backfill 検査) が該当パターン。
+
+```sql
+DO $$
+DECLARE invalid_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO invalid_count FROM t_xxx WHERE col NOT IN (...);
+    IF invalid_count > 0 THEN
+        RAISE EXCEPTION 'V0xx: % 行が新 CHECK 違反', invalid_count;
+    END IF;
+END $$;
+
+ALTER TABLE t_xxx DROP CONSTRAINT chk_xxx;
+ALTER TABLE t_xxx ADD CONSTRAINT chk_xxx CHECK (col IN (...));
+```
+
+---
+
 ## 8. 関連ドキュメント
 
 - `claudedocs/design-payment-mf-import.md` — PaymentMfImport 仕様 (P1-03 案 D-2 適用後の構造)

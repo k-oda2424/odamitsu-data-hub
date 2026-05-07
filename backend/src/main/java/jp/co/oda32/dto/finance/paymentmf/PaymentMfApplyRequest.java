@@ -39,4 +39,17 @@ public class PaymentMfApplyRequest {
      */
     @Builder.Default
     private boolean force = false;
+
+    /**
+     * Codex Major #4 (2026-05-06): {@code force=true} 指定時の<b>必須</b>業務理由文字列。
+     * <p>強制反映は per-supplier 1 円整合性違反を許容する破壊的操作のため、
+     * audit log に「なぜ承認したか」を残す目的で必須化する。空文字 / null で
+     * {@code force=true} を送ると {@link jp.co.oda32.exception.FinanceBusinessException}
+     * (code=FORCE_REASON_REQUIRED) で 400 拒否される。
+     * <p>{@code force=false} の場合は無視される。
+     * <p>運用 runbook (= 二段認可の代替): 承認前に最低 2 名で内容確認のうえ、
+     * 担当者名 + 承認者名 + 業務上の理由をこの文字列に含める
+     * (例: {@code "承認: tanaka, 確認: yamada, 理由: 仕入先X側の請求書送付遅延、振込済"} )。
+     */
+    private String forceReason;
 }

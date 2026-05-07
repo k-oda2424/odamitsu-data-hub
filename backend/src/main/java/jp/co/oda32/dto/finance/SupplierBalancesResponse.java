@@ -28,6 +28,16 @@ public class SupplierBalancesResponse {
     private Integer totalJournalCount;
     private List<SupplierBalanceRow> rows;
     private Summary summary;
+    /**
+     * Codex Major fix (P1-02): {@code m_supplier_opening_balance} が空のときの警告フラグ。
+     * <p>
+     * MF journal #1 (期首残高仕訳) を {@link jp.co.oda32.domain.service.finance.mf.MfOpeningBalanceService#fetchFromMfJournalOne}
+     * で取込んでいない初回運用では opening が silent に 0 になり、累積残が誤って計算される。
+     * UI 側でバナー表示し、{@code /finance/supplier-opening-balance/mf-fetch} の事前実行を促す。
+     */
+    private Boolean openingBalanceMissing;
+    /** {@code openingBalanceMissing=true} の場合のユーザー向け警告メッセージ。 */
+    private String openingBalanceWarning;
 
     @Data
     @Builder

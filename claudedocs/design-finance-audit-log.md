@@ -279,6 +279,74 @@ audit log と import history を **両方** 残すことで、「誰が手動再
 
 ---
 
+## G3-M12-fix: PK shape mismatch 時の after_values フォールバック (2026-05-06)
+
+### 背景
+
+C5 修正 (2026-05-04) で `AuditEntityLoader` 経由の after snapshot を導入した際、Aspect は `loaderOpt.isEmpty()` が `false` の場合 (= Loader 登録あり) に `loadByPk` の戻り値が `Optional.empty()` でも `captureReturnAsAfter` / `captureArgsAsAfter` のフォールバックを発火させていなかった。
+
+その結果、`@AuditLog` の `pkExpression` と Loader 期待 PK が **shape mismatch** している場合に `after_values=null` のままレコードが書かれてしまい、操作内容が一切残らない問題があった。
+
+### 実例: `PaymentMfImportService.applyVerification`
+
+| 項目 | 値 |
+|---|---|
+| `@AuditLog.pkExpression` | `{'uploadId': #a0, 'userNo': #a1, 'force': #a2}` |
+| `TAccountsPayableSummaryAuditLoader` 期待 PK | `{shopNo, supplierNo, transactionMonth, taxRate}` |
+| `loadByPk` 結果 | `Optional.empty()` (PK 列が一致しない) |
+| 旧挙動 | `afterJson=null` (戻り値 `VerifyResult` が捨てられる) |
+
+`applyVerification` は `uploadId` 単位で N supplier の `t_accounts_payable_summary` を一括上書きするため、そもそも 1 行 PK で snapshot を取れる Service ではない (戻り値 `VerifyResult` 全体が "after" の意味)。にも関わらず `t_accounts_payable_summary` の Loader が登録されていることで、Aspect が「Loader が解決すべき」と誤判定していた。
+
+### 修正内容
+
+`FinanceAuditAspect#record` の after 取得ロジックを 3 段フォールバックに変更:
+
+1. `loadSnapshot(loaderOpt, pkJson, "after")` を試す (= entity snapshot 優先)
+2. それが `null` なら `captureReturnAsAfter=true` で戻り値を serialize
+3. それでも `null` なら `captureArgsAsAfter=true` で引数列を serialize
+
+```java
+// before (C5)
+if (afterJson == null && loaderOpt.isEmpty() && auditLog.captureReturnAsAfter()) {
+    afterJson = serialize(result);
+}
+
+// after (G3-M12-fix)
+if (afterJson == null && auditLog.captureReturnAsAfter()) {
+    afterJson = serialize(result);
+}
+if (afterJson == null && auditLog.captureArgsAsAfter()) {
+    afterJson = serializeArgs(pjp.getArgs());
+}
+```
+
+`loaderOpt.isEmpty()` 条件を外した点が本質。Loader が PK を解決できなかった (= entity が見つからない or PK shape が違う) 場合でも、業務操作としての意味を残せるよう戻り値 / 引数を後方フォールバックに使う。
+
+### 影響範囲
+
+- **修正前から after が取れていたケース**: 影響なし (Loader が成功すれば従来通り entity snapshot が優先)。
+- **PK shape mismatch ケース**: `applyVerification` をはじめ、bulk 操作で PK が個別行を指さない設計の Service。`captureReturnAsAfter=true` (既定) なので戻り値の `VerifyResult` (warning 件数等) が記録されるようになる。
+- **Loader 未登録 table**: 既存の挙動と同じ (`loaderOpt.isEmpty()` でも `captureReturnAsAfter` が発火)。
+- `captureArgsAsAfter` の `reason` 列補助記録 (= `args=...JSON...`) は従来どおり継続。after に入れるのは return が null だった場合の 2 段目フォールバックのみ。
+
+### テスト
+
+`FinanceAuditAspectTest` に 3 ケース追加 (計 8 ケース、全 PASS):
+
+- `loader_pk_mismatch_falls_back_to_return_value_for_after`: Loader 登録あり + `loadByPk` が `Optional.empty()` のとき、`captureReturnAsAfter=true` なら戻り値が after に入る
+- `loader_pk_mismatch_falls_back_to_args_when_return_disabled`: 同上 + `captureReturnAsAfter=false` + `captureArgsAsAfter=true` なら引数 array が after に入る
+- `loader_pk_resolved_keeps_entity_snapshot_priority`: Loader が成功する限り entity snapshot が優先 (= 既存挙動を破壊しない)
+
+既存 5 ケース (no-loader / failed / writer-failure / pkExpression / loader-success) は無改変で PASS。
+
+### 関連
+
+- `PaymentMfImportService.applyVerification` (`pkExpression="{'uploadId', 'userNo', 'force'}"`)
+- 同種パターンが他にあれば `pkExpression` を Loader PK と揃えるか、本フォールバックに任せるかは個別判断。
+
+---
+
 ## 8. 関連設計書
 
 - `design-audit-trail-accounts-payable.md` (旧ドラフト、買掛側のみ)

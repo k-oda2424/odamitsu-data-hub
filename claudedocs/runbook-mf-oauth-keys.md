@@ -215,6 +215,36 @@ V033 は `WHERE *_enc IS NOT NULL` で対象 0 件になるので無事完了。
 
 ## 6'. encryption version カラム (V037 / C1 idempotent 化)
 
+### Codex P1 修正履歴 (2026-05-06)
+
+| 修正 | 内容 |
+|---|---|
+| **P1**: refresh_token_enc が旧鍵のまま残るバグ | 旧 V033 は `t_mf_oauth_token` を `reencrypt(access_token_enc)` → `reencrypt(refresh_token_enc)` の **2 回呼び出し** で処理していた。1 回目で `version=1 → 2` にマークしたため、2 回目では `WHERE version=1` がヒット 0 件 → refresh_token_enc が旧鍵のまま残り、起動後の decrypt が失敗 → MF 連携全停止の致命バグ。**修正**: `reencryptMfTokens(conn, oldCipher, newCipher, hasVersion)` で **両カラムを 1 つの UPDATE で同時に再暗号化** + version=2 マーク。 |
+| **P1 fix #2**: decrypt 失敗で全停止 | 旧実装は decrypt 失敗で `IllegalStateException` を即 throw していた。version 列なし環境で V033 が部分 commit 後に再実行されると、新鍵化済の row を旧鍵で decrypt 試行 → 失敗 → migration 全体停止になる。**修正**: 失敗時は WARN ログ (`System.err.printf`) を出して **当該カラムを温存** (= 既に新鍵化済と仮定)、別カラム / 別行の再暗号化は継続。 |
+| **P2**: V037 の番号順 | V037 が V033 より後の番号で適用されるため、新規環境で V033 → V037 の順に走る。V033 は `DatabaseMetaData.getColumns()` で version 列の有無を動的判定し列なしなら全行を一度きり再処理 → V037 が列追加 + flyway_schema_history マーカーで全行 version=2 にマーク、で連携。番号入れ替え (V032.5 にリネーム) は本番影響大なため見送り、上記 P1 fix #2 の skip ロジックでフォールバック対応。 |
+
+#### 本番 DB への影響
+**なし**。本番 (`oda32-postgres17`) は V033 / V037 既に成功適用済 + 全 24 行 (`m_mf_oauth_client` 1 + `t_mf_oauth_token` 23) とも `oauth_encryption_version=2` を確認済。今回の Java 修正は **将来 deploy 時の安全性向上** が目的。検証 SQL:
+```sql
+SELECT 'm_mf_oauth_client' AS tbl, oauth_encryption_version, COUNT(*) AS cnt
+FROM m_mf_oauth_client GROUP BY oauth_encryption_version
+UNION ALL
+SELECT 't_mf_oauth_token' AS tbl, oauth_encryption_version, COUNT(*) AS cnt
+FROM t_mf_oauth_token GROUP BY oauth_encryption_version;
+-- 期待: 全行 oauth_encryption_version = 2
+```
+
+#### テスト
+`backend/src/test/java/db/migration/V033ReencryptionTest.java` (6 ケース):
+- `reencryptMfTokens_両カラム同時更新_versionMarker` ← P1 主要回帰テスト
+- `reencryptMfTokens_既新鍵化済はskip` (idempotent)
+- `reencryptMfTokens_decrypt失敗時はskip温存` (P1 fix #2)
+- `reencrypt_singleColumn_clientSecret`
+- `reencryptMfTokens_両NULL行はマーカーのみ`
+- `reencryptMfTokens_version列なし`
+
+実行: `cd backend && JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8 ./gradlew test --tests '*V033*' --tests '*Reencryption*'`
+
 ### 経緯
 旧 V033 は autoCommit OFF + 全件まとめて commit 方式で、Flyway 履歴記録前にプロセス停止すると
 「暗号文は新鍵化済み・migration 履歴は未適用」のミスマッチ状態になり、次回起動で旧鍵 decrypt 試行 →

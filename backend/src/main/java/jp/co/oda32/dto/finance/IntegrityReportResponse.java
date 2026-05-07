@@ -35,6 +35,16 @@ public class IntegrityReportResponse {
     private List<AmountMismatchEntry> amountMismatch;
     private List<UnmatchedSupplierEntry> unmatchedSuppliers;
     private Summary summary;
+    /**
+     * Codex Major fix (P1-02): {@code m_supplier_opening_balance} が空のときの警告フラグ。
+     * <p>
+     * 整合性レポートの cumulative diff は累積残一覧と同じ opening balance を注入しており、
+     * opening 未投入だと {@code supplierCumulativeDiff} が誤値になる。
+     * UI 側でバナー表示し、{@code /finance/supplier-opening-balance/mf-fetch} の事前実行を促す。
+     */
+    private Boolean openingBalanceMissing;
+    /** {@code openingBalanceMissing=true} の場合のユーザー向け警告メッセージ。 */
+    private String openingBalanceWarning;
 
     /** MF にあって自社に無い (supplier × 月 単位)。SELF_MISSING。 */
     @Data

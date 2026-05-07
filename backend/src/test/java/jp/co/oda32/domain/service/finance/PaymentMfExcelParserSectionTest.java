@@ -105,12 +105,16 @@ class PaymentMfExcelParserSectionTest {
      * 詳細に検証 (chk3 で section 別 sum を独立比較できる前提を担保)。
      * このテストは旧実装でも entries の数と sourceName は同じだが、
      * section ラベル付与が新規挙動であることを示す。
+     *
+     * <p>Codex Major #5 (2026-05-06): 送金日 day で初期 section を決めるようになったため、
+     * 5日払い + 20日払い 両セクションを含む Excel は実運用と同じく送金日=5日 (day &lt; 15) で開始する。
      */
     @Test
     void parseSheet_合計行を境に_section_遷移する() throws Exception {
         try (Workbook wb = new XSSFWorkbook()) {
             Sheet sheet = wb.createSheet("支払い明細");
-            writeHeader(sheet, LocalDate.of(2026, 2, 20));
+            // Codex Major #5: 両セクションを含む Excel は 5日払い (5日送金) で開始する想定。
+            writeHeader(sheet, LocalDate.of(2026, 2, 5));
 
             // 5日払い 3 行 + 合計 + 20日払い 2 行 + 合計
             writeEntry(sheet, 2, "100001", "FIVE-A", 10000L, 10000L, 0L, 0L, 0L, 0L);
@@ -134,6 +138,77 @@ class PaymentMfExcelParserSectionTest {
             // section 別 summary が独立に取れている (chk1/chk3 を section 別判定する基盤)
             assertThat(parsed.summaries.get(PaymentMfSection.PAYMENT_5TH).invoiceTotal).isEqualTo(60000L);
             assertThat(parsed.summaries.get(PaymentMfSection.PAYMENT_20TH).invoiceTotal).isEqualTo(12000L);
+        }
+    }
+
+    /**
+     * Codex Major #5 (2026-05-06): 20日払い専用 Excel (送金日 day &gt;= 15) は
+     * PAYMENT_20TH 開始でなければならない。旧実装は常に PAYMENT_5TH 開始だったため、
+     * 20日払い Excel の 全 entries が誤って PAYMENT_5TH 扱いされていた
+     * (= PAYABLE 主行突合・整合性チェック・aux 保存が誤動作)。
+     */
+    @Test
+    void parseSheet_20日払い専用_Excel_は_PAYMENT_20TH_開始() throws Exception {
+        try (Workbook wb = new XSSFWorkbook()) {
+            Sheet sheet = wb.createSheet("支払い明細");
+            // 送金日 = 20日 (day=20 >= 15) → 20日払い相当
+            writeHeader(sheet, LocalDate.of(2026, 2, 20));
+
+            // 20日払い 明細のみ + 合計 1 個
+            writeEntry(sheet, 2, "200001", "DDD㈱", 40000L, 39800L, 200L, 0L, 0L, 0L);
+            writeEntry(sheet, 3, "200002", "EEE㈱", 25000L, 24800L, 200L, 0L, 0L, 0L);
+            writeTotalRow(sheet, 4, 65000L, 64600L, 400L, 0L);
+
+            PaymentMfExcelParser.ParsedExcel parsed = PaymentMfExcelParser.parseSheet(sheet);
+
+            // summary は PAYMENT_20TH のみキャプチャされる (PAYMENT_5TH は空)
+            assertThat(parsed.summaries).containsKey(PaymentMfSection.PAYMENT_20TH);
+            assertThat(parsed.summaries).doesNotContainKey(PaymentMfSection.PAYMENT_5TH);
+
+            // 全 entries が PAYMENT_20TH 扱い
+            assertThat(parsed.entries).hasSize(2);
+            assertThat(parsed.entries).allMatch(e -> e.section == PaymentMfSection.PAYMENT_20TH);
+
+            // summary 値も PAYMENT_20TH 側に入る
+            PaymentMfExcelParser.SectionSummary s20 = parsed.summaries.get(PaymentMfSection.PAYMENT_20TH);
+            assertThat(s20.invoiceTotal).isEqualTo(65000L);
+            assertThat(s20.transferAmount).isEqualTo(64600L);
+        }
+    }
+
+    /**
+     * Codex Major #5 (2026-05-06): 送金日不明時は WARN ログ + デフォルトで PAYMENT_5TH 開始。
+     * {@link PaymentMfExcelParser#determineInitialSection} の単体テスト。
+     */
+    @Test
+    void determineInitialSection_送金日不明はPAYMENT_5TH_デフォルト() {
+        assertThat(PaymentMfExcelParser.determineInitialSection(null))
+                .isEqualTo(PaymentMfSection.PAYMENT_5TH);
+    }
+
+    /**
+     * Codex Major #5: 送金日 day &lt; 15 → PAYMENT_5TH (5日払い相当、振替で前後しても OK)。
+     */
+    @Test
+    void determineInitialSection_前半は_PAYMENT_5TH() {
+        for (int day : new int[]{1, 4, 5, 6, 7, 14}) {
+            assertThat(PaymentMfExcelParser.determineInitialSection(LocalDate.of(2026, 2, day)))
+                    .as("day=%d", day)
+                    .isEqualTo(PaymentMfSection.PAYMENT_5TH);
+        }
+    }
+
+    /**
+     * Codex Major #5: 送金日 day &gt;= 15 → PAYMENT_20TH (20日払い相当、振替で前後しても OK)。
+     */
+    @Test
+    void determineInitialSection_後半は_PAYMENT_20TH() {
+        for (int day : new int[]{15, 19, 20, 21, 25, 31}) {
+            // 31日は月末まである月のみ。2026-1 (1月) は 31 日まである。
+            LocalDate d = day == 31 ? LocalDate.of(2026, 1, day) : LocalDate.of(2026, 2, day);
+            assertThat(PaymentMfExcelParser.determineInitialSection(d))
+                    .as("day=%d", day)
+                    .isEqualTo(PaymentMfSection.PAYMENT_20TH);
         }
     }
 

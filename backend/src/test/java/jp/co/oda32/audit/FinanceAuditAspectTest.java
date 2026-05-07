@@ -168,6 +168,113 @@ class FinanceAuditAspectTest {
         assertThat(after.getValue().asText()).isEqualTo("AFTER");
     }
 
+    /**
+     * G3-M12-fix: Loader 登録あり + PK shape mismatch (loadByPk が空) のとき、
+     * captureReturnAsAfter=true なら戻り値を after にフォールバックする。
+     * <p>
+     * 想定ユースケース: {@code PaymentMfImportService.applyVerification} の
+     * {@code pkExpression="{uploadId, userNo, force}"} と
+     * {@code TAccountsPayableSummaryAuditLoader} の {@code {shopNo, supplierNo, ...}} の不一致。
+     */
+    @Test
+    void loader_pk_mismatch_falls_back_to_return_value_for_after() throws Throwable {
+        AuditEntityLoader emptyLoader = new AuditEntityLoader() {
+            @Override public String table() { return "t_loaded"; }
+            @Override public Optional<Object> loadByPk(JsonNode pkJson) { return Optional.empty(); }
+        };
+        AuditEntityLoaderRegistry registry = new AuditEntityLoaderRegistry(List.of(emptyLoader));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<jakarta.servlet.http.HttpServletRequest> provider =
+                (ObjectProvider<jakarta.servlet.http.HttpServletRequest>) mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        FinanceAuditAspect aspectWithLoader = new FinanceAuditAspect(writer, provider, registry);
+
+        ProceedingJoinPoint pjp = mock(ProceedingJoinPoint.class);
+        when(pjp.getArgs()).thenReturn(new Object[]{ "uploadId-1", 99, true });
+        when(pjp.proceed()).thenReturn("VERIFY_RESULT");
+
+        AuditLog ann = annotation("t_loaded", "verify", true, false, "", 0);
+        aspectWithLoader.record(pjp, ann);
+
+        ArgumentCaptor<JsonNode> after = ArgumentCaptor.forClass(JsonNode.class);
+        verify(writer).write(eq("t_loaded"), eq("verify"), isNull(), eq("SYSTEM"),
+                any(JsonNode.class), isNull(), after.capture(), isNull(), isNull(), isNull());
+        // Loader 登録あり + loadByPk が空 → captureReturnAsAfter=true で戻り値が after に入る
+        assertThat(after.getValue().asText()).isEqualTo("VERIFY_RESULT");
+    }
+
+    /**
+     * G3-M12-fix: Loader 登録あり + PK shape mismatch + captureReturnAsAfter=false のとき、
+     * captureArgsAsAfter=true なら引数を after にフォールバックする。
+     */
+    @Test
+    void loader_pk_mismatch_falls_back_to_args_when_return_disabled() throws Throwable {
+        AuditEntityLoader emptyLoader = new AuditEntityLoader() {
+            @Override public String table() { return "t_loaded"; }
+            @Override public Optional<Object> loadByPk(JsonNode pkJson) { return Optional.empty(); }
+        };
+        AuditEntityLoaderRegistry registry = new AuditEntityLoaderRegistry(List.of(emptyLoader));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<jakarta.servlet.http.HttpServletRequest> provider =
+                (ObjectProvider<jakarta.servlet.http.HttpServletRequest>) mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        FinanceAuditAspect aspectWithLoader = new FinanceAuditAspect(writer, provider, registry);
+
+        ProceedingJoinPoint pjp = mock(ProceedingJoinPoint.class);
+        when(pjp.getArgs()).thenReturn(new Object[]{ "uploadId-1", 99, true });
+        when(pjp.proceed()).thenReturn("IGNORED");
+
+        // captureReturnAsAfter=false, captureArgsAsAfter=true
+        AuditLog ann = annotation("t_loaded", "verify", false, true, "", 0);
+        aspectWithLoader.record(pjp, ann);
+
+        ArgumentCaptor<JsonNode> after = ArgumentCaptor.forClass(JsonNode.class);
+        verify(writer).write(eq("t_loaded"), eq("verify"), isNull(), eq("SYSTEM"),
+                any(JsonNode.class), isNull(), after.capture(),
+                anyString(), isNull(), isNull());
+        JsonNode afterArgs = after.getValue();
+        assertThat(afterArgs.isArray()).isTrue();
+        assertThat(afterArgs.get(0).asText()).isEqualTo("uploadId-1");
+        assertThat(afterArgs.get(1).asInt()).isEqualTo(99);
+        assertThat(afterArgs.get(2).asBoolean()).isTrue();
+    }
+
+    /**
+     * G3-M12-fix: Loader 登録あり + PK 解決成功時は entity snapshot を優先 (= 既存挙動を破壊しない)。
+     */
+    @Test
+    void loader_pk_resolved_keeps_entity_snapshot_priority() throws Throwable {
+        AuditEntityLoader stubLoader = new AuditEntityLoader() {
+            int call = 0;
+            @Override public String table() { return "t_loaded"; }
+            @Override public Optional<Object> loadByPk(JsonNode pkJson) {
+                call++;
+                return Optional.of(call == 1 ? "BEFORE_ENTITY" : "AFTER_ENTITY");
+            }
+        };
+        AuditEntityLoaderRegistry registry = new AuditEntityLoaderRegistry(List.of(stubLoader));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<jakarta.servlet.http.HttpServletRequest> provider =
+                (ObjectProvider<jakarta.servlet.http.HttpServletRequest>) mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        FinanceAuditAspect aspectWithLoader = new FinanceAuditAspect(writer, provider, registry);
+
+        ProceedingJoinPoint pjp = mock(ProceedingJoinPoint.class);
+        when(pjp.getArgs()).thenReturn(new Object[]{ 1 });
+        when(pjp.proceed()).thenReturn("RETURN_VALUE");
+
+        // captureReturnAsAfter=true でも、Loader が AFTER_ENTITY を返す限りそちらが優先される
+        AuditLog ann = annotation("t_loaded", "verify", true, true, "", 0);
+        aspectWithLoader.record(pjp, ann);
+
+        ArgumentCaptor<JsonNode> after = ArgumentCaptor.forClass(JsonNode.class);
+        verify(writer).write(eq("t_loaded"), eq("verify"), isNull(), eq("SYSTEM"),
+                any(JsonNode.class), any(JsonNode.class), after.capture(),
+                anyString(), isNull(), isNull());
+        // Loader が成功するのでフォールバックは発火せず、entity snapshot がそのまま入る
+        assertThat(after.getValue().asText()).isEqualTo("AFTER_ENTITY");
+    }
+
     private static AuditLog annotation(String table, String operation,
                                         boolean captureReturn, boolean captureArgs,
                                         String pkExpression, int pkArgIndex) {

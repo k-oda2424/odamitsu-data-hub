@@ -30,6 +30,21 @@ public class FinanceAuditWriter {
     public void write(String table, String operation, Integer userNo, String actorType,
                       JsonNode targetPk, JsonNode beforeValues, JsonNode afterValues,
                       String reason, String sourceIp, String userAgent) {
+        write(table, operation, userNo, actorType, targetPk, beforeValues, afterValues,
+                reason, sourceIp, userAgent, null);
+    }
+
+    /**
+     * G2-M2 fix (Codex Major #3, V043, 2026-05-06): force=true 時の per-supplier mismatch
+     * 全件 JSON を {@code force_mismatch_details} 列に保存する版。
+     * <p>{@code reason} 列の 50 件切り詰め (容量節約) と乖離させないため、監査追跡用に
+     * 全件を構造化保存する。{@code forceMismatchDetails} が null の場合は従来挙動と等価。
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void write(String table, String operation, Integer userNo, String actorType,
+                      JsonNode targetPk, JsonNode beforeValues, JsonNode afterValues,
+                      String reason, String sourceIp, String userAgent,
+                      JsonNode forceMismatchDetails) {
         FinanceAuditLog entry = FinanceAuditLog.builder()
                 .occurredAt(LocalDateTime.now())
                 .actorUserNo(userNo)
@@ -42,6 +57,7 @@ public class FinanceAuditWriter {
                 .reason(reason)
                 .sourceIp(sourceIp)
                 .userAgent(userAgent)
+                .forceMismatchDetails(forceMismatchDetails)
                 .build();
         repository.save(entry);
     }

@@ -340,6 +340,19 @@ public class MfOpeningBalanceService {
                 .build();
     }
 
+    /**
+     * Codex Major fix (P1-02): {@code m_supplier_opening_balance} に (shop, openingDate) の
+     * active 行が 1 件でも存在するかを返す。
+     * <p>
+     * 累積残/整合性レポートで「期首残未投入」 silent 0 を検出するために使用する。
+     * {@link #getEffectiveBalanceMap} は signum=0 の行を弾くため「全 0 で投入済」と
+     * 「未投入」を区別できないが、本メソッドは del_flg='0' の row 数で判定する。
+     */
+    public boolean isOpeningBalanceLoaded(Integer shopNo, LocalDate openingDate) {
+        if (shopNo == null || openingDate == null) return false;
+        return !repository.findByPkShopNoAndPkOpeningDateAndDelFlg(shopNo, openingDate, "0").isEmpty();
+    }
+
     /** (shop, openingDate) の effective_balance を supplierNo → 金額 Map で返す。下流 service が累積注入に使用。 */
     public Map<Integer, BigDecimal> getEffectiveBalanceMap(Integer shopNo, LocalDate openingDate) {
         if (shopNo == null || openingDate == null) return Collections.emptyMap();

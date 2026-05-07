@@ -21,4 +21,10 @@ public interface MOffsetJournalRuleRepository extends JpaRepository<MOffsetJourn
 
     /** Admin 一覧画面用: del_flg='0' を shop_no 昇順で全件取得。 */
     List<MOffsetJournalRule> findByDelFlgOrderByShopNoAsc(String delFlg);
+
+    /**
+     * Codex Major fix: shop_no 別 active 行件数。
+     * delete() での「最後の active 行は削除禁止」バリデーションに使用する。
+     */
+    long countByShopNoAndDelFlg(Integer shopNo, String delFlg);
 }

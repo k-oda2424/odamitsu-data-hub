@@ -3,6 +3,8 @@ package jp.co.oda32.domain.service.finance;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -35,7 +37,18 @@ import java.util.Set;
  */
 final class PaymentMfExcelParser {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentMfExcelParser.class);
+
     private PaymentMfExcelParser() {}
+
+    /**
+     * Codex Major #5 (2026-05-06): 送金日 day で初期 section を判定する境界 (exclusive)。
+     * <p>day &lt; CUTOFF → {@link PaymentMfSection#PAYMENT_5TH} 開始 (= 5日払い相当)。
+     * <p>day &ge; CUTOFF → {@link PaymentMfSection#PAYMENT_20TH} 開始 (= 20日払い相当)。
+     * <p>{@code FinanceConstants.PAYMENT_DATE_MIDMONTH_CUTOFF} と同値 (15)。
+     * 振替で 5日 が 4日/6日/7日, 20日 が 19日/21日 等に前後しても包括的に正しい section を選べる。
+     */
+    private static final int SECTION_INITIAL_CUTOFF_DAY = 15;
 
     /** 合計/メタ行のB列判定（正規化後の完全一致） */
     private static final Set<String> META_EXACT = Set.of(
@@ -127,8 +140,15 @@ final class PaymentMfExcelParser {
         }
 
         int last = sheet.getLastRowNum();
-        // G2-M3: section enum で 5日払い / 20日払い を明示的に区別する。走査開始時は 5日払い。
-        PaymentMfSection currentSection = PaymentMfSection.PAYMENT_5TH;
+        // G2-M3: section enum で 5日払い / 20日払い を明示的に区別する。
+        // Codex Major #5 (2026-05-06): 送金日 day で初期 section を判定する。
+        //   - day < 15 → PAYMENT_5TH 開始 (5日払い)
+        //   - day >= 15 → PAYMENT_20TH 開始 (20日払い)
+        //   - 送金日不明 → PAYMENT_5TH (デフォルト) + WARN ログ
+        // 旧実装は常に PAYMENT_5TH 開始だったため、20日払い専用 Excel が来ると最初の合計行で
+        // PAYMENT_5TH summary をキャプチャしてしまい、entries も 全て PAYMENT_5TH として扱われ、
+        // 整合性チェック・PAYABLE/DIRECT_PURCHASE 振り分け・aux 保存が誤動作していた。
+        PaymentMfSection currentSection = determineInitialSection(out.transferDate);
         for (int i = 2; i <= last; i++) {
             Row row = sheet.getRow(i);
             if (row == null) continue;
@@ -220,6 +240,26 @@ final class PaymentMfExcelParser {
         if (META_EXACT.contains(normalized)) return true;
         for (String p : META_PREFIX) if (normalized.startsWith(p)) return true;
         return false;
+    }
+
+    /**
+     * Codex Major #5 (2026-05-06): 送金日 day から初期 section を判定する (パッケージ可視: テスト用)。
+     * <ul>
+     *   <li>day &lt; {@link #SECTION_INITIAL_CUTOFF_DAY} (= 15) → {@link PaymentMfSection#PAYMENT_5TH}</li>
+     *   <li>day &ge; 15 → {@link PaymentMfSection#PAYMENT_20TH}</li>
+     *   <li>{@code transferDate == null} → {@link PaymentMfSection#PAYMENT_5TH} (デフォルト) + WARN ログ</li>
+     * </ul>
+     * 旧実装は常に PAYMENT_5TH 開始だったため、20日払い専用 Excel が来ると初期 section 誤分類を起こしていた。
+     */
+    static PaymentMfSection determineInitialSection(LocalDate transferDate) {
+        if (transferDate == null) {
+            log.warn("送金日が読み取れないため初期 section を PAYMENT_5TH にデフォルト設定します。"
+                    + "20日払い Excel の場合、整合性チェック・PAYABLE 振り分けが誤動作する可能性あり");
+            return PaymentMfSection.PAYMENT_5TH;
+        }
+        return transferDate.getDayOfMonth() < SECTION_INITIAL_CUTOFF_DAY
+                ? PaymentMfSection.PAYMENT_5TH
+                : PaymentMfSection.PAYMENT_20TH;
     }
 
     /** Excel 明細1行の抽出結果（内部用 POJO）。 */

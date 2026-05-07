@@ -111,15 +111,19 @@ public class PaymentMfImportController {
                                     @AuthenticationPrincipal LoginUser user) {
         try {
             boolean force = request != null && request.isForce();
+            // Codex Major #4 (2026-05-06): force=true 時は forceReason 必須。
+            // service 層で空文字 / null チェックして FinanceBusinessException を投げる。
+            String forceReason = request == null ? null : request.getForceReason();
             var result = importService.applyVerification(
                     uploadId,
                     user == null ? null : user.getUser().getLoginUserNo(),
-                    force);
+                    force,
+                    forceReason);
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
-        // FinanceBusinessException (PER_SUPPLIER_MISMATCH 含む) は FinanceExceptionHandler で処理
+        // FinanceBusinessException (PER_SUPPLIER_MISMATCH / FORCE_REASON_REQUIRED 含む) は FinanceExceptionHandler で処理
     }
 
     // ---- 検証済み買掛金から MF CSV 出力（Excel 再アップロード不要）----

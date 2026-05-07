@@ -1,5 +1,7 @@
 package jp.co.oda32.domain.service.finance;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.criteria.Predicate;
 import jp.co.oda32.annotation.SkipShopCheck;
 import jp.co.oda32.audit.AuditLog;
@@ -32,6 +34,14 @@ import java.util.List;
 public class TAccountsPayableSummaryService {
 
     private final TAccountsPayableSummaryRepository repository;
+
+    /**
+     * Codex Major #2 (2026-05-06): {@link #verify} で {@link FinancePayableLock} を取得する用。
+     * applyVerification (BULK) / applyMfOverride (MF_OVERRIDE) と同一 (shop, transaction_month) lock を
+     * 共有するため、advisory lock 発行用 EntityManager を直接保持する。
+     */
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Autowired
     public TAccountsPayableSummaryService(TAccountsPayableSummaryRepository repository) {
@@ -119,6 +129,11 @@ public class TAccountsPayableSummaryService {
     public TAccountsPayableSummary verify(
             int shopNo, int supplierNo, LocalDate transactionMonth, BigDecimal taxRate,
             BigDecimal verifiedAmount, String note) {
+        // Codex Major #2 (2026-05-06): BULK / MANUAL / MF_OVERRIDE の 3 書込経路で同一 advisory lock を取り、
+        // last-write-wins race を排除する。同一 (shop, transactionMonth) で applyVerification と
+        // applyMfOverride が同時に走ると、後着の verification_source が前者を上書きしてしまうため。
+        FinancePayableLock.acquire(entityManager, shopNo, transactionMonth);
+
         TAccountsPayableSummary summary = getByPK(shopNo, supplierNo, transactionMonth, taxRate);
         if (summary == null) {
             throw new IllegalArgumentException("対象の買掛金集計が見つかりません");

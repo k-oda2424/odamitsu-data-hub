@@ -24,6 +24,7 @@ import jp.co.oda32.dto.finance.paymentmf.PaymentMfPreviewResponse;
 import jp.co.oda32.dto.finance.paymentmf.PaymentMfPreviewRow;
 import jp.co.oda32.dto.finance.paymentmf.VerifiedExportPreviewResponse;
 import jp.co.oda32.exception.FinanceBusinessException;
+import jp.co.oda32.exception.FinanceInternalException;
 import lombok.Builder;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -114,11 +115,8 @@ public class PaymentMfImportService {
     private static final String XLSX_CONTENT_TYPE =
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-    /**
-     * 取引月単位の applyVerification / exportVerifiedCsv を直列化する advisory lock 用キー。
-     * shop_no と transaction_month(epochDay) を混ぜて 64bit のキーに詰める。
-     */
-    private static final int ADVISORY_LOCK_CLASS = 0x7041_4D46; // 'pAMF'
+    // 取引月単位の advisory lock キー計算 / 取得は {@link FinancePayableLock} に共通化
+    // (G2-M2 Codex Major #2)。3 経路 (BULK / MANUAL / MF_OVERRIDE) で同一 util を使う。
 
     // CSV 生成ロジックは {@link PaymentMfCsvWriter} に分離（ステートレスユーティリティ）。
 
@@ -227,16 +225,31 @@ public class PaymentMfImportService {
     }
 
     /**
-     * 旧 API 後方互換用 ({@code force=false} 固定で {@link #applyVerification(String, Integer, boolean)} を呼ぶ)。
+     * 旧 API 後方互換用 ({@code force=false} 固定で {@link #applyVerification(String, Integer, boolean, String)} を呼ぶ)。
      * <p>テスト・既存 batch 経路から既にこの 2 引数版が直接呼ばれているため、シグネチャは維持する。
      * 本メソッド経由でも force false 経路で per-supplier 1 円不一致は 422 ブロックとなる。
      *
-     * @deprecated G2-M2 (2026-05-06) 以降、新コードは {@link #applyVerification(String, Integer, boolean)}
-     *             を使い、{@code force} の意図を明示すること。
+     * @deprecated G2-M2 (2026-05-06) 以降、新コードは {@link #applyVerification(String, Integer, boolean, String)}
+     *             を使い、{@code force} の意図と承認理由を明示すること。
      */
     @Deprecated
     public VerifyResult applyVerification(String uploadId, Integer userNo) {
-        return applyVerification(uploadId, userNo, false);
+        return applyVerification(uploadId, userNo, false, null);
+    }
+
+    /**
+     * 旧 3-引数 API 後方互換用 (Codex Major #4 で {@code forceReason} を追加した 4 引数版を呼ぶ)。
+     * 既存テストと旧 client が 3 引数で呼んでいるため、シグネチャは維持する。
+     * <p>{@code force=true} で本オーバーロードを呼ぶと {@code forceReason} が無いため
+     * {@link FinanceBusinessException} (FORCE_REASON_REQUIRED) が投げられる点に注意。
+     *
+     * @deprecated G2-M4 fix (2026-05-06) 以降、新コードは
+     *             {@link #applyVerification(String, Integer, boolean, String)} を使い、
+     *             {@code force=true} 時は forceReason も渡すこと。
+     */
+    @Deprecated
+    public VerifyResult applyVerification(String uploadId, Integer userNo, boolean force) {
+        return applyVerification(uploadId, userNo, force, null);
     }
 
     /**
@@ -257,15 +270,32 @@ public class PaymentMfImportService {
      *       {@code finance_audit_log.reason} に {@code FORCE_APPLIED: per-supplier mismatches=...}
      *       で違反詳細を補足記録し、後追い監査を可能にする。</li>
      * </ul>
+     *
+     * <p>Codex Major #4 (2026-05-06): {@code forceReason} 必須化。
+     * <ul>
+     *   <li>{@code force=true} かつ {@code forceReason} が null / 空文字 →
+     *       {@link FinanceBusinessException} (FORCE_REASON_REQUIRED, 400) で拒否。</li>
+     *   <li>{@code force=false} の場合 {@code forceReason} は無視される。</li>
+     * </ul>
+     * 二段認可は実装スコープ過大のため運用 runbook (= 最低 2 名で内容確認) にて担保し、
+     * 実装は forceReason 必須化のみで「誰が」「なぜ」を audit に残せるようにする。
      */
     @Transactional
     @AuditLog(table = "t_accounts_payable_summary", operation = "payment_mf_apply",
             pkExpression = "{'uploadId': #a0, 'userNo': #a1, 'force': #a2}",
             captureArgsAsAfter = true, captureReturnAsAfter = true)
-    public VerifyResult applyVerification(String uploadId, Integer userNo, boolean force) {
+    public VerifyResult applyVerification(String uploadId, Integer userNo, boolean force, String forceReason) {
         CachedUpload cached = getCached(uploadId);
         if (cached.getTransferDate() == null) {
             throw new IllegalArgumentException("送金日が取得できていません。xlsxを再アップロードしてください");
+        }
+        // Codex Major #4: force=true 時の forceReason 必須化 (advisory lock 取得前に bail-out)。
+        // null / 空文字は不可。空白のみ ("   ") も拒否し、運用上意味のある理由を強制する。
+        if (force && (forceReason == null || forceReason.isBlank())) {
+            throw new FinanceBusinessException(
+                    "force=true 指定時は forceReason (承認理由) が必須です。"
+                            + "承認者・確認者・業務理由を含めて入力してください",
+                    FinanceConstants.ERROR_CODE_FORCE_REASON_REQUIRED);
         }
         LocalDate txMonth = deriveTransactionMonth(cached.getTransferDate());
         acquireAdvisoryLock(txMonth);
@@ -419,8 +449,9 @@ public class PaymentMfImportService {
         // 補足 audit 行を追加して reason に違反詳細を残す。
         // 既存 @AuditLog aspect が記録する after snapshot 行とは別 row として書く
         // (AOP 拡張せずに済む & 後で reason 列で grep できる)。
+        // Codex Major #4: forceReason (承認者・確認者・業務理由) も audit reason に含める。
         if (force && !mismatches.isEmpty()) {
-            writeForceAppliedAuditRow(uploadId, userNo, cached, txMonth, mismatches);
+            writeForceAppliedAuditRow(uploadId, userNo, cached, txMonth, mismatches, forceReason);
         }
 
         return VerifyResult.builder()
@@ -437,19 +468,22 @@ public class PaymentMfImportService {
 
     /**
      * G2-M2 (2026-05-06): {@code force=true} で per-supplier 1 円違反を許容して反映した時の補足 audit 行。
-     * <p>{@link FinanceAuditWriter#write} を直接呼んで {@code reason} 列に
-     * {@code "FORCE_APPLIED: per-supplier mismatches count=N, details=[...]"} を記録する。
-     * 詳細リストは長くなりすぎないよう先頭 {@link #FORCE_AUDIT_MISMATCH_DETAIL_LIMIT} 件のみ。
+     * <p>{@link FinanceAuditWriter#write} を直接呼んで {@code reason} 列に件数 + 先頭
+     * {@link #FORCE_AUDIT_MISMATCH_DETAIL_LIMIT} 件の詳細サマリを記録する (容量配慮)。
+     * Codex Major #3 (2026-05-06): {@code force_mismatch_details} JSONB 列 (V043) に
+     * <b>全件</b>を構造化保存し、reason との乖離を防ぐ。
+     * <p>Codex Major #4 (2026-05-06): {@code forceReason} (承認者・確認者・業務理由) を reason 末尾に
+     * {@code reason="..."} 形式で連結する。null の場合は付加しない (旧 client 互換用、3 引数 deprecated 経路)。
      * <p>writer Bean が無い (test 環境など) や書込み失敗は本体反映を巻き戻さない (warn ログのみ)。
      */
     private void writeForceAppliedAuditRow(String uploadId, Integer userNo, CachedUpload cached,
-                                           LocalDate txMonth, List<String> mismatches) {
+                                           LocalDate txMonth, List<String> mismatches, String forceReason) {
         if (financeAuditWriter == null) {
             log.warn("FinanceAuditWriter Bean 不在のため force=true 補足 audit を skip: uploadId={}", uploadId);
             return;
         }
         try {
-            String reason = buildForceAppliedReason(mismatches);
+            String reason = buildForceAppliedReason(mismatches, forceReason);
             ObjectMapper mapper = new ObjectMapper();
             com.fasterxml.jackson.databind.JsonNode pk = mapper.createObjectNode()
                     .put("uploadId", uploadId)
@@ -459,6 +493,11 @@ public class PaymentMfImportService {
                             : cached.getTransferDate().toString())
                     .put("transactionMonth", txMonth == null ? null : txMonth.toString())
                     .put("fileName", cached.getFileName());
+            // Codex Major #3: 全件を JSONB 列に構造化保存 (reason 50 件切り詰めとの乖離防止)。
+            com.fasterxml.jackson.databind.node.ArrayNode detailsArr = mapper.createArrayNode();
+            for (String m : mismatches) {
+                detailsArr.add(mapper.createObjectNode().put("line", m));
+            }
             financeAuditWriter.write(
                     "t_accounts_payable_summary",
                     "payment_mf_apply_force",
@@ -469,7 +508,8 @@ public class PaymentMfImportService {
                     null,
                     reason,
                     null,
-                    null);
+                    null,
+                    detailsArr);
             log.warn("payment_mf_apply force=true で per-supplier 不一致 {} 件を許容: uploadId={} txMonth={}",
                     mismatches.size(), uploadId, txMonth);
         } catch (Exception ex) {
@@ -479,26 +519,46 @@ public class PaymentMfImportService {
     }
 
     /**
-     * G2-M2: 補足 audit 行の {@code reason} 文字列を組み立てる。
-     * <p>形式: {@code "FORCE_APPLIED: per-supplier mismatches count=N, details=[item1, item2, ...]"}
-     * <p>{@link #FORCE_AUDIT_MISMATCH_DETAIL_LIMIT} 件超過時は {@code "...(+M more)"} で打ち切り。
+     * G2-M2: 補足 audit 行の {@code reason} 文字列を組み立てる (旧 1 引数版、後方互換用)。
+     * <p>新規コードは {@link #buildForceAppliedReason(List, String)} で forceReason も渡すこと。
+     * @deprecated Codex Major #4 (2026-05-06) 以降。
      */
+    @Deprecated
     static String buildForceAppliedReason(List<String> mismatches) {
-        if (mismatches == null || mismatches.isEmpty()) {
-            return "FORCE_APPLIED: per-supplier mismatches count=0";
+        return buildForceAppliedReason(mismatches, null);
+    }
+
+    /**
+     * G2-M2: 補足 audit 行の {@code reason} 文字列を組み立てる。
+     * <p>形式 (forceReason あり): {@code "FORCE_APPLIED: per-supplier mismatches count=N, details=[...], reason=\"...\""}
+     * <p>形式 (forceReason なし): {@code "FORCE_APPLIED: per-supplier mismatches count=N, details=[...]"}
+     * <p>{@link #FORCE_AUDIT_MISMATCH_DETAIL_LIMIT} 件超過時は {@code "...(+M more)"} で打ち切り。
+     * 全件は別途 {@code finance_audit_log.force_mismatch_details} JSONB 列に保存される (V043, Codex Major #3)。
+     * <p>Codex Major #4 (2026-05-06): {@code forceReason} (承認者・確認者・業務理由) を末尾に追記。
+     * null / 空文字なら省略 (旧 deprecated 経路互換)。
+     */
+    static String buildForceAppliedReason(List<String> mismatches, String forceReason) {
+        StringBuilder sb = new StringBuilder("FORCE_APPLIED: per-supplier mismatches count=");
+        int total = mismatches == null ? 0 : mismatches.size();
+        sb.append(total);
+        if (total > 0) {
+            int show = Math.min(total, FORCE_AUDIT_MISMATCH_DETAIL_LIMIT);
+            sb.append(", details=[");
+            for (int i = 0; i < show; i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(mismatches.get(i));
+            }
+            if (total > show) {
+                sb.append(", ...(+").append(total - show).append(" more)");
+            }
+            sb.append(']');
         }
-        int total = mismatches.size();
-        int show = Math.min(total, FORCE_AUDIT_MISMATCH_DETAIL_LIMIT);
-        StringBuilder sb = new StringBuilder("FORCE_APPLIED: per-supplier mismatches count=")
-                .append(total).append(", details=[");
-        for (int i = 0; i < show; i++) {
-            if (i > 0) sb.append(", ");
-            sb.append(mismatches.get(i));
+        if (forceReason != null && !forceReason.isBlank()) {
+            // 二重引用符の入れ子を避けるため、value 側の " は ' に置換。改行は半角スペースに正規化
+            // (audit log の grep 安定化)。
+            String sanitized = forceReason.replace('"', '\'').replace('\n', ' ').replace('\r', ' ');
+            sb.append(", reason=\"").append(sanitized).append('"');
         }
-        if (total > show) {
-            sb.append(", ...(+").append(total - show).append(" more)");
-        }
-        sb.append(']');
         return sb.toString();
     }
 
@@ -556,13 +616,15 @@ public class PaymentMfImportService {
      * 同一 (shop_no, transaction_month) に対する applyVerification / exportVerifiedCsv を
      * 直列化する。PostgreSQL の {@code pg_advisory_xact_lock} は現在のトランザクション終了時に
      * 自動解放されるため、解放漏れリスクが無い。
+     *
+     * <p>G2-M2 (Codex Major #2, 2026-05-06): キー計算と native query 発行を {@link FinancePayableLock}
+     * に切り出し、{@link TAccountsPayableSummaryService#verify} / {@link ConsistencyReviewService#applyMfOverride}
+     * の 3 書込経路で同一 lock を取れるようにした。shop_no は {@link FinanceConstants#ACCOUNTS_PAYABLE_SHOP_NO}
+     * 固定 (買掛金管理は shop=1 のみ運用)。
      */
     private void acquireAdvisoryLock(LocalDate transactionMonth) {
-        long lockKey = ((long) ADVISORY_LOCK_CLASS << 32)
-                | (transactionMonth.toEpochDay() & 0xFFFF_FFFFL);
-        entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(:k)")
-                .setParameter("k", lockKey)
-                .getSingleResult();
+        FinancePayableLock.acquire(entityManager,
+                FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO, transactionMonth);
     }
 
     /**
@@ -689,8 +751,9 @@ public class PaymentMfImportService {
      * <ul>
      *   <li><b>全行 BULK_VERIFICATION</b>: 振込明細一括検証で全税率行に同値の集約値が冗長保持されるため、
      *       代表 1 行の値を採用する (SUM すると件数倍の重複になる)。
-     *       不変条件として全行同値のはずだが、念のため per-row 値を比較し、不一致なら WARN ログ +
-     *       SUM フォールバック (DB 直接 UPDATE などの異常検知)。</li>
+     *       不変条件として全行同値のはずだが、念のため per-row 値を比較し、不一致なら
+     *       <b>{@link FinanceInternalException} を throw して fail-closed</b> する
+     *       (Codex Critical #1, 2026-05-06)。</li>
      *   <li><b>1 行でも MANUAL_VERIFICATION / MF_OVERRIDE / NULL が混在</b>: 税率別に異なる値が入りうるため SUM。
      *       MANUAL は単一 PK 更新、MF_OVERRIDE は税率別按分で書込まれているため、SUM が正しい集約値となる。</li>
      * </ul>
@@ -698,6 +761,12 @@ public class PaymentMfImportService {
      * (a) MANUAL で偶然全行同値の場合に過少計上、(b) BULK 後の単行修正で過大計上のリスクがあった。
      * V040 で書込経路を {@code verification_source} 列に明示記録する運用に切替。
      * <p>verifiedAmount が null の行は taxIncludedAmountChange にフォールバック。
+     *
+     * <p><b>Codex Critical #1 (2026-05-06)</b>: 旧版は BULK 不一致時に WARN ログ + SUM フォールバックとして
+     * いたが、SUM すると税率行数分に金額が膨らむ (= 過大計上で MF CSV に流出) ため、運用上は隔離すべき
+     * 異常として {@link FinanceInternalException} を throw する。client には 422 で「内部エラー」を返し、
+     * admin が DB 状態を点検 + 修復するまで CSV 生成を停止させる。
+     * 関連 runbook: {@code claudedocs/runbook-payment-mf-bulk-invariant-violation.md}
      */
     private static long sumVerifiedAmountForGroup(List<TAccountsPayableSummary> group) {
         if (group.isEmpty()) return 0L;
@@ -721,11 +790,15 @@ public class PaymentMfImportService {
                 return first;
             }
             // 異常: BULK_VERIFICATION の不変条件 (全行同値) が崩れている。
-            // DB 直接 UPDATE 等の運用異常を検知し、過大化警戒として SUM フォールバック。
-            log.warn("BULK_VERIFICATION 不変条件違反: 同 (shop, supplier, txMonth) で verified_amount 不一致"
-                    + " supplier_no={} txMonth={} perRow={}",
-                    group.get(0).getSupplierNo(), group.get(0).getTransactionMonth(), perRow);
-            return perRow.stream().mapToLong(Long::longValue).sum();
+            // 旧版は SUM フォールバックしていたが、SUM は税率行数分の過大計上になり MF CSV 出力に流出するため、
+            // Codex Critical #1 (2026-05-06) で fail-closed (例外 throw) に変更。
+            // FinanceInternalException → FinanceExceptionHandler が 422 + 汎用メッセージで応答し、
+            // CSV 生成 / verified export を停止させる。admin は runbook に従い DB 状態を点検して修復する。
+            Integer supplierNo = group.get(0).getSupplierNo();
+            LocalDate txMonth = group.get(0).getTransactionMonth();
+            throw new FinanceInternalException(
+                    "BULK_VERIFICATION 不変条件違反 (全税率行同値想定だが不一致): supplier_no="
+                            + supplierNo + " txMonth=" + txMonth + " perRow=" + perRow);
         }
 
         // MANUAL / MF_OVERRIDE / NULL 混在: 税率別 SUM (本来の集約値)
@@ -1289,12 +1362,27 @@ public class PaymentMfImportService {
                     // 税理士確認後に admin が UI から値を変更可能。
                     // V041 seed では従来ハードコード値 (仕入値引・戻し高 / 物販事業部 /
                     // 課税仕入-返還等 10%) と同一の値を投入しているため migration 適用直後は挙動不変。
+                    //
+                    // Codex Major fix: マスタ欠落 (将来 shop_no=2 追加 / admin UI で誤って論理削除)
+                    // による preview/apply ブロックを防ぐため、orElseThrow ではなく hardcoded default で
+                    // フォールバック (= V041 seed と同値) し、WARN ログで運用者に通知する。
+                    // 二段防御として MOffsetJournalRuleService.delete() で「最後の active 行」削除を禁止する。
                     MOffsetJournalRule offsetRule = offsetJournalRuleRepository
                             .findByShopNoAndDelFlg(FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO, "0")
-                            .orElseThrow(() -> new IllegalStateException(
-                                    "m_offset_journal_rule の shop_no="
-                                            + FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO
-                                            + " (active) 行が未登録です"));
+                            .orElseGet(() -> {
+                                log.warn("m_offset_journal_rule の shop_no={} (active) 行が未登録のため"
+                                        + " hardcoded default (V041 seed と同値) で fallback します。"
+                                        + " admin UI から正規行を再投入してください。",
+                                        FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO);
+                                return MOffsetJournalRule.builder()
+                                        .shopNo(FinanceConstants.ACCOUNTS_PAYABLE_SHOP_NO)
+                                        .creditAccount("仕入値引・戻し高")
+                                        .creditDepartment("物販事業部")
+                                        .creditTaxCategory("課税仕入-返還等 10%")
+                                        .summaryPrefix("相殺／")
+                                        .delFlg("0")
+                                        .build();
+                            });
                     rows.add(buildAttributeSubRow(rule, e, offsetKind, offsetAmt,
                             offsetRule.getCreditAccount(),
                             offsetRule.getCreditDepartment(),

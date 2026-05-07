@@ -1,5 +1,7 @@
 package jp.co.oda32.domain.service.finance;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jp.co.oda32.audit.AuditLog;
 import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.embeddable.TConsistencyReviewPK;
@@ -54,11 +56,25 @@ public class ConsistencyReviewService {
     private final TAccountsPayableSummaryRepository summaryRepository;
     private final LoginUserRepository loginUserRepository;
 
+    /**
+     * Codex Major #2 (2026-05-06): {@link #applyMfOverride} / {@link #rollbackVerifiedAmounts} で
+     * {@link FinancePayableLock} を取得する用。BULK / MANUAL / MF_OVERRIDE の 3 経路で
+     * 同一 (shop, transaction_month) lock を共有する。
+     */
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @AuditLog(table = "t_consistency_review", operation = "upsert",
             pkExpression = "{'shopNo': #a0.shopNo, 'entryType': #a0.entryType, 'entryKey': #a0.entryKey, 'transactionMonth': #a0.transactionMonth}",
             captureArgsAsAfter = true)
     public ConsistencyReviewResponse upsert(ConsistencyReviewRequest req, Integer userNo) {
         validateRequest(req);
+
+        // Codex Major #2 (2026-05-06): BULK / MANUAL / MF_OVERRIDE の 3 書込経路で同一 advisory lock を取り、
+        // last-write-wins race を排除する。upsert 内で rollback (= 副作用剥がし) と
+        // applyMfOverride (= MF_OVERRIDE 書込) を順に行うため、最初にまとめて lock を取る。
+        // shopNo / transactionMonth は req から取れるため、ここで取得して保存処理全体を直列化する。
+        FinancePayableLock.acquire(entityManager, req.getShopNo(), req.getTransactionMonth());
 
         TConsistencyReviewPK pk = new TConsistencyReviewPK(
                 req.getShopNo(), req.getEntryType(), req.getEntryKey(), req.getTransactionMonth());
@@ -102,6 +118,10 @@ public class ConsistencyReviewService {
             pkExpression = "{'shopNo': #a0, 'entryType': #a1, 'entryKey': #a2, 'transactionMonth': #a3}",
             captureArgsAsAfter = true)
     public void delete(Integer shopNo, String entryType, String entryKey, LocalDate transactionMonth) {
+        // Codex Major #2 (2026-05-06): rollbackVerifiedAmounts も MF_OVERRIDE 経路の書込なので
+        // 同一 advisory lock を取得する。
+        FinancePayableLock.acquire(entityManager, shopNo, transactionMonth);
+
         TConsistencyReviewPK pk = new TConsistencyReviewPK(shopNo, entryType, entryKey, transactionMonth);
         Optional<TConsistencyReview> existing = reviewRepository.findById(pk);
         if (existing.isEmpty()) return;

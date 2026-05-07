@@ -204,6 +204,21 @@ public class SupplierBalancesService {
         rows.sort((a, b) -> b.getDiff().abs().compareTo(a.getDiff().abs()));
         Summary summary = buildSummary(rows);
 
+        // Codex Major fix (P1-02): m_supplier_opening_balance が空のときは silent に
+        // 累積残が誤値 (期首残 0) になるため、明示警告を response に含める。
+        // 行数判定 (isOpeningBalanceLoaded) は signum 関係なく行の有無で判定し、
+        // 「未投入」と「全 0 で投入済」を区別する。
+        boolean openingMissing = !openingBalanceService.isOpeningBalanceLoaded(
+                shopNo, MfPeriodConstants.SELF_BACKFILL_START);
+        String openingWarning = openingMissing
+                ? "MF 期首残 (m_supplier_opening_balance) が未投入です。初回運用では"
+                        + " /finance/supplier-opening-balance/mf-fetch を先に実行してください。"
+                        + "現状の累積残は期首残 0 で計算されているため、累積差は信頼できません。"
+                : null;
+        if (openingMissing) {
+            log.warn("[supplier-balances] shopNo={} opening 未投入: 累積残は期首残 0 で計算されました", shopNo);
+        }
+
         return SupplierBalancesResponse.builder()
                 .shopNo(shopNo)
                 .asOfMonth(resolvedMonth)
@@ -212,6 +227,8 @@ public class SupplierBalancesService {
                 .totalJournalCount(allJournals.size())
                 .rows(rows)
                 .summary(summary)
+                .openingBalanceMissing(openingMissing)
+                .openingBalanceWarning(openingWarning)
                 .build();
     }
 
@@ -370,6 +387,10 @@ public class SupplierBalancesService {
     }
 
     private SupplierBalancesResponse emptyResponse(Integer shopNo) {
+        // Codex Major fix (P1-02): self summary が 1 件もない場合でも
+        // opening 未投入なら警告を表示する (= 完全な初回起動状態の検出)。
+        boolean openingMissing = !openingBalanceService.isOpeningBalanceLoaded(
+                shopNo, MfPeriodConstants.SELF_BACKFILL_START);
         return SupplierBalancesResponse.builder()
                 .shopNo(shopNo)
                 .asOfMonth(null)
@@ -384,6 +405,11 @@ public class SupplierBalancesService {
                         .totalMfBalance(BigDecimal.ZERO)
                         .totalDiff(BigDecimal.ZERO)
                         .build())
+                .openingBalanceMissing(openingMissing)
+                .openingBalanceWarning(openingMissing
+                        ? "MF 期首残 (m_supplier_opening_balance) が未投入です。"
+                                + "初回運用では /finance/supplier-opening-balance/mf-fetch を先に実行してください。"
+                        : null)
                 .build();
     }
 

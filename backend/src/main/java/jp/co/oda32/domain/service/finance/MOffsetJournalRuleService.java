@@ -5,6 +5,7 @@ import jp.co.oda32.domain.model.finance.MOffsetJournalRule;
 import jp.co.oda32.domain.repository.finance.MOffsetJournalRuleRepository;
 import jp.co.oda32.domain.service.util.LoginUserUtil;
 import jp.co.oda32.dto.finance.OffsetJournalRuleRequest;
+import jp.co.oda32.exception.FinanceBusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -94,6 +95,20 @@ public class MOffsetJournalRuleService {
     public void delete(Integer id) {
         MOffsetJournalRule e = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("OFFSET 仕訳マスタが見つかりません: id=" + id));
+        // Codex Major fix: 二段防御の (b) 削除制約。
+        // shop_no 単位で最後の active 行を削除すると PaymentMfImportService の OFFSET 副行生成で
+        // hardcoded default fallback に強制される (= 業務的に「税理士確認反映なし」状態に逆戻り)。
+        // active 行が消えるリスクを admin UI 側で防ぐ。
+        // 既に del_flg='1' の zombie 行を再削除した場合はスキップ (idempotent 動作維持)。
+        if ("0".equals(e.getDelFlg())) {
+            long activeCount = repository.countByShopNoAndDelFlg(e.getShopNo(), "0");
+            if (activeCount <= 1L) {
+                throw new FinanceBusinessException(
+                        "shop_no=" + e.getShopNo() + " の最後の active 行は削除できません。"
+                                + "別の active 行を作成してから削除してください。",
+                        "OFFSET_RULE_LAST_ACTIVE");
+            }
+        }
         e.setDelFlg("1");
         e.setModifyDateTime(LocalDateTime.now());
         e.setModifyUserNo(currentUserNo());

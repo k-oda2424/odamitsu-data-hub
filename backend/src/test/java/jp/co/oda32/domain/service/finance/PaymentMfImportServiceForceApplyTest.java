@@ -131,26 +131,28 @@ class PaymentMfImportServiceForceApplyTest {
         String uploadId = uploadFixture("振込み明細08-2-5.xlsx");
 
         PaymentMfImportService.VerifyResult result =
-                service.applyVerification(uploadId, 1, false);
+                service.applyVerification(uploadId, 1, false, null);
 
         assertThat(result).isNotNull();
         assertThat(result.getTransferDate()).isNotNull();
         // 補足 audit 行は書かれない (mismatch 空のため)
+        // Codex Major #3 (2026-05-06): write は 11 引数版 (force_mismatch_details JSONB) に変更されたため、検証もそれに合わせる。
         verify(financeAuditWriter, never()).write(
-                anyString(), anyString(), any(), anyString(), any(), any(), any(), anyString(), any(), any());
+                anyString(), anyString(), any(), anyString(), any(), any(), any(), anyString(), any(), any(), any());
     }
 
     @Test
     void mismatch空_force_true_でも通常成功_補足audit行は書かれない() throws Exception {
         String uploadId = uploadFixture("振込み明細08-2-5.xlsx");
 
+        // Codex Major #4: force=true 時は forceReason 必須。
         PaymentMfImportService.VerifyResult result =
-                service.applyVerification(uploadId, 1, true);
+                service.applyVerification(uploadId, 1, true, "承認: yamada, 確認: tanaka, 理由: テスト");
 
         assertThat(result).isNotNull();
         // mismatch が無いので force=true でも補足 audit 行は書かれない
         verify(financeAuditWriter, never()).write(
-                anyString(), anyString(), any(), anyString(), any(), any(), any(), anyString(), any(), any());
+                anyString(), anyString(), any(), anyString(), any(), any(), any(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -164,7 +166,7 @@ class PaymentMfImportServiceForceApplyTest {
         );
         doReturn(fakeMismatches).when(service).perSupplierMismatchesOf(any());
 
-        assertThatThrownBy(() -> service.applyVerification(uploadId, 1, false))
+        assertThatThrownBy(() -> service.applyVerification(uploadId, 1, false, null))
                 .isInstanceOf(FinanceBusinessException.class)
                 .hasMessageContaining("per-supplier 1 円整合性違反 2 件")
                 .satisfies(ex -> {
@@ -177,7 +179,7 @@ class PaymentMfImportServiceForceApplyTest {
         verify(auxRowRepository, never()).saveAll(any());
         // 補足 audit も書かれない (force=false でブロックしたため)
         verify(financeAuditWriter, never()).write(
-                anyString(), anyString(), any(), anyString(), any(), any(), any(), anyString(), any(), any());
+                anyString(), anyString(), any(), anyString(), any(), any(), any(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -191,15 +193,19 @@ class PaymentMfImportServiceForceApplyTest {
         );
         doReturn(fakeMismatches).when(service).perSupplierMismatchesOf(any());
 
+        // Codex Major #4: forceReason 必須化済 (承認者・確認者・業務理由)
+        String forceReason = "承認: yamada, 確認: tanaka, 理由: 仕入先 X 側請求書遅延、振込済";
         PaymentMfImportService.VerifyResult result =
-                service.applyVerification(uploadId, 42, true);
+                service.applyVerification(uploadId, 42, true, forceReason);
 
         assertThat(result).isNotNull();
 
-        // 補足 audit 行が書かれることを検証
+        // 補足 audit 行が書かれることを検証 (11 引数版: 末尾 force_mismatch_details JSONB)
         ArgumentCaptor<String> reasonCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> tableCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> opCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> detailsCaptor =
+                ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
         verify(financeAuditWriter, atLeastOnce()).write(
                 tableCaptor.capture(),
                 opCaptor.capture(),
@@ -210,19 +216,78 @@ class PaymentMfImportServiceForceApplyTest {
                 isNull(),
                 reasonCaptor.capture(),
                 isNull(),
-                isNull());
+                isNull(),
+                detailsCaptor.capture());
 
         // ターゲットテーブルと operation
         assertThat(tableCaptor.getValue()).isEqualTo("t_accounts_payable_summary");
         assertThat(opCaptor.getValue()).isEqualTo("payment_mf_apply_force");
 
-        // reason に違反件数と詳細が含まれること
+        // reason に違反件数 + forceReason が含まれること (50 件以下なので詳細サマリも入る)
         String reason = reasonCaptor.getValue();
         assertThat(reason)
                 .contains("FORCE_APPLIED: per-supplier mismatches count=3")
                 .contains("supplier=10001")
                 .contains("supplier=10002")
-                .contains("supplier=20003");
+                .contains("supplier=20003")
+                // Codex Major #4: forceReason が reason に追記される
+                .contains("reason=\"" + forceReason + "\"");
+
+        // Codex Major #3: force_mismatch_details JSONB に全件保存
+        com.fasterxml.jackson.databind.JsonNode details = detailsCaptor.getValue();
+        assertThat(details).isNotNull();
+        assertThat(details.isArray()).isTrue();
+        assertThat(details.size()).isEqualTo(3);
+        // 1 件目の line に supplier=10001 が含まれる
+        assertThat(details.get(0).get("line").asText()).contains("supplier=10001");
+        assertThat(details.get(2).get("line").asText()).contains("supplier=20003");
+    }
+
+    /**
+     * Codex Major #4 (2026-05-06): force=true 時 forceReason 必須化。
+     * <p>null / 空文字 / 空白のみは 400 拒否。
+     */
+    @Test
+    void force_true_で_forceReason_未指定_は400_FORCE_REASON_REQUIRED() throws Exception {
+        String uploadId = uploadFixture("振込み明細08-2-5.xlsx");
+
+        // null
+        assertThatThrownBy(() -> service.applyVerification(uploadId, 1, true, null))
+                .isInstanceOf(FinanceBusinessException.class)
+                .hasMessageContaining("forceReason (承認理由) が必須")
+                .satisfies(ex -> assertEquals(FinanceConstants.ERROR_CODE_FORCE_REASON_REQUIRED,
+                        ((FinanceBusinessException) ex).getErrorCode()));
+
+        // 空文字
+        assertThatThrownBy(() -> service.applyVerification(uploadId, 1, true, ""))
+                .isInstanceOf(FinanceBusinessException.class)
+                .satisfies(ex -> assertEquals(FinanceConstants.ERROR_CODE_FORCE_REASON_REQUIRED,
+                        ((FinanceBusinessException) ex).getErrorCode()));
+
+        // 空白のみ
+        assertThatThrownBy(() -> service.applyVerification(uploadId, 1, true, "   "))
+                .isInstanceOf(FinanceBusinessException.class)
+                .satisfies(ex -> assertEquals(FinanceConstants.ERROR_CODE_FORCE_REASON_REQUIRED,
+                        ((FinanceBusinessException) ex).getErrorCode()));
+
+        // バリデーションは advisory lock 取得前に行うため、payableService.save は呼ばれない
+        verify(payableService, never()).save(any());
+    }
+
+    /**
+     * Codex Major #4: force=false なら forceReason は無視されてエラーにならない。
+     */
+    @Test
+    void force_false_なら_forceReason_は無視される() throws Exception {
+        String uploadId = uploadFixture("振込み明細08-2-5.xlsx");
+
+        // forceReason=null でも空文字でも、force=false なら通常成功
+        PaymentMfImportService.VerifyResult result =
+                service.applyVerification(uploadId, 1, false, null);
+        assertThat(result).isNotNull();
+
+        result = service.applyVerification(uploadId, 1, false, "");
+        assertThat(result).isNotNull();
     }
 
     // ============================================================

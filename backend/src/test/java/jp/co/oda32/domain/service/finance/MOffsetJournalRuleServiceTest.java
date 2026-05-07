@@ -3,6 +3,7 @@ package jp.co.oda32.domain.service.finance;
 import jp.co.oda32.domain.model.finance.MOffsetJournalRule;
 import jp.co.oda32.domain.repository.finance.MOffsetJournalRuleRepository;
 import jp.co.oda32.dto.finance.OffsetJournalRuleRequest;
+import jp.co.oda32.exception.FinanceBusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -138,6 +139,8 @@ class MOffsetJournalRuleServiceTest {
     void delete_論理削除でdel_flg_1() {
         MOffsetJournalRule existing = sampleEntity();
         when(repository.findById(1)).thenReturn(Optional.of(existing));
+        // active 行が 2 件以上あるので削除 OK
+        when(repository.countByShopNoAndDelFlg(1, "0")).thenReturn(2L);
         when(repository.save(any(MOffsetJournalRule.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.delete(1);
@@ -152,5 +155,35 @@ class MOffsetJournalRuleServiceTest {
         when(repository.findById(99)).thenReturn(Optional.empty());
 
         assertThrows(IllegalArgumentException.class, () -> service.delete(99));
+    }
+
+    @Test
+    void delete_最後のactive行は削除禁止() {
+        // Codex Major fix: shop_no 単位で active 行が 1 件しか残っていないとき、
+        // それを削除すると PaymentMfImportService の OFFSET 副行が hardcoded default fallback
+        // に強制される (= 税理士確認反映が失われる)。FinanceBusinessException で防止する。
+        MOffsetJournalRule existing = sampleEntity();
+        when(repository.findById(1)).thenReturn(Optional.of(existing));
+        when(repository.countByShopNoAndDelFlg(1, "0")).thenReturn(1L);
+
+        FinanceBusinessException ex = assertThrows(FinanceBusinessException.class,
+                () -> service.delete(1));
+        assertEquals("OFFSET_RULE_LAST_ACTIVE", ex.getErrorCode());
+        // 削除がブロックされたので save は呼ばれない
+        verify(repository, org.mockito.Mockito.never()).save(any(MOffsetJournalRule.class));
+    }
+
+    @Test
+    void delete_既にdel_flg_1の行は二重削除でも例外にならない() {
+        // idempotent 動作維持: 既に論理削除済の行は activeCount 判定をスキップする。
+        MOffsetJournalRule zombie = sampleEntity();
+        zombie.setDelFlg("1");
+        when(repository.findById(1)).thenReturn(Optional.of(zombie));
+        when(repository.save(any(MOffsetJournalRule.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // count を呼ばずに通過することを確認
+        service.delete(1);
+        verify(repository, org.mockito.Mockito.never()).countByShopNoAndDelFlg(any(), any());
+        verify(repository).save(any(MOffsetJournalRule.class));
     }
 }

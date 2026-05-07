@@ -2,12 +2,15 @@ package jp.co.oda32.domain.service.finance;
 
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import jp.co.oda32.constant.FinanceConstants;
 import jp.co.oda32.domain.model.finance.TAccountsPayableSummary;
+import jp.co.oda32.exception.FinanceInternalException;
 
 /**
  * P1-09 案 D / G2-M1 (V040, 2026-05-06): verified_amount 集計の経路別挙動テスト。
@@ -37,20 +40,29 @@ class PaymentMfImportServiceVerifiedAmountTest {
         assertThat(result).isEqualTo(1_000_000L);
     }
 
+    /**
+     * Codex Critical #1 (2026-05-06): 旧版は WARN ログ + SUM フォールバックだったが、
+     * SUM すると税率行数分の過大計上で MF CSV に流出するリスクがあるため、fail-closed (例外 throw) に変更。
+     */
     @Test
-    void 全行BULK_不一致時_SUMフォールバック_過大計上検知用() {
+    void 全行BULK_不一致時_FinanceInternalException_throw_fail_closed() {
         // 不変条件違反: 全行 BULK だが 1 行だけ手動 SQL UPDATE 等で異なる値
-        List<TAccountsPayableSummary> group = List.of(
-            buildBulkRow(BigDecimal.valueOf(10), BigDecimal.valueOf(1_000_000)),
-            buildBulkRow(BigDecimal.valueOf(8),  BigDecimal.valueOf(500_000)),  // ← 不正
-            buildBulkRow(BigDecimal.valueOf(8),  BigDecimal.valueOf(1_000_000))
-        );
+        TAccountsPayableSummary r1 = buildBulkRow(BigDecimal.valueOf(10), BigDecimal.valueOf(1_000_000));
+        r1.setSupplierNo(12345);
+        r1.setTransactionMonth(LocalDate.of(2026, 1, 20));
+        TAccountsPayableSummary r2 = buildBulkRow(BigDecimal.valueOf(8),  BigDecimal.valueOf(500_000));  // ← 不正
+        r2.setSupplierNo(12345);
+        r2.setTransactionMonth(LocalDate.of(2026, 1, 20));
+        TAccountsPayableSummary r3 = buildBulkRow(BigDecimal.valueOf(8),  BigDecimal.valueOf(1_000_000));
+        r3.setSupplierNo(12345);
+        r3.setTransactionMonth(LocalDate.of(2026, 1, 20));
+        List<TAccountsPayableSummary> group = List.of(r1, r2, r3);
 
-        long result = PaymentMfImportService.sumVerifiedAmountForGroupForTest(group);
-
-        // 全行 BULK + 不一致 → WARN + SUM フォールバック (= 2,500,000)
-        // これは「BULK 不変条件が崩れた」検知用の安全側挙動。
-        assertThat(result).isEqualTo(2_500_000L);
+        // 全行 BULK + 不一致 → 422 + 業務継続停止 (admin 修復が必要)
+        assertThatThrownBy(() -> PaymentMfImportService.sumVerifiedAmountForGroupForTest(group))
+                .isInstanceOf(FinanceInternalException.class)
+                .hasMessageContaining("BULK_VERIFICATION 不変条件違反")
+                .hasMessageContaining("supplier_no=12345");
     }
 
     @Test
