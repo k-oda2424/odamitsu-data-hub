@@ -36,9 +36,9 @@ public class MPartnerGroupService {
     }
 
     public MPartnerGroup findById(Integer id) {
-        return repository.findById(id)
-                .filter(g -> "0".equals(g.getDelFlg()))
-                .orElse(null);
+        // SF-19: partnerCodes (@ElementCollection LAZY) を JOIN FETCH で eager 取得し、
+        // 呼び出し元 (TOrderDetailService 等) の Service-layer から LazyInitializationException を防ぐ。
+        return repository.findActiveByIdFetchMembers(id).orElse(null);
     }
 
     @Transactional

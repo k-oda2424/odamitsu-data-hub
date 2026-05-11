@@ -47,6 +47,7 @@ public class OrderController {
             @RequestParam Integer shopNo,
             @RequestParam(required = false) Integer companyNo,
             @RequestParam(required = false) Integer partnerNo,
+            @RequestParam(required = false) Integer partnerGroupId,
             @RequestParam(required = false) String slipNo,
             @RequestParam(required = false) String goodsName,
             @RequestParam(required = false) String goodsCode,
@@ -57,10 +58,11 @@ public class OrderController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate slipDateTo,
             @PageableDefault(size = 50, sort = "tOrder.orderDateTime", direction = Sort.Direction.DESC) Pageable pageable) {
         Integer effectiveShopNo = LoginUserUtil.resolveEffectiveShopNo(shopNo);
-        log.info("受注一覧検索: shopNo={}, partnerNo={}, companyNo={}, goodsName={}, page={}", effectiveShopNo, partnerNo, companyNo, goodsName, pageable.getPageNumber());
+        log.info("受注一覧検索: shopNo={}, partnerNo={}, partnerGroupId={}, companyNo={}, goodsName={}, page={}",
+                effectiveShopNo, partnerNo, partnerGroupId, companyNo, goodsName, pageable.getPageNumber());
         String[] statusArray = orderDetailStatus != null ? new String[]{orderDetailStatus} : null;
         Page<TOrderDetail> page = tOrderDetailService.searchForListPaged(
-                effectiveShopNo, companyNo, partnerNo, slipNo, goodsName, goodsCode,
+                effectiveShopNo, companyNo, partnerNo, partnerGroupId, slipNo, goodsName, goodsCode,
                 statusArray, orderDateTimeFrom, orderDateTimeTo, slipDateFrom, slipDateTo, Flag.NO, pageable);
         return ResponseEntity.ok(page.map(OrderDetailResponse::from));
     }

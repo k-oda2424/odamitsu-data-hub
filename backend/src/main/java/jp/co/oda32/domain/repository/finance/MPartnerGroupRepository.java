@@ -7,9 +7,20 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface MPartnerGroupRepository extends JpaRepository<MPartnerGroup, Integer> {
+
+    /**
+     * partnerGroupId 単体で active group を取得（partnerCodes を JOIN FETCH）。
+     * 受注一覧グループ検索で Service 層から LazyInitializationException なく partnerCodes を取得するため使用。
+     */
+    @Query("SELECT DISTINCT g FROM MPartnerGroup g "
+            + "LEFT JOIN FETCH g.partnerCodes "
+            + "WHERE g.partnerGroupId = :id AND g.delFlg = '0'")
+    Optional<MPartnerGroup> findActiveByIdFetchMembers(@Param("id") Integer id);
+
 
     /**
      * ショップ単位で active group を取得 (LAZY コレクションを 1 クエリで JOIN FETCH)。

@@ -6,6 +6,7 @@ import { api } from '@/lib/api-client'
 import { useAuth } from '@/lib/auth'
 import { useShops, usePartners } from '@/hooks/use-master-data'
 import { useSearchParamsStorage } from '@/hooks/use-search-params-storage'
+import type { PartnerGroup } from '@/types/partner-group'
 import { DataTable, type Column } from '@/components/features/common/DataTable'
 import { PageHeader } from '@/components/features/common/PageHeader'
 import { LoadingSpinner } from '@/components/features/common/LoadingSpinner'
@@ -113,6 +114,7 @@ const columns: Column<OrderDetailResponse>[] = [
 
 interface OrderSearchState {
   partnerNo: string
+  partnerGroupId: string
   slipNo: string
   goodsName: string
   goodsCode: string
@@ -133,6 +135,7 @@ export function OrderListPage() {
 
   const defaultState: OrderSearchState = {
     partnerNo: '',
+    partnerGroupId: '',
     slipNo: '',
     goodsName: '',
     goodsCode: '',
@@ -147,7 +150,7 @@ export function OrderListPage() {
 
   const [state, setState] = useSearchParamsStorage('order-list-search', defaultState)
   const {
-    partnerNo, slipNo, goodsName, goodsCode, orderDetailStatus,
+    partnerNo, partnerGroupId, slipNo, goodsName, goodsCode, orderDetailStatus,
     orderDateTimeFrom, orderDateTimeTo, slipDateFrom, slipDateTo,
     selectedShopNo, searchParams,
   } = state
@@ -155,6 +158,7 @@ export function OrderListPage() {
     setState({ ...state, [key]: value })
   }
   const setPartnerNo = (v: string) => updateField('partnerNo', v)
+  const setPartnerGroupId = (v: string) => updateField('partnerGroupId', v)
   const setSlipNo = (v: string) => updateField('slipNo', v)
   const setGoodsName = (v: string) => updateField('goodsName', v)
   const setGoodsCode = (v: string) => updateField('goodsCode', v)
@@ -170,12 +174,20 @@ export function OrderListPage() {
   const effectiveShopNo = isAdmin ? selectedShopNo : String(user?.shopNo ?? '')
   const partnersQuery = usePartners(effectiveShopNo)
 
+  const groupsQuery = useQuery({
+    queryKey: ['partner-groups', effectiveShopNo],
+    queryFn: () =>
+      api.get<PartnerGroup[]>(`/finance/partner-groups?shopNo=${effectiveShopNo}`),
+    enabled: !!effectiveShopNo,
+  })
+
   const listQuery = useQuery({
     queryKey: ['order-details', effectiveShopNo, searchParams],
     queryFn: () => {
       const params = new URLSearchParams()
       params.append('shopNo', effectiveShopNo)
       if (searchParams?.partnerNo) params.append('partnerNo', searchParams.partnerNo)
+      if (searchParams?.partnerGroupId) params.append('partnerGroupId', searchParams.partnerGroupId)
       if (searchParams?.slipNo) params.append('slipNo', searchParams.slipNo)
       if (searchParams?.goodsName) params.append('goodsName', searchParams.goodsName)
       if (searchParams?.goodsCode) params.append('goodsCode', searchParams.goodsCode)
@@ -196,6 +208,7 @@ export function OrderListPage() {
       ...state,
       searchParams: {
         partnerNo,
+        partnerGroupId,
         slipNo,
         goodsName,
         goodsCode,
@@ -225,7 +238,7 @@ export function OrderListPage() {
         {isAdmin && (
           <div className="space-y-2">
             <Label>店舗</Label>
-            <Select value={selectedShopNo} onValueChange={(v) => setState({ ...state, selectedShopNo: v, partnerNo: '' })}>
+            <Select value={selectedShopNo} onValueChange={(v) => setState({ ...state, selectedShopNo: v, partnerNo: '', partnerGroupId: '', searchParams: null })}>
               <SelectTrigger>
                 <SelectValue placeholder="店舗を選択してください" />
               </SelectTrigger>
@@ -250,6 +263,24 @@ export function OrderListPage() {
             }))}
             searchPlaceholder="得意先を検索..."
           />
+        </div>
+        <div className="space-y-2">
+          <Label>得意先グループ</Label>
+          <SearchableSelect
+            value={partnerGroupId}
+            onValueChange={setPartnerGroupId}
+            options={(groupsQuery.data ?? []).map((g) => ({
+              value: String(g.partnerGroupId),
+              label: `${g.groupName}（${g.partnerCodes.length}件）`,
+            }))}
+            searchPlaceholder="グループ名を検索..."
+            placeholder={effectiveShopNo ? 'グループを選択（任意）' : '店舗を選択してください'}
+            emptyMessage="グループが見つかりません"
+            disabled={!effectiveShopNo}
+          />
+          <p className="text-xs text-muted-foreground">
+            請求書一覧で登録した得意先グループで絞り込みます。手入力得意先は対象外です。
+          </p>
         </div>
         <div className="space-y-2">
           <Label>伝票番号</Label>

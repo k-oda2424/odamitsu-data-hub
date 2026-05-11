@@ -196,4 +196,17 @@ public class TOrderDetailSpecification extends CommonSpecification<TOrderDetail>
     public Specification<TOrderDetail> partnerNoContains(Integer partnerNo) {
         return partnerNo == null ? null : (root, query, cb) -> cb.equal(root.get("tOrder").get("partnerNo"), partnerNo);
     }
+
+    /**
+     * 得意先コードリストの IN 句条件を返す。
+     * 入金グループ (m_partner_group) で受注を絞り込む際に使用。
+     *
+     * @param partnerCodes 得意先コードリスト（6桁0埋め文字列）
+     * @return IN 句条件（null / 空リスト時は null）
+     */
+    public Specification<TOrderDetail> partnerCodeListContains(List<String> partnerCodes) {
+        return CollectionUtil.isEmpty(partnerCodes)
+                ? null
+                : (root, query, cb) -> root.get("tOrder").get("partnerCode").in(partnerCodes);
+    }
 }
